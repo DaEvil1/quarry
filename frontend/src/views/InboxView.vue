@@ -5,6 +5,7 @@ import { useRoute } from "vue-router";
 import ItemRow from "../components/ItemRow.vue";
 import ProjectFilter from "../components/ProjectFilter.vue";
 import UndoToast from "../components/UndoToast.vue";
+import { get } from "../api";
 import { listItems } from "../items";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
@@ -49,6 +50,15 @@ async function load() {
   }
 }
 watch([worldSlug, tab, project], load, { immediate: true });
+
+async function refreshItem(id: string) {
+  try {
+    changed(await get<Item>(`/api/worlds/${encodeURIComponent(worldSlug.value)}/items/${id}`));
+  } catch {
+    await load();
+  }
+  void session.refreshNearMisses(worldSlug.value);
+}
 
 function changed(item: Item) {
   items.value = items.value.map((i) => (i.id === item.id ? item : i));
@@ -121,6 +131,7 @@ const counts = computed(() => (session.counts?.world === worldSlug.value ? sessi
           @toggle="openId = openId === i.id ? null : i.id"
           @changed="changed"
           @moved="moved"
+          @refresh="refreshItem(i.id)"
         />
       </ul>
       <p v-if="!loading && !error && !items.length && !pending.length" class="empty">

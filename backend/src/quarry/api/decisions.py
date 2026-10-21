@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..mentions import forget_source, refresh_source
 from ..models import Decision, Item, User, World
 from .deps import current_user
 from .items import WORLD_ONLY, project_by_slug
@@ -90,6 +91,8 @@ def create_decision(slug: str, body: DecisionIn, user: User = Depends(current_us
                  decided_on=body.decided_on or date.today(), text=_text(body.text), item_id=body.item_id,
                  created_by=user.id, updated_by=user.id)
     db.add(d)
+    db.flush()
+    refresh_source(db, world.id, "decision", d.id, d.text)
     db.commit()
     return _out(d, world)
 
@@ -107,6 +110,8 @@ def update_decision(slug: str, decision_id: uuid.UUID, body: DecisionUpdate, use
         p = project_by_slug(world, body.project)
         d.project_id = p.id if p else None
     d.updated_by = user.id
+    db.flush()
+    refresh_source(db, world.id, "decision", d.id, d.text)
     db.commit()
     return _out(d, world)
 
@@ -115,5 +120,7 @@ def update_decision(slug: str, decision_id: uuid.UUID, body: DecisionUpdate, use
 def delete_decision(slug: str, decision_id: uuid.UUID, user: User = Depends(current_user),
                     db: Session = Depends(get_db)) -> None:
     world, _ = member_world(db, user, slug)
-    db.delete(_decision(db, world, decision_id))
+    d = _decision(db, world, decision_id)
+    forget_source(db, "decision", d.id)
+    db.delete(d)
     db.commit()

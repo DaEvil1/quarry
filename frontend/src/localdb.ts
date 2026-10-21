@@ -15,6 +15,8 @@ export interface PendingCapture {
   project: string | null;
   source: string;
   capturedAt: string;
+  /** bible entries it is tagged with */
+  entities?: string[];
   /** the server refused it (not a network problem); kept so nothing is lost silently */
   error?: string;
 }

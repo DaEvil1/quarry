@@ -13,7 +13,7 @@ from sqlalchemy import text
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__
-from .api import auth, decisions, items, worlds
+from .api import auth, bible, decisions, items, journal, worlds
 from .config import get_settings
 from .db import engine
 
@@ -132,5 +132,7 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.include_router(worlds.router)
     app.include_router(items.router)
     app.include_router(decisions.router)
+    app.include_router(bible.router)
+    app.include_router(journal.router)
     _mount_frontend(app)
     return app

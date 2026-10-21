@@ -54,14 +54,15 @@ Open the app at `http://localhost:5173` (not `127.0.0.1`): browsers allow passke
 ## End-to-end tests
 
 Playwright drives the built app served by the backend, with Chrome's virtual authenticator standing in for a
-phone or laptop. The database must be empty, because the test starts with first-run setup.
+phone or laptop. The database must be empty, because the test starts with first-run setup (empty it between runs:
+`TRUNCATE users, worlds, auth_challenges CASCADE`).
 
 ```bash
 cd frontend
 npm run build
 npx playwright install --only-shell chromium
 # in another terminal, from backend/:
-QUARRY_DATABASE_URL=postgresql://quarry:quarry@127.0.0.1:55433/quarry_e2e QUARRY_BASE_URL=http://localhost:8767 QUARRY_SETUP_TOKEN=e2e-setup-token QUARRY_WEB_DIR=../frontend/dist QUARRY_PORT=8767 .venv/Scripts/quarry serve
+QUARRY_DATABASE_URL=postgresql://quarry:quarry@127.0.0.1:55433/quarry_e2e QUARRY_BASE_URL=http://localhost:8767 QUARRY_SETUP_TOKEN=e2e-setup-token QUARRY_AUTH_RATE_LIMIT=1000 QUARRY_WEB_DIR=../frontend/dist QUARRY_PORT=8767 .venv/Scripts/quarry serve
 # back in frontend/:
 npm run e2e
 ```

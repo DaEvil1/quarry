@@ -98,9 +98,9 @@ Entities are world-level, so mentions are computed across every project in the w
 
 1. It tokenises the text and matches every entity name and alias in the world, case-sensitively on the initial capital and on word boundaries. The match tolerates the suffixes `s`, `'s` and `’s` (so "Varrens" and "Varren’s" both match Varren) and multi-word names ("Old Harbour", "Iron Vale").
 2. It writes the matches to `mentions` (`exact` or `alias`).
-3. It flags a **near miss** when a capitalised token matches no entity but is within edit distance 2 of an entity name or alias (and at least 5 characters long) and is not in `name_ignores`. A typo such as "Varen" for Varren would be flagged.
+3. It flags a **near miss** when a capitalised word of at least 5 letters is no known name but is one edit away from a word of an entity's name or alias (two edits for words of 7 letters or more; a swapped pair of letters counts as one edit), and is not in `name_ignores`. A word that is part of any name, or differs from one only in capitals, is never flagged. A typo such as "Varen" for Varren would be flagged.
 
-In the editor, near misses get a subtle squiggle. A quick action offers **Add as alias**, **Replace with…** or **Not a typo**.
+Wherever a text is shown (inbox, triage, and the editor from phase 4), near misses get a wavy underline. Clicking one offers **Replace with…** (in this text), **another spelling** (adds it as an alias) or **Not a typo**. The **Name check** page lists every near miss in the world, grouped by word, with the same fixes applied everywhere at once. Names in texts link to their bible page.
 
 Bible pages show:
 - **Mentions** grouped by project, then by chapter, journal entry and item
@@ -181,7 +181,7 @@ quarry/                      # public GitHub repo (code only)
 
 1. **Skeleton.** Repo, CI and image, compose, migrations (with users, worlds and projects), passkey setup and login with recovery codes, creating and switching worlds and projects, and the cockpit-style app shell on desktop and phone. *Done when* Thomas signs in with a passkey on the phone and the desktop and creates a world with a project in it.
 2. **Capture and triage.** The phone Capture screen, share target, Inbox, desk Triage with keyboard closing (oldest first; `a` `r` `h` `d`, `e` edit, `p` project, `1`–`3` kind, `j`/`k`, `u` undo), Decisions, the offline outbox, and an app shell that opens without a network. *Done when* a spark shared from Chrome on Android while in airplane mode appears in desk Triage after reconnecting.
-3. **Bible and mentions.** Entity editing, aliases, mentions, near-miss detection, bible panels, `item_links`, and the entity tag on Capture. *Done when* a misspelled entity name in a chapter or note is flagged and can be fixed or added as an alias in one action.
+3. **Bible, mentions and journal.** Entity editing, aliases, mentions, near-miss detection, the Name check page, bible panels, `item_links` (tag on Capture, in the inbox, `l` in triage), and the Journal. *Done when* a misspelled entity name in a chapter or note is flagged and can be fixed or added as an alias in one action.
 4. **Manuscript, editor, export and restore.** CodeMirror editor, autosave/revision rules, History with diffs, chapter ordering, POV tally, experiments and salvage, plus the export zip and Restore. *Done when* a full chapter rewrite via an experiment can be accepted, with the old version in Salvage and a harvest note attached, and exporting a world then restoring the zip into an empty database reproduces it.
    **Then the move:** the existing material comes in (§8) and writing moves into Quarry.
 5. **Local history.** The 30-revision local cache with `storage.persist()`, and History that works offline. *Done when* the last 30 revisions of a chapter can be browsed and restored on the phone in airplane mode.

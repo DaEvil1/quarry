@@ -26,6 +26,7 @@ def client_ip(request: Request) -> str:
 
 
 def rate_limited(request: Request) -> None:
+    auth_limiter.limit = get_settings().auth_rate_limit
     if not auth_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many attempts. Wait a few minutes and try again.")
 

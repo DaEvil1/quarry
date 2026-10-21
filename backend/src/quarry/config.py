@@ -40,6 +40,8 @@ class Settings:
     docs: bool = False
     # the built frontend; empty means the package's own web/ folder
     web_dir: str = ""
+    # sign-in attempts per address in ten minutes (the end-to-end tests raise it)
+    auth_rate_limit: int = 20
 
     @property
     def origin(self) -> str:
@@ -79,4 +81,5 @@ def get_settings() -> Settings:
         pool_size=int(os.environ.get("QUARRY_DB_POOL", "3")),
         docs=_bool("QUARRY_DOCS", False),
         web_dir=os.environ.get("QUARRY_WEB_DIR", "").strip(),
+        auth_rate_limit=int(os.environ.get("QUARRY_AUTH_RATE_LIMIT", "20")),
     )

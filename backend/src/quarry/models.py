@@ -14,6 +14,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -30,6 +31,10 @@ CHALLENGE_PURPOSES = ("setup", "login", "add_passkey")
 # "experiment" items arrive with the editor (phase 4); the column accepts them already
 ITEM_KINDS = ("spark", "question", "task", "experiment")
 ITEM_STATUSES = ("open", "accepted", "rejected", "harvested", "deferred")
+ENTITY_KINDS = ("character", "place", "term", "faction", "object", "other")
+# texts that are scanned for mentions; "chapter" joins with the editor (phase 4)
+MENTION_SOURCES = ("item", "decision", "entity", "journal")
+MENTION_KINDS = ("exact", "alias", "near_miss")
 
 
 class Base(DeclarativeBase):
@@ -203,3 +208,91 @@ class Decision(Base):
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
+
+
+class Entity(Base):
+    """A bible page of a world: a character, place, term, faction or object, with its other spellings."""
+
+    __tablename__ = "entities"
+    __table_args__ = (
+        CheckConstraint(_in("kind", ENTITY_KINDS), name="ck_entities_kind"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="character")
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    aliases: Mapped[list[str]] = mapped_column(ARRAY(String(200)), nullable=False, default=list)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()
+
+
+# one entry per name in a world, whatever the capitals
+Index("uq_entities_world_name", Entity.world_id, func.lower(Entity.name), unique=True)
+
+
+class ItemLink(Base):
+    """An item tagged with what it is about. Targets are entities now; chapters join in phase 4."""
+
+    __tablename__ = "item_links"
+    __table_args__ = (CheckConstraint("target_table IN ('entity')", name="ck_item_links_target"),)
+
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
+    target_table: Mapped[str] = mapped_column(String(20), primary_key=True)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True)
+    created_at: Mapped[datetime] = _created()
+
+
+class JournalEntry(Base):
+    """Dated thinking on paper. Belongs to a world, and to a project or not."""
+
+    __tablename__ = "journal"
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), index=True)
+    entry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(300))
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()
+
+
+class Mention(Base):
+    """Where a bible name (or something close to one) appears in a text. Computed on save, never edited by hand."""
+
+    __tablename__ = "mentions"
+    __table_args__ = (
+        CheckConstraint(_in("source_table", MENTION_SOURCES), name="ck_mentions_source"),
+        CheckConstraint(_in("kind", MENTION_KINDS), name="ck_mentions_kind"),
+        Index("ix_mentions_source", "source_table", "source_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_table: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    # for a near miss: the entity it is probably meant to be
+    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=False,
+                                                 index=True)
+    start: Mapped[int] = mapped_column(Integer, nullable=False)
+    end: Mapped[int] = mapped_column(Integer, nullable=False)
+    matched_text: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+
+
+class NameIgnore(Base):
+    """A word marked "not a typo": never flagged as a near miss in this world again."""
+
+    __tablename__ = "name_ignores"
+
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), primary_key=True)
+    token: Mapped[str] = mapped_column(String(200), primary_key=True)
+    created_at: Mapped[datetime] = _created()
