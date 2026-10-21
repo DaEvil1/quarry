@@ -4,7 +4,7 @@
 
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
-import { STATE_FILE } from "./state";
+import { STATE_FILE, waitForServiceWorker } from "./state";
 
 test.describe.configure({ mode: "serial" });
 
@@ -58,11 +58,7 @@ test("the installed app opens and captures with no network at all", async () => 
   // the service worker must be installed and in control before the network goes away. A first install that was
   // interrupted by going offline (the step before) fails, and the next load online starts it again.
   await page.goto(`${W}/capture`);
-  await page.waitForFunction(async () => !!(await navigator.serviceWorker.getRegistration())?.active, null, {
-    timeout: 15_000,
-  });
-  await page.reload();
-  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  await waitForServiceWorker(page);
 
   await context.setOffline(true);
   await page.reload();
