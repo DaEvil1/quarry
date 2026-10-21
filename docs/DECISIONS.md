@@ -22,3 +22,5 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-21: Experiment items are closed from their chapter (accept/harvest/reject), not from the inbox, so the manuscript and the item can't disagree.
 - 2026-10-21: Restore always makes a new world with new ids; it never merges into an existing one. History (revisions) is not exported.
 - 2026-10-21: Linking items to chapters is allowed by the data model but has no screen yet; tags on items stay bible entries for v1.
+- 2026-10-21: The offline copy covers chapters and their last 30 revisions (sync per world, by time); the rest of a world is read online. The spec's general `change_log` sync wasn't needed for v1.
+- 2026-10-21: Text typed in a chapter is kept on the device until the server confirms it; a draft over an older version becomes a conflict revision rather than overwriting anything.

@@ -216,5 +216,4 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
   };
 }
 
-const WORD_RE = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
-export const countWords = (text: string) => text.match(WORD_RE)?.length ?? 0;
+export { countWords } from "../words";

@@ -5,6 +5,8 @@ import { useRoute, useRouter } from "vue-router";
 import { del, get, patch, post } from "../api";
 import RecoveryCodes from "../components/RecoveryCodes.vue";
 import { deviceLabel, passkeysSupported, promptError, runAddPasskey } from "../passkey";
+import { readLastUsed } from "../lastUsed";
+import { clearOfflineCopy, lastSynced, localSummary, persistStorage, storageInfo, syncWorld } from "../offline";
 import { useSession } from "../stores/session";
 import type { PasskeyInfo, User } from "../types";
 
@@ -109,7 +111,35 @@ async function signOut() {
   await router.push("/login");
 }
 
-onMounted(() => Promise.all([loadKeys(), loadCodes()]));
+// the offline copy of the world last opened on this device
+const offlineWorld = session.world(readLastUsed().world ?? "") ?? session.worlds[0];
+const offline = ref<{ synced: string | null; chapters: number; revisions: number; persisted: boolean; usage: number | null } | null>(null);
+const offlineMsg = ref("");
+
+async function loadOffline() {
+  if (!offlineWorld) return;
+  const [synced, summary, storage] = await Promise.all([lastSynced(offlineWorld.slug), localSummary(offlineWorld.slug), storageInfo()]);
+  offline.value = { synced, ...summary, ...storage };
+}
+
+async function syncNow() {
+  if (!offlineWorld) return;
+  offlineMsg.value = (await syncWorld(offlineWorld.slug)) ? "Synced." : "Offline: try again when connected.";
+  await persistStorage();
+  await loadOffline();
+}
+
+async function clearCopy() {
+  if (!confirm("Remove the offline copy from this device? Text not yet saved stays; the copy is fetched again when you sync.")) return;
+  await clearOfflineCopy();
+  offlineMsg.value = "Removed.";
+  await loadOffline();
+}
+
+const mb = (bytes: number | null) => (bytes === null ? "unknown" : `${(bytes / 1024 / 1024).toFixed(1)} MB`);
+const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)) : "never");
+
+onMounted(() => Promise.all([loadKeys(), loadCodes(), loadOffline()]));
 </script>
 
 <template>
@@ -177,6 +207,26 @@ onMounted(() => Promise.all([loadKeys(), loadCodes()]));
       </div>
     </form>
     <div v-if="keyError" class="notice error" role="alert">{{ keyError }}</div>
+  </section>
+
+  <section v-if="offlineWorld" class="card" data-testid="offline-settings">
+    <div class="card-head">
+      <h2>Offline copy</h2>
+      <span class="muted small">{{ offlineWorld.name }}</span>
+    </div>
+    <p v-if="offline" class="small">
+      {{ offline.chapters }} chapters and {{ offline.revisions }} snapshots (up to the last 30 of each) on this device · synced {{ when(offline.synced) }}
+      <br />
+      <span class="muted">
+        Storage: {{ offline.persisted ? "kept by the browser" : "may be cleared when space runs low (install the app to keep it)" }} ·
+        {{ mb(offline.usage) }} used
+      </span>
+    </p>
+    <div class="actions">
+      <button type="button" class="btn btn-sm" @click="syncNow">Sync now</button>
+      <button type="button" class="btn btn-sm" @click="clearCopy">Remove from this device</button>
+      <span v-if="offlineMsg" class="muted small">{{ offlineMsg }}</span>
+    </div>
   </section>
 
   <section class="card">

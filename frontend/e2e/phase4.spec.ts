@@ -70,6 +70,7 @@ test("checkpoint with Ctrl+S, write on, and restore from History", async () => {
 
 test("point of view, a second chapter, and the order", async () => {
   await page.getByLabel("Point of view").selectOption({ label: "Varren" });
+  await expect(status()).toHaveText("Saved", { timeout: 10_000 });
   await newChapter("Storm");
   await editor().click();
   await page.keyboard.type("Rain over the water.");

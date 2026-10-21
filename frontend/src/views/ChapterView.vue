@@ -17,6 +17,8 @@ import {
   startExperiment,
   type Chapter,
 } from "../manuscript";
+import { ApiError } from "../api";
+import { cacheChapter, dropDraft, getDraft, localChapter, queueRevision, saveDraft } from "../offline";
 import { useSession } from "../stores/session";
 import { localToday, type EntityRef } from "../types";
 import NotFoundView from "./NotFoundView.vue";
@@ -43,6 +45,20 @@ const typewriter = ref(false);
 const showHistory = ref(false);
 const names = ref<EntityRef[]>([]);
 const project = computed(() => world.value?.projects.find((p) => p.slug === chapter.value?.project));
+// shown from the copy on this device: the server couldn't be reached
+const offlineCopy = ref(false);
+let draftTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Keep what's in the editor on this device until the server has it. */
+function keepDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    const ch = chapter.value;
+    const body = prose.value?.view.state.doc.toString();
+    if (!ch || body === undefined || !saver) return;
+    void saveDraft({ chapterId: ch.id, world: worldSlug.value, title: title.value, body, baseVersion: saver.currentVersion });
+  }, 400);
+}
 const readOnly = computed(() => chapter.value?.state === "retired");
 
 const STATUS_TEXT: Record<SaveStatus, string> = {
@@ -79,6 +95,7 @@ function mount(ch: Chapter) {
     onChange: (text) => {
       words.value = countWords(text);
       saver?.edit({ body: text });
+      keepDraft();
     },
     onSave: () => void checkpoint(),
     onNearMiss: (info) => (menu.value = info),
@@ -94,11 +111,16 @@ function mount(ch: Chapter) {
     saved: (saved, sentBody) => {
       const current = prose.value?.view.state.doc.toString();
       chapter.value = { ...saved, body: current ?? saved.body };
+      offlineCopy.value = false;
+      void cacheChapter(worldSlug.value, saved);
+      void dropDraft(saved.id, sentBody);
       // fresh name marks, if nothing was typed while the save was on its way
       if (sentBody !== undefined && sentBody === current) prose.value?.setMentions(saved.mentions);
     },
     conflict: (current) => {
       chapter.value = current;
+      void dropDraft(current.id);
+      void cacheChapter(worldSlug.value, current);
       prose.value?.replaceDoc(current.body);
       prose.value?.setMentions(current.mentions);
       saver?.rebase(current);
@@ -110,14 +132,51 @@ function mount(ch: Chapter) {
 
 async function load() {
   missing.value = false;
+  offlineCopy.value = false;
+  const id = String(route.params.id);
+  let ch: Chapter | undefined;
   try {
-    const ch = await getChapter(worldSlug.value, String(route.params.id));
-    chapter.value = ch;
-    await nextTick();
-    mount(ch);
-  } catch {
-    missing.value = true;
+    ch = await getChapter(worldSlug.value, id);
+    void cacheChapter(worldSlug.value, ch);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 0) {
+      ch = await localChapter(id);
+      offlineCopy.value = !!ch;
+    }
   }
+  if (!ch) {
+    missing.value = true;
+    return;
+  }
+  chapter.value = ch;
+  await nextTick();
+  mount(ch);
+  await recoverDraft(ch);
+}
+
+/** Text written on this device that never reached the server (a reload, a closed app, no signal). */
+async function recoverDraft(ch: Chapter) {
+  const draft = await getDraft(ch.id);
+  if (!draft || (draft.body === ch.body && draft.title === ch.title)) {
+    if (draft) void dropDraft(ch.id);
+    return;
+  }
+  if (draft.baseVersion === ch.version) {
+    // nothing changed elsewhere: carry on where this device left off
+    prose.value?.replaceDoc(draft.body);
+    if (draft.title && draft.title !== ch.title) title.value = draft.title;
+    notice.value = "Text from this device that wasn't saved yet is back in the editor.";
+    return;
+  }
+  // the chapter moved on elsewhere: keep this device's text in History instead of overwriting either
+  const label = "Written on this device while another version was saved";
+  try {
+    await snapshot(worldSlug.value, ch.id, "conflict", { body: draft.body, label });
+  } catch {
+    await queueRevision({ world: worldSlug.value, chapterId: ch.id, reason: "conflict", label, body: draft.body });
+  }
+  await dropDraft(ch.id);
+  notice.value = "This chapter changed elsewhere since this device last wrote in it. That text is kept in History as a conflict copy.";
 }
 
 onMounted(async () => {
@@ -197,21 +256,29 @@ async function fixNearMiss(kind: "replace" | "spelling" | "ignore") {
 
 // ---- side panel actions ----
 async function setPov(id: string) {
-  if (!chapter.value) return;
+  // through the save queue, so it can't race the autosave of the text
+  saver?.edit({ pov_entity_id: id || null });
   await saver?.flush();
-  try {
-    const ch = await saveChapter(worldSlug.value, chapter.value.id, chapter.value.version, { pov_entity_id: id || null });
-    chapter.value = { ...ch, body: prose.value?.view.state.doc.toString() ?? ch.body };
-    saver?.rebase(ch);
-  } catch (e) {
-    error.value = (e as Error).message;
-  }
 }
 
-async function restore(revisionId: string) {
+async function restore(revisionId: string, body: string) {
   if (!chapter.value) return;
   await saver?.flush();
-  const ch = await restoreRevision(worldSlug.value, chapter.value.id, revisionId);
+  let ch: Chapter;
+  try {
+    ch = await restoreRevision(worldSlug.value, chapter.value.id, revisionId);
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 0) throw e;
+    // offline: put the old text in the editor (it saves when the connection is back), and keep the text it
+    // replaces on this device until it can be sent as a snapshot
+    const current = prose.value?.view.state.doc.toString() ?? "";
+    await queueRevision({ world: worldSlug.value, chapterId: chapter.value.id, reason: "restore",
+                          label: "Before restoring an older version (offline)", body: current });
+    showHistory.value = false;
+    prose.value?.replaceDoc(body);
+    notice.value = "Restored on this device. It's saved when you're back online; the text it replaced is kept.";
+    return;
+  }
   chapter.value = ch;
   showHistory.value = false;
   prose.value?.replaceDoc(ch.body);
@@ -328,6 +395,9 @@ const CLOSE_TEXT = {
         </div>
       </form>
 
+      <div v-if="offlineCopy" class="notice offline small" role="status" data-testid="offline-copy">
+        Offline: this is the copy on this device. What you write is kept here and saved when you're back.
+      </div>
       <div v-if="notice" class="notice ok small" role="status" @click="notice = ''">{{ notice }}</div>
       <div v-if="error" class="notice error small" role="alert">{{ error }}</div>
 

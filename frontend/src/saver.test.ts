@@ -104,6 +104,23 @@ describe("ChapterSaver", () => {
     expect(saver.dirty).toBe(false);
   });
 
+  it("a retry whose text the server already has is saved, not a conflict", async () => {
+    // the first try reached the server, but its answer was lost; the retry finds the same text at a newer version
+    let tries = 0;
+    const { saver, calls, conflicts, statuses } = setup(async (_b, c) => {
+      tries++;
+      if (tries === 1) throw new ApiError(0, "offline");
+      throw new ChapterConflict(chapter(6, c.body));
+    });
+    saver.edit({ body: "written on the ferry" });
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS);
+    await vi.advanceTimersByTimeAsync(RETRY_MS);
+    expect(conflicts).toEqual([]);
+    expect(calls.snapshots).toEqual([]);
+    expect(statuses.at(-1)).toBe("saved");
+    expect(saver.currentVersion).toBe(6);
+  });
+
   it("leaving saves and keeps a snapshot only when something was written", async () => {
     const { saver, calls } = setup(async (_b, c) => chapter(2, c.body));
     await saver.leave();

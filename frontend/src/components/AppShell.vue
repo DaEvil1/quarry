@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { readLastUsed, writeLastUsed } from "../lastUsed";
+import { syncWorld } from "../offline";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import Icon from "./Icon.vue";
@@ -37,9 +38,15 @@ watch(
     if (!w) return;
     void session.refreshCounts(w.slug);
     void session.refreshNearMisses(w.slug);
+    void syncWorld(w.slug).catch(() => undefined);
   },
   { immediate: true },
 );
+// keep the offline copy fresh: when the connection is back, and every 15 minutes
+const resync = () => world.value && void syncWorld(world.value.slug).catch(() => undefined);
+watch(() => outbox.online, (online) => online && resync());
+const syncTimer = setInterval(resync, 15 * 60_000);
+onBeforeUnmount(() => clearInterval(syncTimer));
 watch(
   () => outbox.waiting,
   (now, before) => {

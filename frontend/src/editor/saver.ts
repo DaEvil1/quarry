@@ -4,7 +4,8 @@
 //    labelled checkpoint) and when the chapter is left;
 //  - when another device saved first, this device's text is kept as a "conflict" revision and the newer text
 //    is taken, so neither is lost;
-//  - without a connection, saving is retried every 10 seconds and the text stays in the editor.
+//  - without a connection, saving is retried every 10 seconds and the text stays in the editor; a retry whose
+//    text the server already has (the answer to the first try was lost) counts as saved, not as a conflict.
 
 import { ApiError } from "../api";
 import { ChapterConflict, type Chapter } from "../manuscript";
@@ -16,8 +17,15 @@ export const RETRY_MS = 10_000;
 
 export type SaveStatus = "saved" | "unsaved" | "saving" | "offline" | "conflict";
 
+/** What can change in a chapter from the editor page; every save goes through the same queue. */
+export interface Changes {
+  title?: string;
+  body?: string;
+  pov_entity_id?: string | null;
+}
+
 export interface SaverDeps {
-  save(baseVersion: number, changes: { title?: string; body?: string }): Promise<Chapter>;
+  save(baseVersion: number, changes: Changes): Promise<Chapter>;
   snapshot(reason: "autosnap" | "checkpoint" | "conflict", extra?: { label?: string; body?: string }): Promise<unknown>;
   now(): number;
 }
@@ -31,7 +39,7 @@ export interface SaverHooks {
 
 export class ChapterSaver {
   private version: number;
-  private pending: { title?: string; body?: string } = {};
+  private pending: Changes = {};
   private inFlight: Promise<void> | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -48,12 +56,17 @@ export class ChapterSaver {
     this.lastSnapshotAt = deps.now();
   }
 
+  /** The server version the editor's text builds on. */
+  get currentVersion(): number {
+    return this.version;
+  }
+
   get dirty(): boolean {
     return Object.keys(this.pending).length > 0;
   }
 
-  /** The text or title changed in the editor. */
-  edit(changes: { title?: string; body?: string }): void {
+  /** The text, title or point of view changed on the editor page. */
+  edit(changes: Changes): void {
     if (this.closed) return;
     this.pending = { ...this.pending, ...changes };
     this.editedSinceSnapshot = true;
@@ -80,7 +93,17 @@ export class ChapterSaver {
         this.hooks.status(this.dirty ? "unsaved" : "saved");
         if (this.deps.now() - this.lastSnapshotAt >= LONG_MS) await this.keep("autosnap");
       } catch (e) {
-        if (e instanceof ChapterConflict) {
+        const sameText = e instanceof ChapterConflict &&
+          (sending.body === undefined || sending.body === e.current.body) &&
+          (sending.title === undefined || sending.title === e.current.title) &&
+          (sending.pov_entity_id === undefined || sending.pov_entity_id === (e.current.pov?.id ?? null));
+        if (sameText) {
+          // the earlier try did reach the server; only its answer was lost (signal dropped mid-save)
+          const current = (e as ChapterConflict).current;
+          this.version = current.version;
+          this.hooks.saved(current, sending.body);
+          this.hooks.status(this.dirty ? "unsaved" : "saved");
+        } else if (e instanceof ChapterConflict) {
           const mine = sending.body ?? e.current.body;
           // keep this device's text before taking the other one
           if (sending.body !== undefined && sending.body !== e.current.body) {
