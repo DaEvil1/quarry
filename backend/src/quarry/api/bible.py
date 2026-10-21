@@ -17,14 +17,14 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..mentions import refresh_source, refresh_world
-from ..models import Decision, Entity, Item, ItemLink, JournalEntry, Mention, NameIgnore, User, World
+from ..models import Chapter, Decision, Entity, Item, ItemLink, JournalEntry, Mention, NameIgnore, User, World
 from .deps import current_user
 from .worlds import member_world
 
 router = APIRouter(prefix="/api/worlds/{slug}")
 
 Kind = Literal["character", "place", "term", "faction", "object", "other"]
-SOURCES = {"item": Item, "decision": Decision, "journal": JournalEntry, "entity": Entity}
+SOURCES = {"item": Item, "decision": Decision, "journal": JournalEntry, "entity": Entity, "chapter": Chapter}
 
 
 def text_of(row) -> str:  # type: ignore[no-untyped-def]
@@ -41,6 +41,8 @@ def set_text(row, value: str) -> None:  # type: ignore[no-untyped-def]
 def title_of(row) -> str:  # type: ignore[no-untyped-def]
     if isinstance(row, Entity):
         return row.name
+    if isinstance(row, Chapter):
+        return row.title
     if getattr(row, "title", None):
         return row.title
     return text_of(row).split("\n", 1)[0][:120]
@@ -180,10 +182,25 @@ def get_entity(slug: str, entity_id: uuid.UUID, user: User = Depends(current_use
         {"id": str(i.id), "title": title_of(i), "status": i.status, "project": projects.get(i.project_id)}
         for i in db.scalars(select(Item).where(Item.id.in_(linked)).order_by(Item.created_at.desc()))
     ] if linked else []
-    order = {"item": 0, "journal": 1, "decision": 2, "entity": 3}
-    mentions.sort(key=lambda m: (m["project"] or "", order[m["source_table"]], m["title"]))
+    order = {"chapter": 0, "item": 1, "journal": 2, "decision": 3, "entity": 4}
+    positions = {}
+    for (table, sid) in by_source:
+        if table == "chapter":
+            c = db.get(Chapter, sid)
+            if c is not None:
+                positions[str(sid)] = (c.state != "current", c.position)
+    mentions.sort(key=lambda m: (m["project"] or "", order[m["source_table"]],
+                                 positions.get(m["source_id"], (False, 0)), m["title"]))
+    # first appearance in each project: the earliest current chapter that names it
+    first = {}
+    for m in mentions:
+        if m["source_table"] == "chapter" and m["project"] and positions.get(m["source_id"], (True, 0))[0] is False:
+            pos = positions[m["source_id"]][1]
+            if m["project"] not in first or pos < first[m["project"]]["position"]:
+                first[m["project"]] = {"project": m["project"], "chapter_id": m["source_id"], "title": m["title"],
+                                       "position": pos}
     return {"entity": _out(e, sum(m["count"] for m in mentions)), "mentions": mentions, "unlinked": unlinked,
-            "linked_items": linked_items, "near_misses": near}
+            "linked_items": linked_items, "near_misses": near, "first_appearance": list(first.values())}
 
 
 @router.patch("/entities/{entity_id}")
@@ -246,7 +263,7 @@ class ReplaceIn(BaseModel):
     token: str = Field(min_length=1, max_length=200)
     entity_id: uuid.UUID
     # only in this text; without it, everywhere the near miss appears
-    source_table: Literal["item", "decision", "journal", "entity"] | None = None
+    source_table: Literal["item", "decision", "journal", "entity", "chapter"] | None = None
     source_id: uuid.UUID | None = None
 
 
@@ -329,6 +346,10 @@ def replace_near_miss(slug: str, body: ReplaceIn, user: User = Depends(current_u
             continue
         new, n = pattern.subn(e.name, text_of(row))
         if n:
+            if isinstance(row, Chapter):
+                from .manuscript import snapshot
+
+                snapshot(db, row, "autosnap", user)
             set_text(row, new)
             if hasattr(row, "version"):
                 row.version += 1

@@ -26,7 +26,13 @@ const body = ref("");
 const aliases = ref<string[]>([]);
 const newAlias = ref("");
 
-const SOURCE_LABEL: Record<string, string> = { item: "Item", decision: "Decision", journal: "Journal", entity: "Bible" };
+const SOURCE_LABEL: Record<string, string> = {
+  item: "Item",
+  decision: "Decision",
+  journal: "Journal",
+  entity: "Bible",
+  chapter: "Chapter",
+};
 const projectName = (slug: string | null) =>
   slug ? (world.value?.projects.find((p) => p.slug === slug)?.name ?? slug) : "Whole world";
 
@@ -204,6 +210,19 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
       </ul>
     </section>
 
+    <section v-if="detail.first_appearance.length" class="card">
+      <div class="card-head"><h2>First appears</h2></div>
+      <ul class="rows" data-testid="first-appearance">
+        <li v-for="f in detail.first_appearance" :key="f.project">
+          <span class="grow">
+            <RouterLink :to="{ name: 'chapter', params: { world: world.slug, id: f.chapter_id } }">{{ f.title }}</RouterLink>
+            <span class="muted small"> · chapter {{ f.position + 1 }}</span>
+          </span>
+          <span class="pill">{{ projectName(f.project) }}</span>
+        </li>
+      </ul>
+    </section>
+
     <section class="card">
       <div class="card-head">
         <h2>Mentions</h2>
@@ -215,7 +234,7 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
           <li v-for="m in list" :key="`${m.source_table}-${m.source_id}`">
             <div class="grow">
               <!-- an item or decision is its own snippet; journal entries and bible pages have a title of their own -->
-              <template v-if="m.source_table === 'journal' || m.source_table === 'entity'">
+              <template v-if="m.source_table === 'journal' || m.source_table === 'entity' || m.source_table === 'chapter'">
                 <RouterLink :to="sourceLink(world.slug, m.source_table, m.source_id)">{{ m.title }}</RouterLink>
                 <div class="snippet muted">{{ m.snippet.before }}<mark>{{ m.snippet.match }}</mark>{{ m.snippet.after }}</div>
               </template>

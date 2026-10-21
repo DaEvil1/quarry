@@ -102,7 +102,7 @@ export interface Mention {
   kind: "exact" | "alias" | "near_miss";
 }
 
-export type SourceTable = "item" | "decision" | "journal" | "entity";
+export type SourceTable = "item" | "decision" | "journal" | "entity" | "chapter";
 
 export interface Snippet {
   before: string;
@@ -124,6 +124,7 @@ export interface EntityDetail {
   unlinked: (SourceRef & { count: number })[];
   linked_items: { id: string; title: string; status: ItemStatus; project: string | null }[];
   near_misses: (SourceRef & { token: string })[];
+  first_appearance: { project: string; chapter_id: string; title: string; position: number }[];
 }
 
 export interface NearMissGroup {

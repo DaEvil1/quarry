@@ -40,6 +40,11 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    // the chapter page carries the editor (CodeMirror and the Markdown parser, ~560 kB): loaded only when a chapter
+    // opens, and cached by the service worker for offline use
+    chunkSizeWarningLimit: 700,
+  },
   server: {
     port: 5173,
     strictPort: true,

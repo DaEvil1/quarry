@@ -176,7 +176,8 @@ def _changed_since(item: Item, world: World, base_version: int) -> JSONResponse 
 
 
 @router.get("/items")
-def list_items(slug: str, status: StatusFilter = "open", project: str | None = None, kind: Kind | None = None,
+def list_items(slug: str, status: StatusFilter = "open", project: str | None = None,
+               kind: Literal["spark", "question", "task", "experiment"] | None = None,
                order: Literal["newest", "oldest"] = "newest", limit: int = Query(200, ge=1, le=1000),
                user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[ItemOut]:
     world, _ = member_world(db, user, slug)
@@ -314,6 +315,8 @@ def close_item(slug: str, item_id: uuid.UUID, body: CloseIn, user: User = Depend
                db: Session = Depends(get_db)) -> CloseOut:
     world, _ = member_world(db, user, slug)
     item = _item(db, world, item_id)
+    if item.kind == "experiment":
+        raise HTTPException(409, "Close an experiment from its chapter in the manuscript.")
     if item.status in CLOSED:
         raise HTTPException(409, f"This item is already {item.status}.")
     if item.status == body.status:

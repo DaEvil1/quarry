@@ -16,7 +16,13 @@ const loaded = ref(false);
 const error = ref("");
 const done = ref("");
 
-const SOURCE_LABEL: Record<string, string> = { item: "Item", decision: "Decision", journal: "Journal", entity: "Bible" };
+const SOURCE_LABEL: Record<string, string> = {
+  item: "Item",
+  decision: "Decision",
+  journal: "Journal",
+  entity: "Bible",
+  chapter: "Chapter",
+};
 
 async function load() {
   if (!world.value) return;

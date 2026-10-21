@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { get, patch, post, put } from "../api";
+import { exportUrl } from "../manuscript";
 import { useSession } from "../stores/session";
 import { PROJECT_KINDS, kindLabel, type Project, type ProjectKind, type World } from "../types";
 import NotFoundView from "./NotFoundView.vue";
@@ -86,7 +87,10 @@ async function move(index: number, by: -1 | 1) {
         <div class="crumbs">World</div>
         <h1>{{ world.name }}</h1>
       </div>
-      <button v-if="!editing" type="button" class="btn btn-sm" @click="startEdit">Rename</button>
+      <div class="actions">
+        <a class="btn btn-sm" :href="exportUrl(world.slug)" download data-testid="export">Export</a>
+        <button v-if="!editing" type="button" class="btn btn-sm" @click="startEdit">Rename</button>
+      </div>
     </div>
 
     <form v-if="editing" class="card form" @submit.prevent="saveEdit">

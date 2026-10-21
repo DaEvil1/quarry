@@ -1,0 +1,359 @@
+"""Export a world as a folder of Markdown files (zipped), and restore such a zip as a new world.
+
+The export is meant to be read without Quarry: plain Markdown with YAML frontmatter, one file per chapter, bible
+entry, journal entry and item, plus Decisions.md and a compiled manuscript.md per project. Restore reads exactly
+that layout back (the compiled manuscript is ignored). Revision history stays in the database: an export carries
+the texts as they are now.
+
+    <world>/world.md                                  name, slug, words marked "not a typo"
+    <world>/Bible/<Kind>/<Name>.md                    id, name, kind, aliases; the notes
+    <world>/Journal/<date> <title> (<id>).md          id, date, title, project
+    <world>/Decisions.md                              one line per decision
+    <world>/Planning/<status>/<date> <text> (<id>).md items for the whole world
+    <world>/Projects/<Name>/project.md                name, slug, kind, position
+    <world>/Projects/<Name>/Manuscript/<NN> <Title>.md
+    <world>/Projects/<Name>/Experiments/<Title> (<id>).md
+    <world>/Projects/<Name>/Salvage/<Title> (<id>).md retired chapters, with their harvest notes
+    <world>/Projects/<Name>/Planning/<status>/...     items for the project
+    <world>/Projects/<Name>/manuscript.md             the current chapters in order (not read back)
+"""
+
+from __future__ import annotations
+
+import io
+import re
+import uuid
+import zipfile
+from collections import defaultdict
+from datetime import UTC, date, datetime
+
+import yaml
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..db import get_db
+from ..mentions import refresh_world
+from ..models import (
+    Chapter,
+    Decision,
+    Entity,
+    HarvestNote,
+    Item,
+    ItemLink,
+    JournalEntry,
+    NameIgnore,
+    Project,
+    User,
+    World,
+    WorldMember,
+)
+from .deps import current_user
+from .worlds import WorldOut, _unique, _world_out, member_world, slugify
+
+router = APIRouter(prefix="/api/worlds")
+
+FORMAT = 1
+KIND_FOLDERS = {"character": "Characters", "place": "Places", "term": "Terms", "faction": "Factions",
+                "object": "Objects", "other": "Other"}
+MAX_UPLOAD = 50 * 1024 * 1024
+MAX_UNPACKED = 200 * 1024 * 1024
+DECISION_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(?: · \[([^\]]*)\])? (.*?)\s*<!-- (.*?) -->\s*$")
+
+
+def _safe(name: str, limit: int = 80) -> str:
+    """A file or folder name that works on every system."""
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', " ", name)
+    name = " ".join(name.split()).strip(" .")[:limit].rstrip(" .")
+    return name or "untitled"
+
+
+def _doc(meta: dict, body: str) -> str:
+    return "---\n" + yaml.safe_dump(meta, allow_unicode=True, sort_keys=False) + "---\n\n" + body
+
+
+def _parse(text: str) -> tuple[dict, str]:
+    if not text.startswith("---\n"):
+        return {}, text
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        return {}, text
+    meta = yaml.safe_load(text[4:end]) or {}
+    body = text[end + 5:]
+    if body.startswith("\n"):
+        body = body[1:]
+    return (meta if isinstance(meta, dict) else {}), body
+
+
+def _iso(v: datetime | date | None) -> str | None:
+    return v.isoformat() if v is not None else None
+
+
+def _when(v) -> datetime | None:  # type: ignore[no-untyped-def]
+    if v is None or v == "":
+        return None
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=UTC)
+    if isinstance(v, date):
+        return datetime(v.year, v.month, v.day, tzinfo=UTC)
+    d = datetime.fromisoformat(str(v))
+    return d if d.tzinfo else d.replace(tzinfo=UTC)
+
+
+def _day(v) -> date | None:  # type: ignore[no-untyped-def]
+    if v is None or v == "":
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    return date.fromisoformat(str(v)[:10])
+
+
+# export --------------------------------------------------------------------------------------------------------
+
+
+@router.get("/{slug}/export")
+def export_world(slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> Response:
+    world, _ = member_world(db, user, slug)
+    root = _safe(world.slug)
+    files: dict[str, str] = {}
+    projects = {p.id: p for p in world.projects}
+    project_dir = {p.id: f"{root}/Projects/{_safe(p.name)}" for p in world.projects}
+    entities = list(db.scalars(select(Entity).where(Entity.world_id == world.id).order_by(Entity.name)))
+    names = {e.id: e.name for e in entities}
+
+    ignored = list(db.scalars(select(NameIgnore.token).where(NameIgnore.world_id == world.id).order_by(NameIgnore.token)))
+    files[f"{root}/world.md"] = _doc({"quarry_export": FORMAT, "name": world.name, "slug": world.slug,
+                                      "exported_at": datetime.now(UTC).isoformat(), "ignored_words": ignored}, "")
+
+    for e in entities:
+        files[f"{root}/Bible/{KIND_FOLDERS[e.kind]}/{_safe(e.name)}.md"] = _doc(
+            {"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases)}, e.body)
+
+    for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id).order_by(JournalEntry.entry_date)):
+        title = j.title or j.body.split("\n", 1)[0][:40]
+        files[f"{root}/Journal/{j.entry_date} {_safe(title, 50)} ({str(j.id)[:8]}).md"] = _doc(
+            {"id": str(j.id), "date": j.entry_date.isoformat(), "title": j.title,
+             "project": projects[j.project_id].slug if j.project_id else None}, j.body)
+
+    lines = ["# Decisions", ""]
+    for d in db.scalars(select(Decision).where(Decision.world_id == world.id)
+                        .order_by(Decision.decided_on, Decision.created_at)):
+        proj = f" · [{projects[d.project_id].slug}]" if d.project_id else ""
+        ids = f"id={d.id}" + (f" item={d.item_id}" if d.item_id else "")
+        lines.append(f"- {d.decided_on.isoformat()}{proj} {d.text} <!-- {ids} -->")
+    files[f"{root}/Decisions.md"] = "\n".join(lines) + "\n"
+
+    tags: dict[uuid.UUID, list[str]] = defaultdict(list)
+    for item_id, target in db.execute(select(ItemLink.item_id, ItemLink.target_id).join(Item, Item.id == ItemLink.item_id)
+                                      .where(Item.world_id == world.id, ItemLink.target_table == "entity")).all():
+        if target in names:
+            tags[item_id].append(names[target])
+    for i in db.scalars(select(Item).where(Item.world_id == world.id).order_by(Item.created_at)):
+        folder = project_dir[i.project_id] if i.project_id else root
+        short = _safe(i.title or i.body.split("\n", 1)[0], 50)
+        files[f"{folder}/Planning/{i.status}/{i.created_at:%Y-%m-%d} {short} ({str(i.id)[:8]}).md"] = _doc(
+            {"id": str(i.id), "kind": i.kind, "status": i.status, "title": i.title,
+             "project": projects[i.project_id].slug if i.project_id else None, "source": i.source,
+             "created_at": _iso(i.created_at), "closed_at": _iso(i.closed_at), "closed_note": i.closed_note,
+             "tags": sorted(tags.get(i.id, []))}, i.body)
+
+    notes: dict[uuid.UUID, list[str]] = defaultdict(list)
+    for n in db.scalars(select(HarvestNote).where(HarvestNote.world_id == world.id).order_by(HarvestNote.created_at)):
+        notes[n.chapter_id].append(n.body)
+    for p in world.projects:
+        d = project_dir[p.id]
+        files[f"{d}/project.md"] = _doc({"name": p.name, "slug": p.slug, "kind": p.kind, "position": p.position}, "")
+        chapters = list(db.scalars(select(Chapter).where(Chapter.project_id == p.id)
+                                   .order_by(Chapter.position, Chapter.created_at)))
+        compiled = [f"# {p.name}", ""]
+        n = 0
+        for ch in chapters:
+            meta = {"id": str(ch.id), "title": ch.title, "state": ch.state, "position": ch.position,
+                    "pov": names.get(ch.pov_entity_id) if ch.pov_entity_id else None}
+            if ch.state == "current":
+                n += 1
+                path = f"{d}/Manuscript/{n:02d} {_safe(ch.title, 60)}.md"
+                compiled += [f"## {ch.title}", "", ch.body.rstrip(), ""]
+            elif ch.state == "experiment":
+                meta |= {"replaces": str(ch.replaces_id) if ch.replaces_id else None,
+                         "item": str(ch.experiment_item_id) if ch.experiment_item_id else None}
+                path = f"{d}/Experiments/{_safe(ch.title, 60)} ({str(ch.id)[:8]}).md"
+            else:
+                meta |= {"retired_at": _iso(ch.retired_at), "harvest_notes": notes.get(ch.id, [])}
+                path = f"{d}/Salvage/{_safe(ch.title, 60)} ({str(ch.id)[:8]}).md"
+            files[path] = _doc(meta, ch.body)
+        files[f"{d}/manuscript.md"] = "\n".join(compiled) + "\n"
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for path, text in files.items():
+            z.writestr(path, text)
+    name = f"quarry-{world.slug}-{date.today().isoformat()}.zip"
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+# restore -------------------------------------------------------------------------------------------------------
+
+
+def _read_zip(data: bytes) -> dict[str, str]:
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        raise HTTPException(422, "That file is not a zip.") from None
+    total = sum(i.file_size for i in z.infolist())
+    if total > MAX_UNPACKED:
+        raise HTTPException(422, "That zip is too big to restore.")
+    files = {}
+    for info in z.infolist():
+        name = info.filename.replace("\\", "/")
+        if info.is_dir() or not name.endswith(".md") or ".." in name.split("/") or name.startswith("/"):
+            continue
+        files[name] = z.read(info).decode("utf-8")
+    return files
+
+
+@router.post("/restore", status_code=201)
+async def restore_world(file: UploadFile = File(...), user: User = Depends(current_user),
+                        db: Session = Depends(get_db)) -> WorldOut:
+    """Make a new world from an export zip. Ids are new; links between the files are kept."""
+    data = await file.read(MAX_UPLOAD + 1)
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(422, "That zip is too big to restore.")
+    files = _read_zip(data)
+    world_files = [p for p in files if p.endswith("/world.md") and p.count("/") == 1]
+    if len(world_files) != 1:
+        raise HTTPException(422, "This is not a Quarry export (no world.md at the top).")
+    root = world_files[0].rsplit("/", 1)[0]
+    wmeta, _ = _parse(files[world_files[0]])
+    if wmeta.get("quarry_export") != FORMAT:
+        raise HTTPException(422, "This export comes from another version of Quarry.")
+
+    def under(prefix: str) -> list[tuple[str, dict, str]]:
+        out = []
+        for path in sorted(files):
+            if path.startswith(prefix):
+                meta, body = _parse(files[path])
+                out.append((path[len(prefix):], meta, body))
+        return out
+
+    name = " ".join(str(wmeta.get("name") or "Restored world").split())
+    taken = set(db.scalars(select(World.slug)))
+    world = World(name=name, slug=_unique(slugify(str(wmeta.get("slug") or name), "world"), taken),
+                  created_by=user.id, updated_by=user.id)
+    db.add(world)
+    db.flush()
+    db.add(WorldMember(world_id=world.id, user_id=user.id, role="owner"))
+
+    # projects, by their slug in the export
+    project_ids: dict[str, uuid.UUID] = {}
+    project_dirs: dict[str, str] = {}
+    for rel, meta, _ in under(f"{root}/Projects/"):
+        if rel.count("/") == 1 and rel.endswith("/project.md"):
+            folder = rel.split("/", 1)[0]
+            pslug = _unique(slugify(str(meta.get("slug") or meta.get("name") or folder), "project"),
+                            set(project_ids))
+            p = Project(world_id=world.id, name=str(meta.get("name") or folder), slug=pslug,
+                        kind=meta.get("kind") if meta.get("kind") in ("novel", "novella", "short", "other") else "novel",
+                        position=int(meta.get("position") or len(project_ids)), created_by=user.id,
+                        updated_by=user.id)
+            db.add(p)
+            db.flush()
+            project_ids[str(meta.get("slug") or pslug)] = p.id
+            project_dirs[folder] = str(meta.get("slug") or pslug)
+
+    def project_of(slug_or_none) -> uuid.UUID | None:  # type: ignore[no-untyped-def]
+        return project_ids.get(str(slug_or_none)) if slug_or_none else None
+
+    # the bible
+    entity_by_old: dict[str, uuid.UUID] = {}
+    entity_by_name: dict[str, uuid.UUID] = {}
+    for rel, meta, body in under(f"{root}/Bible/"):
+        kind = meta.get("kind") if meta.get("kind") in KIND_FOLDERS else "other"
+        ename = " ".join(str(meta.get("name") or rel.rsplit("/", 1)[-1][:-3]).split())
+        if ename.lower() in {n.lower() for n in entity_by_name}:
+            continue
+        e = Entity(world_id=world.id, kind=kind, name=ename, aliases=[str(a) for a in meta.get("aliases") or []],
+                   body=body, created_by=user.id, updated_by=user.id)
+        db.add(e)
+        db.flush()
+        entity_by_name[ename] = e.id
+        if meta.get("id"):
+            entity_by_old[str(meta["id"])] = e.id
+
+    # items: the world's own Planning/ and each project's
+    item_by_old: dict[str, uuid.UUID] = {}
+    planning = [(None, rel, meta, body) for rel, meta, body in under(f"{root}/Planning/")]
+    for folder, pslug in project_dirs.items():
+        planning += [(pslug, rel, meta, body) for rel, meta, body in under(f"{root}/Projects/{folder}/Planning/")]
+    for pslug, _rel, meta, body in planning:
+        status = meta.get("status") if meta.get("status") in ("open", "accepted", "rejected", "harvested",
+                                                               "deferred") else "open"
+        kind = meta.get("kind") if meta.get("kind") in ("spark", "question", "task", "experiment") else "spark"
+        i = Item(world_id=world.id, project_id=project_of(meta.get("project") or pslug), kind=kind,
+                 title=meta.get("title"), body=body or "(empty)", status=status, source=meta.get("source"),
+                 closed_at=_when(meta.get("closed_at")), closed_note=meta.get("closed_note"),
+                 created_by=user.id, updated_by=user.id)
+        if _when(meta.get("created_at")):
+            i.created_at = _when(meta.get("created_at"))
+        db.add(i)
+        db.flush()
+        if meta.get("id"):
+            item_by_old[str(meta["id"])] = i.id
+        for tag in meta.get("tags") or []:
+            if str(tag) in entity_by_name:
+                db.add(ItemLink(item_id=i.id, target_table="entity", target_id=entity_by_name[str(tag)]))
+
+    # chapters: current, experiments, salvage
+    chapter_by_old: dict[str, uuid.UUID] = {}
+    pending_replaces: list[tuple[Chapter, str]] = []
+    for folder, pslug in project_dirs.items():
+        pid = project_ids[pslug]
+        for sub, state in (("Manuscript", "current"), ("Experiments", "experiment"), ("Salvage", "retired")):
+            for rel, meta, body in under(f"{root}/Projects/{folder}/{sub}/"):
+                title = str(meta.get("title") or rel[:-3])
+                pov = entity_by_name.get(str(meta.get("pov"))) if meta.get("pov") else None
+                ch = Chapter(project_id=pid, title=title, body=body, state=state,
+                             position=int(meta.get("position") or 0), pov_entity_id=pov,
+                             experiment_item_id=item_by_old.get(str(meta.get("item"))) if meta.get("item") else None,
+                             retired_at=_when(meta.get("retired_at")) if state == "retired" else None,
+                             created_by=user.id, updated_by=user.id)
+                if state == "retired" and ch.retired_at is None:
+                    ch.retired_at = datetime.now(UTC)
+                db.add(ch)
+                db.flush()
+                if meta.get("id"):
+                    chapter_by_old[str(meta["id"])] = ch.id
+                if meta.get("replaces"):
+                    pending_replaces.append((ch, str(meta["replaces"])))
+                for note in meta.get("harvest_notes") or []:
+                    db.add(HarvestNote(world_id=world.id, chapter_id=ch.id, body=str(note), created_by=user.id))
+    for ch, old in pending_replaces:
+        ch.replaces_id = chapter_by_old.get(old)
+
+    for _rel, meta, body in under(f"{root}/Journal/"):
+        db.add(JournalEntry(world_id=world.id, project_id=project_of(meta.get("project")),
+                            entry_date=_day(meta.get("date")) or date.today(), title=meta.get("title"), body=body,
+                            created_by=user.id, updated_by=user.id))
+
+    decisions = files.get(f"{root}/Decisions.md", "")
+    for line in decisions.splitlines():
+        m = DECISION_RE.match(line)
+        if not m:
+            continue
+        refs = dict(part.split("=", 1) for part in m.group(4).split() if "=" in part)
+        db.add(Decision(world_id=world.id, project_id=project_of(m.group(2)), decided_on=date.fromisoformat(m.group(1)),
+                        text=m.group(3), item_id=item_by_old.get(refs.get("item", "")), created_by=user.id,
+                        updated_by=user.id))
+
+    for token in wmeta.get("ignored_words") or []:
+        db.add(NameIgnore(world_id=world.id, token=str(token)))
+
+    db.flush()
+    refresh_world(db, world.id)
+    db.commit()
+    db.refresh(world)
+    return _world_out(world, "owner")
