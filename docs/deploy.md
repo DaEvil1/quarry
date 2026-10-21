@@ -100,6 +100,19 @@ Once set up, `QUARRY_SETUP_TOKEN` is ignored; you may remove it from `quarry.env
 cd /srv/quarry && docker compose pull && docker compose up -d
 ```
 
+When `deploy/nginx-quarry.conf` changes (phase 4 raised the upload size for restoring a world to 60 MB), copy it
+again and reload nginx:
+
+```bash
+cd /srv/quarry && curl -fsSLO https://raw.githubusercontent.com/DaEvil1/quarry/master/deploy/nginx-quarry.conf
+sed -n '/server_name/,$p' nginx-quarry.conf | grep client_max_body_size
+sudo sed -i 's/client_max_body_size [0-9]*m;/client_max_body_size 60m;/' /etc/nginx/sites-available/quarry
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+(certbot added its own lines to the site file, so change the one setting in place rather than copying the file
+over it.)
+
 Migrations run at startup. The managed cluster's daily backups cover the database.
 
 ## Locked out

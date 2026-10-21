@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 
 import { get, post } from "../api";
+import { restoreWorld } from "../manuscript";
 import { useSession } from "../stores/session";
 import { PROJECT_KINDS, type Project, type ProjectKind, type World } from "../types";
 
@@ -15,6 +16,24 @@ const projectName = ref("");
 const kind = ref<ProjectKind>("novel");
 const busy = ref(false);
 const error = ref("");
+
+// or: a world from an export zip
+const restoring = ref(false);
+async function restore(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  error.value = "";
+  restoring.value = true;
+  try {
+    const world = await restoreWorld(file);
+    session.putWorld(world);
+    await router.push({ name: "world", params: { world: world.slug } });
+  } catch (err) {
+    error.value = (err as Error).message;
+  } finally {
+    restoring.value = false;
+  }
+}
 
 async function create() {
   error.value = "";
@@ -70,4 +89,14 @@ async function create() {
       <button class="btn btn-primary" type="submit" :disabled="busy">Create world</button>
     </div>
   </form>
+
+  <section class="card form">
+    <h2>Or restore a world</h2>
+    <p class="muted small">From a zip made with Export. It becomes a new world; nothing existing is changed.</p>
+    <div class="field">
+      <label for="restore-file">Export zip</label>
+      <input id="restore-file" type="file" accept=".zip,application/zip" :disabled="restoring" @change="restore" />
+    </div>
+    <p v-if="restoring" class="muted small">Restoring…</p>
+  </section>
 </template>

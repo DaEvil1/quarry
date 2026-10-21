@@ -18,3 +18,7 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-21: The Journal is built in phase 3. The spec described it but gave it no phase, and the planning essays need a home before the move after phase 4.
 - 2026-10-21: Near misses: one edit for words of 5–6 letters, two for 7 or more, with a swapped pair counting as one edit (OSA distance). Two edits on short words flagged too many ordinary words.
 - 2026-10-21: Mentions are recomputed on save, and for the whole world when names, aliases or "not a typo" words change; fast enough at a novel's scale, so no background jobs.
+- 2026-10-21: Chapters are never deleted once they hold text or history: they are retired to Salvage, and can be put back. Only an empty, history-less chapter (a mistake) can be deleted.
+- 2026-10-21: Experiment items are closed from their chapter (accept/harvest/reject), not from the inbox, so the manuscript and the item can't disagree.
+- 2026-10-21: Restore always makes a new world with new ids; it never merges into an existing one. History (revisions) is not exported.
+- 2026-10-21: Linking items to chapters is allowed by the data model but has no screen yet; tags on items stay bible entries for v1.

@@ -52,6 +52,8 @@ export const router = createRouter({
         { path: "w/:world/names", name: "names", component: () => import("./views/NameCheckView.vue") },
         { path: "w/:world/items/:id", name: "item", component: () => import("./views/ItemView.vue") },
         { path: "w/:world/p/:project", name: "project", component: () => import("./views/ProjectView.vue") },
+        { path: "w/:world/p/:project/salvage", name: "salvage", component: () => import("./views/SalvageView.vue") },
+        { path: "w/:world/chapters/:id", name: "chapter", component: () => import("./views/ChapterView.vue") },
         { path: ":rest(.*)*", name: "not-found", component: () => import("./views/NotFoundView.vue") },
       ],
     },

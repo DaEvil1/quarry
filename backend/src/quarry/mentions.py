@@ -23,7 +23,7 @@ from rapidfuzz.distance import OSA
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from .models import Decision, Entity, Item, JournalEntry, Mention, NameIgnore
+from .models import Chapter, Decision, Entity, Item, JournalEntry, Mention, NameIgnore, Project
 
 SUFFIX = r"(?:'s|’s|s)?"
 # a word: letters, with apostrophes or hyphens inside ("O'Neil", "Sea-born")
@@ -136,3 +136,6 @@ def refresh_world(db: Session, world_id: uuid.UUID) -> None:
         _store(db, world_id, "journal", j.id, m.scan(j.body))
     for e in db.scalars(select(Entity).where(Entity.world_id == world_id)):
         _store(db, world_id, "entity", e.id, m.scan(e.body, skip_entity=e.id))
+    for c in db.scalars(select(Chapter).join(Project, Project.id == Chapter.project_id)
+                        .where(Project.world_id == world_id)):
+        _store(db, world_id, "chapter", c.id, m.scan(c.body))

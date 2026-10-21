@@ -32,8 +32,13 @@ CHALLENGE_PURPOSES = ("setup", "login", "add_passkey")
 ITEM_KINDS = ("spark", "question", "task", "experiment")
 ITEM_STATUSES = ("open", "accepted", "rejected", "harvested", "deferred")
 ENTITY_KINDS = ("character", "place", "term", "faction", "object", "other")
-# texts that are scanned for mentions; "chapter" joins with the editor (phase 4)
-MENTION_SOURCES = ("item", "decision", "entity", "journal")
+# texts that are scanned for mentions
+MENTION_SOURCES = ("item", "decision", "entity", "journal", "chapter")
+CHAPTER_STATES = ("current", "experiment", "retired")
+# why a revision was taken: autosnap (idle, long session, leaving), checkpoint (Ctrl+S), state (retired, swapped
+# in), restore (the text before a restore), conflict (a copy that lost to another device's save)
+REVISION_REASONS = ("autosnap", "checkpoint", "state", "restore", "conflict")
+REVISION_DOCS = ("chapter",)
 MENTION_KINDS = ("exact", "alias", "near_miss")
 
 
@@ -236,10 +241,10 @@ Index("uq_entities_world_name", Entity.world_id, func.lower(Entity.name), unique
 
 
 class ItemLink(Base):
-    """An item tagged with what it is about. Targets are entities now; chapters join in phase 4."""
+    """An item tagged with what it is about: a bible entry or a chapter."""
 
     __tablename__ = "item_links"
-    __table_args__ = (CheckConstraint("target_table IN ('entity')", name="ck_item_links_target"),)
+    __table_args__ = (CheckConstraint("target_table IN ('entity', 'chapter')", name="ck_item_links_target"),)
 
     item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
     target_table: Mapped[str] = mapped_column(String(20), primary_key=True)
@@ -295,4 +300,69 @@ class NameIgnore(Base):
 
     world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), primary_key=True)
     token: Mapped[str] = mapped_column(String(200), primary_key=True)
+    created_at: Mapped[datetime] = _created()
+
+
+class Chapter(Base):
+    """A unit of manuscript prose in a project.
+
+    current: in the book, ordered by position. experiment: an alternate draft, tied to the experiment item that
+    tracks it and to the chapter it would replace (if any). retired: salvage, kept with its harvest notes.
+    """
+
+    __tablename__ = "chapters"
+    __table_args__ = (CheckConstraint(_in("state", CHAPTER_STATES), name="ck_chapters_state"),)
+
+    id: Mapped[uuid.UUID] = _id()
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False,
+                                                  index=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="current")
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pov_entity_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("entities.id", ondelete="SET NULL"))
+    experiment_item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"))
+    replaces_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()
+
+
+class Revision(Base):
+    """An immutable snapshot of a document's text. Append-only, never pruned on the server."""
+
+    __tablename__ = "revisions"
+    __table_args__ = (
+        CheckConstraint(_in("doc_table", REVISION_DOCS), name="ck_revisions_doc"),
+        CheckConstraint(_in("reason", REVISION_REASONS), name="ck_revisions_reason"),
+        Index("ix_revisions_doc", "doc_table", "doc_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    doc_table: Mapped[str] = mapped_column(String(20), nullable=False)
+    doc_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    meta: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    reason: Mapped[str] = mapped_column(String(20), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(200))
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+
+class HarvestNote(Base):
+    """What was alive in a retired chapter or a closed experiment, so it can be found without rereading it."""
+
+    __tablename__ = "harvest_notes"
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    chapter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False,
+                                                  index=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
