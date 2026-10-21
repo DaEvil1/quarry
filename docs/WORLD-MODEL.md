@@ -119,8 +119,27 @@ completion lists, no dialogs. The world shows itself around the text, never in i
   isn't in the bible) get a faint dotted underline, so they can be dealt with later in the panel, or not at all.
 - **Everything else waits in the side panel** (§7): suggestions arrive there quietly, sorted by strength, and can be
   ignored for as long as you like. The panel can be closed; focus mode hides it.
-- **Keyboard only, when wanted**: with the cursor on a name, one shortcut opens its card for keyboard use, and
-  another records a connection to another name in the paragraph. Both are opt-in actions, never prompts.
+
+**Passive while typing, one gesture away when wanted.** Drafting and classifying pull in opposite directions, so the
+editor answers *intent*, never keystrokes:
+
+- **Typing is sacred.** While keys are being pressed, and for about a second after, nothing opens, even if the
+  pointer rests on a word. Only colours and underlines update.
+- **The quick-fix strip.** Pointing at a marked word for a moment shows one row of small chips just below it,
+  about one line high. It never takes focus, never moves the text, and disappears when the pointer leaves or
+  typing resumes. One click acts:
+  - *Likely misspelling* (wavy): `Varren? → Replace · Another spelling · Not a typo`
+  - *Possible new name* (dotted): `+ Character · Place · Faction · Object · … · Not a name`. The word is in the bible
+    and coloured at once.
+  - *Known name*: its card (one-liner, facts as of this chapter, closest relationships) with `Link to…` for
+    recording a relationship.
+- **Selection is intent too.** Selecting words (a multi-word name, a lowercase thing the detector would never
+  guess) offers the same strip: `+ Character / Place / …` or `Another name of…`.
+- **Keyboard, like an IDE quick fix.** With the cursor in a marked word, **Alt+Enter** opens the strip with the
+  keyboard in it: arrows to choose, Enter to apply, Esc straight back to the text.
+- **A classifying pass.** **F8** jumps to the next marked word in the chapter with its strip open, for sweeping
+  through new names after a drafting session, like a spell-check pass.
+- **On the phone**, a long-press opens the strip.
 - What exists stays: autosave, snapshots, focus mode, typewriter scrolling, word count.
 
 ## 6. Views
