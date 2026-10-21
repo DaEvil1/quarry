@@ -33,6 +33,20 @@ def build_world(c: Client) -> None:
                                  "entry_date": "2026-10-19", "project": "novella"})
     c.post(f"{W}/decisions", json={"text": "The world has two moons", "decided_on": "2026-10-18"})
     c.post(f"{W}/name-ignores", json={"token": "Thursday"})
+    # the world model: entry fields, facts, relationships, decision tags
+    isolde = c.post(f"{W}/entities", json={"name": "Isolde Hale", "summary": "Keeper's daughter", "match_case": False,
+                                           "exclusions": ["isolde's rest"]}).json()
+    c.post(f"{W}/entities/{v['id']}/facts", json={"label": "eye colour", "value": "grey", "evidence": "grey eyes",
+                                                  "established_in_chapter_id": one["id"]})
+    c.post(f"{W}/entities/{v['id']}/facts", json={"label": "status", "value": "alive", "standing": "planned"})
+    types = {t["label"]: t["id"] for t in c.get(f"{W}/relation-types").json()}
+    c.post(f"{W}/relationships", json={"type_id": types["parent of"], "a_id": v["id"], "b_id": isolde["id"],
+                                       "note": "she doesn't know yet", "established_in_chapter_id": one["id"]})
+    harbour = next(e for e in c.get(f"{W}/entities").json() if e["name"] == "Old Harbour")
+    c.post(f"{W}/relationships", json={"type_id": types["lives in"], "a_id": isolde["id"], "b_id": harbour["id"],
+                                       "standing": "rumour"})
+    c.patch(f"{W}/relation-types/{types['knows']}", json={"label": "is acquainted with"})
+    c.post(f"{W}/decisions", json={"text": "Isolde stays", "decided_on": "2026-10-17", "entities": [isolde["id"]]})
 
 
 def snapshot(c: Client, slug: str) -> dict:
@@ -40,7 +54,19 @@ def snapshot(c: Client, slug: str) -> dict:
     base = f"/api/worlds/{slug}"
     world = c.get(base).json()
     out: dict = {"projects": [(p["name"], p["slug"], p["kind"]) for p in world["projects"]]}
-    out["entities"] = [(e["name"], e["kind"], e["aliases"], e["body"], e["mention_count"]) for e in c.get(f"{base}/entities").json()]
+    out["entities"] = [(e["name"], e["kind"], e["aliases"], e["body"], e["mention_count"], e["summary"],
+                        e["match_case"], e["first_name_alias"], e["exclusions"]) for e in c.get(f"{base}/entities").json()]
+    chapter_titles = {}
+    for p in world["projects"]:
+        for x in c.get(f"{base}/projects/{p['slug']}/chapters").json()["chapters"]:
+            chapter_titles[x["id"]] = x["title"]
+    for e in c.get(f"{base}/entities").json():
+        d = c.get(f"{base}/entities/{e['id']}").json()
+        out[f"facts:{e['name']}"] = [(f["label"], f["value"], f["standing"], f["evidence"],
+                                      chapter_titles.get(f["established_in_chapter_id"])) for f in d["facts"]]
+        out[f"rels:{e['name']}"] = sorted((r["reads"], r["other"]["name"], r["standing"], r["note"],
+                                           chapter_titles.get(r["established_in_chapter_id"])) for r in d["relationships"])
+    out["types"] = [(t["a_kind"], t["b_kind"], t["label"], t["reverse_label"]) for t in c.get(f"{base}/relation-types").json()]
     for p in world["projects"]:
         m = c.get(f"{base}/projects/{p['slug']}/chapters").json()
         out[p["slug"]] = {
@@ -53,8 +79,8 @@ def snapshot(c: Client, slug: str) -> dict:
     out["items"] = sorted((i["body"], i["kind"], i["status"], i["project"], [e["name"] for e in i["entities"]])
                           for i in c.get(f"{base}/items?status=all").json())
     out["journal"] = [(j["entry_date"], j["title"], j["body"], j["project"]) for j in c.get(f"{base}/journal").json()]
-    out["decisions"] = [(d["decided_on"], d["text"], d["project"], d["item_id"] is not None)
-                        for d in c.get(f"{base}/decisions").json()]
+    out["decisions"] = [(d["decided_on"], d["text"], d["project"], d["item_id"] is not None,
+                         [e["name"] for e in d["entities"]]) for d in c.get(f"{base}/decisions").json()]
     out["ignored"] = c.get(f"{base}/name-ignores").json()
     return out
 

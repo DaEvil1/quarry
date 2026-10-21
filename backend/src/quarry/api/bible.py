@@ -17,13 +17,26 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..mentions import refresh_source, refresh_world
-from ..models import Chapter, Decision, Entity, Item, ItemLink, JournalEntry, Mention, NameIgnore, User, World
+from ..models import (
+    Chapter,
+    Decision,
+    DecisionLink,
+    Entity,
+    Item,
+    ItemLink,
+    JournalEntry,
+    Mention,
+    NameIgnore,
+    User,
+    World,
+)
+from .world import entity_world_detail
 from .deps import current_user
 from .worlds import member_world
 
 router = APIRouter(prefix="/api/worlds/{slug}")
 
-Kind = Literal["character", "place", "term", "faction", "object", "other"]
+Kind = Literal["character", "place", "faction", "culture", "event", "object", "term", "other"]
 SOURCES = {"item": Item, "decision": Decision, "journal": JournalEntry, "entity": Entity, "chapter": Chapter}
 
 
@@ -62,6 +75,10 @@ class EntityIn(BaseModel):
     kind: Kind = "character"
     aliases: list[str] = Field(default_factory=list, max_length=50)
     body: str = Field(default="", max_length=200_000)
+    summary: str = Field(default="", max_length=300)
+    match_case: bool = True
+    first_name_alias: bool = True
+    exclusions: list[str] = Field(default_factory=list, max_length=50)
 
 
 class EntityUpdate(BaseModel):
@@ -70,6 +87,10 @@ class EntityUpdate(BaseModel):
     kind: Kind | None = None
     aliases: list[str] | None = Field(default=None, max_length=50)
     body: str | None = Field(default=None, max_length=200_000)
+    summary: str | None = Field(default=None, max_length=300)
+    match_case: bool | None = None
+    first_name_alias: bool | None = None
+    exclusions: list[str] | None = Field(default=None, max_length=50)
 
 
 class EntityOut(BaseModel):
@@ -78,6 +99,10 @@ class EntityOut(BaseModel):
     name: str
     aliases: list[str]
     body: str
+    summary: str
+    match_case: bool
+    first_name_alias: bool
+    exclusions: list[str]
     version: int
     updated_at: datetime
     mention_count: int = 0
@@ -100,8 +125,9 @@ def _entity(db: Session, world: World, entity_id: uuid.UUID) -> Entity:
 
 
 def _out(e: Entity, count: int = 0) -> EntityOut:
-    return EntityOut(id=e.id, kind=e.kind, name=e.name, aliases=list(e.aliases), body=e.body, version=e.version,
-                     updated_at=e.updated_at, mention_count=count)
+    return EntityOut(id=e.id, kind=e.kind, name=e.name, aliases=list(e.aliases), body=e.body, summary=e.summary,
+                     match_case=e.match_case, first_name_alias=e.first_name_alias, exclusions=list(e.exclusions),
+                     version=e.version, updated_at=e.updated_at, mention_count=count)
 
 
 def _name_taken(db: Session, world: World, name: str, other_than: uuid.UUID | None = None) -> bool:
@@ -137,7 +163,9 @@ def create_entity(slug: str, body: EntityIn, user: User = Depends(current_user),
     if _name_taken(db, world, name):
         raise HTTPException(409, "The bible already has an entry with that name.")
     e = Entity(world_id=world.id, kind=body.kind, name=name, aliases=_clean_aliases(name, body.aliases),
-               body=body.body, created_by=user.id, updated_by=user.id)
+               body=body.body, summary=" ".join(body.summary.split()), match_case=body.match_case,
+               first_name_alias=body.first_name_alias, exclusions=_clean_aliases("", body.exclusions),
+               created_by=user.id, updated_by=user.id)
     db.add(e)
     db.flush()
     refresh_world(db, world.id)
@@ -199,8 +227,16 @@ def get_entity(slug: str, entity_id: uuid.UUID, user: User = Depends(current_use
             if m["project"] not in first or pos < first[m["project"]]["position"]:
                 first[m["project"]] = {"project": m["project"], "chapter_id": m["source_id"], "title": m["title"],
                                        "position": pos}
+    # decisions tagged with it, then those that name it
+    tagged = set(db.scalars(select(DecisionLink.decision_id).where(DecisionLink.entity_id == e.id)))
+    named = {uuid.UUID(m["source_id"]) for m in mentions if m["source_table"] == "decision"}
+    decisions = [{"id": str(d.id), "decided_on": d.decided_on.isoformat(), "text": d.text,
+                  "project": projects.get(d.project_id), "tagged": d.id in tagged}
+                 for d in db.scalars(select(Decision).where(Decision.id.in_(tagged | named))
+                                     .order_by(Decision.decided_on.desc()))] if tagged | named else []
     return {"entity": _out(e, sum(m["count"] for m in mentions)), "mentions": mentions, "unlinked": unlinked,
-            "linked_items": linked_items, "near_misses": near, "first_appearance": list(first.values())}
+            "linked_items": linked_items, "near_misses": near, "first_appearance": list(first.values()),
+            "decisions": decisions, **entity_world_detail(db, world, e)}
 
 
 @router.patch("/entities/{entity_id}")
@@ -226,9 +262,21 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
         names_changed |= aliases != list(e.aliases)
         e.aliases = aliases
     if body.kind is not None:
+        names_changed |= body.kind != e.kind  # first names belong to characters only
         e.kind = body.kind
     if body.body is not None:
         e.body = body.body
+    if body.summary is not None:
+        e.summary = " ".join(body.summary.split())
+    for flag in ("match_case", "first_name_alias"):
+        value = getattr(body, flag)
+        if value is not None and value != getattr(e, flag):
+            setattr(e, flag, value)
+            names_changed = True
+    if body.exclusions is not None:
+        exclusions = _clean_aliases("", body.exclusions)
+        names_changed |= exclusions != list(e.exclusions)
+        e.exclusions = exclusions
     e.version += 1
     e.updated_by = user.id
     db.flush()
