@@ -24,3 +24,9 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-21: Linking items to chapters is allowed by the data model but has no screen yet; tags on items stay bible entries for v1.
 - 2026-10-21: The offline copy covers chapters and their last 30 revisions (sync per world, by time); the rest of a world is read online. The spec's general `change_log` sync wasn't needed for v1.
 - 2026-10-21: Text typed in a chapter is kept on the device until the server confirms it; a draft over an older version becomes a conflict revision rather than overwriting anything.
+- 2026-10-22: After using v1, the bible becomes a world model: entries with facts and typed relationships, story time, graphs and a writing companion (docs/WORLD-MODEL.md), as phases 6–9.
+- 2026-10-22: Chapters are the story clock (facts and relationships hold from/until chapters); in-world dates come later.
+- 2026-10-22: Relationship graph and place tree first; uploaded map images with pins later.
+- 2026-10-22: New kinds Event and Culture; lore stays in Term.
+- 2026-10-22: Research (docs/research/) adds to the world model: evidence on facts and relationships, knows/has met, resolved findings (intentional/later), Drafting vs Revising, getting back in, spell-check skipping names, per-entry "not in this sense". A cuts bin, revision passes, a thread grid, scenes and a corkboard wait for later.
+- 2026-10-22: The companion's findings are grouped into five editors (Proofreader, Continuity, Connections, Archivist, Loose ends): tabs that can be switched off, all rule-based, all silent while Drafting.

@@ -7,7 +7,7 @@ Single-user today; the data model leaves room for co-writers later (§7).
 ## 1. Principles
 
 1. **The process is the product.** The process runs spark → inbox → triage → canon/manuscript, with exploration allowed anywhere. The app models that loop directly.
-2. **No AI in the creative path.** No generation, suggestions or critique of story content. Automation is limited to bookkeeping: mentions, name checks, counts, history and export.
+2. **No AI in the creative path.** No generation, suggestions or critique of story content. Automation is limited to bookkeeping: mentions, name checks, counts, history, export, and rule-based checks over the world's own data (the writing companion, [WORLD-MODEL.md](WORLD-MODEL.md) §7).
 3. **Nothing is ever lost.** Every meaningful state is versioned on the server and the database is backed up. "Export now" produces a folder of plain Markdown, so the book never depends on the app surviving.
 4. **Writing never waits for the tool.** Each build phase is usable on its own. Prose can stay in other tools until the editor lands.
 5. **Plain Markdown everywhere.** Prose, notes and bible entries are Markdown strings, so export is lossless.
@@ -188,6 +188,8 @@ quarry/                      # public GitHub repo (code only)
 5. **Local history.** The offline copy of every chapter with its last 30 revisions, `storage.persist()`, drafts that survive reloads, History and restore offline, the manuscript list offline, and an *Offline copy* section in Settings. *Done when* the last 30 revisions of a chapter can be browsed and restored on the phone in airplane mode.
 
 **Standing rule:** if two weeks pass without new story words, building pauses.
+
+6–9. **The world model**: the bible as data, relationships, story time, graphs and the writing companion. Designed in [WORLD-MODEL.md](WORLD-MODEL.md), with the phases and their *done when* in its §9.
 
 ## 11. Out of scope (for now)
 
