@@ -1,8 +1,10 @@
-// The browser's own database (IndexedDB via Dexie): captures waiting to be sent, and a copy of who is signed in so
-// the app still opens without a network. Phase 5 adds the local copy of everything else here.
+// The browser's own database (IndexedDB via Dexie): captures waiting to be sent, a copy of who is signed in so the
+// app still opens without a network, and the offline copy of the manuscript: every chapter of the worlds opened on
+// this device, the last 30 snapshots of each, and text written but not yet saved.
 
 import Dexie, { type EntityTable } from "dexie";
 
+import type { Chapter } from "./manuscript";
 import type { ItemKind, Me } from "./types";
 
 /** A capture saved on this device that the server has not confirmed yet. */
@@ -26,15 +28,62 @@ interface Kv {
   value: unknown;
 }
 
+export interface LocalChapter extends Chapter {
+  world: string;
+}
+
+export interface LocalRevision {
+  id: string;
+  chapterId: string;
+  version: number;
+  title: string;
+  body: string;
+  reason: "autosnap" | "checkpoint" | "state" | "restore" | "conflict";
+  label: string | null;
+  words: number;
+  created_at: string;
+}
+
+/** Text typed on this device that the server hasn't confirmed yet; survives reloads and going offline. */
+export interface Draft {
+  chapterId: string;
+  world: string;
+  title: string;
+  body: string;
+  /** the version this text was written on top of */
+  baseVersion: number;
+  savedAt: string;
+}
+
+/** A snapshot made on this device while offline (an offline restore), waiting to be sent. */
+export interface PendingRevision {
+  id: string;
+  world: string;
+  chapterId: string;
+  reason: "restore" | "conflict";
+  label: string;
+  body: string;
+}
+
 class LocalDb extends Dexie {
   outbox!: EntityTable<PendingCapture, "id">;
   kv!: EntityTable<Kv, "key">;
+  chapters!: EntityTable<LocalChapter, "id">;
+  revisions!: EntityTable<LocalRevision, "id">;
+  drafts!: EntityTable<Draft, "chapterId">;
+  pendingRevisions!: EntityTable<PendingRevision, "id">;
 
   constructor() {
     super("quarry");
     this.version(1).stores({
       outbox: "id, world, capturedAt",
       kv: "key",
+    });
+    this.version(2).stores({
+      chapters: "id, world",
+      revisions: "id, chapterId, created_at",
+      drafts: "chapterId, world",
+      pendingRevisions: "id, world",
     });
   }
 }

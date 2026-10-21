@@ -174,3 +174,34 @@ def test_chapters_belong_to_their_world(world: Client):
     world.post("/api/worlds", json={"name": "Other"})
     assert world.get(f"/api/worlds/other/chapters/{ch['id']}").status_code == 404
     assert world.get("/api/worlds/other/projects/book-one/chapters").status_code == 404
+
+
+def test_offline_pack(world: Client):
+    import time
+
+    a = chapter(world, "One", "first")
+    b = chapter(world, "Two", "second")
+    for i in range(33):
+        world.patch(f"{W}/chapters/{a['id']}", json={"base_version": i + 1, "body": f"version {i}"})
+        world.post(f"{W}/chapters/{a['id']}/revisions", json={"reason": "autosnap"})
+    full = world.get(f"{W}/offline").json()
+    assert {c["title"] for c in full["chapters"]} == {"One", "Two"}
+    assert len([r for r in full["revisions"] if r["chapter_id"] == a["id"]]) == 30
+    assert set(full["chapter_ids"]) == {a["id"], b["id"]}
+    assert all(r["body"].startswith("version") for r in full["revisions"])
+
+    # later: only what changed since, including a chapter that only gained a revision
+    since = full["now"]
+    time.sleep(0.05)
+    world.post(f"{W}/chapters/{b['id']}/revisions", json={"reason": "checkpoint", "label": "kept"})
+    later = world.get(f"{W}/offline", params={"since": since}).json()
+    assert [c["title"] for c in later["chapters"]] == ["Two"]
+    assert [r["label"] for r in later["revisions"]] == ["kept"]
+    assert set(later["chapter_ids"]) == {a["id"], b["id"]}
+
+
+def test_offline_restore_keeps_the_replaced_text(world: Client):
+    ch = chapter(world, "One", "now")
+    r = world.post(f"{W}/chapters/{ch['id']}/revisions", json={"reason": "restore", "body": "text written offline"})
+    rev = world.get(f"{W}/revisions/{r.json()['id']}").json()
+    assert (rev["reason"], rev["body"]) == ("restore", "text written offline")

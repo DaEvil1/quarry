@@ -2,9 +2,10 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { get, patch } from "../api";
+import { ApiError, get, patch } from "../api";
 import { age, listItems } from "../items";
 import { createChapter, getManuscript, reorderChapters, type ChapterInfo, type Manuscript } from "../manuscript";
+import { localManuscript } from "../offline";
 import { useSession } from "../stores/session";
 import { PROJECT_KINDS, firstLine, kindLabel, type Item, type Project, type ProjectKind, type World } from "../types";
 import NotFoundView from "./NotFoundView.vue";
@@ -19,6 +20,8 @@ const project = computed(() =>
 );
 
 const manuscript = ref<Manuscript | null>(null);
+// the server couldn't be reached: the chapters kept on this device
+const offlineCopy = ref(false);
 const openItems = ref<Item[]>([]);
 const error = ref("");
 
@@ -27,13 +30,19 @@ async function load() {
   const p = project.value;
   if (!w || !p) return;
   error.value = "";
+  offlineCopy.value = false;
   try {
     [manuscript.value, openItems.value] = await Promise.all([
       getManuscript(w.slug, p.slug),
       listItems(w.slug, { project: p.slug, limit: 20 }),
     ]);
   } catch (e) {
-    error.value = (e as Error).message;
+    if (e instanceof ApiError && e.status === 0) {
+      manuscript.value = await localManuscript(w.slug, p.slug);
+      offlineCopy.value = true;
+    } else {
+      error.value = (e as Error).message;
+    }
   }
 }
 watch(project, load, { immediate: true });
@@ -174,6 +183,9 @@ async function save() {
     </form>
 
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
+    <div v-if="offlineCopy" class="notice offline small" role="status" data-testid="manuscript-offline">
+      Offline: the chapters kept on this device. Reordering and new chapters wait until you're back.
+    </div>
 
     <section class="card">
       <div class="card-head"><h2>Manuscript</h2></div>

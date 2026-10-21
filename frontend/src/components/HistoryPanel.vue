@@ -2,12 +2,17 @@
 import { diffWords } from "diff";
 import { computed, onMounted, ref } from "vue";
 
+import { ApiError } from "../api";
 import { getRevision, listRevisions, REASON_LABELS, type RevisionInfo } from "../manuscript";
+import { localRevision, localRevisions } from "../offline";
 
 // A chapter's snapshots, newest first. Choosing one shows what changed since (word by word) or the old text on
 // its own (to copy a passage); it can be put back, and the text it replaces is kept as a snapshot first.
 const props = defineProps<{ world: string; chapterId: string; current: string }>();
-const emit = defineEmits<{ restore: [revisionId: string]; close: [] }>();
+const emit = defineEmits<{ restore: [revisionId: string, body: string]; close: [] }>();
+// the server couldn't be reached: the snapshots kept on this device (the last 30)
+const local = ref(false);
+const offline = (e: unknown) => e instanceof ApiError && e.status === 0;
 
 const revisions = ref<RevisionInfo[]>([]);
 const chosen = ref<(RevisionInfo & { body: string }) | null>(null);
@@ -20,16 +25,27 @@ onMounted(async () => {
   try {
     revisions.value = await listRevisions(props.world, props.chapterId);
   } catch (e) {
-    error.value = (e as Error).message;
+    if (!offline(e)) {
+      error.value = (e as Error).message;
+      return;
+    }
+    local.value = true;
+    revisions.value = await localRevisions(props.chapterId);
   }
 });
 
 async function choose(r: RevisionInfo) {
   error.value = "";
   try {
-    chosen.value = await getRevision(props.world, r.id);
+    chosen.value = local.value ? ((await localRevision(r.id)) ?? null) : await getRevision(props.world, r.id);
   } catch (e) {
-    error.value = (e as Error).message;
+    if (!offline(e)) {
+      error.value = (e as Error).message;
+      return;
+    }
+    local.value = true;
+    chosen.value = (await localRevision(r.id)) ?? null;
+    if (!chosen.value) error.value = "That snapshot isn't on this device.";
   }
 }
 
@@ -44,6 +60,7 @@ const unchanged = computed(() => parts.value.every((p) => !p.added && !p.removed
       <button type="button" class="icon-btn" aria-label="Close history" @click="emit('close')">✕</button>
     </div>
     <div v-if="error" class="notice error small">{{ error }}</div>
+    <div v-if="local" class="notice offline small" data-testid="history-offline">Offline: the last {{ revisions.length }} snapshots kept on this device.</div>
     <div class="drawer-body">
       <ul class="revisions">
         <li v-for="r in revisions" :key="r.id">
@@ -61,7 +78,7 @@ const unchanged = computed(() => parts.value.every((p) => !p.added && !p.removed
             <button type="button" role="tab" class="tab" :aria-selected="mode === 'text'" @click="mode = 'text'">This version</button>
           </div>
           <span class="spacer" />
-          <button type="button" class="btn btn-sm btn-primary" @click="emit('restore', chosen.id)">Restore this version</button>
+          <button type="button" class="btn btn-sm btn-primary" @click="emit('restore', chosen.id, chosen.body)">Restore this version</button>
         </div>
         <p v-if="mode === 'diff' && unchanged" class="muted small">Same as now.</p>
         <div v-if="mode === 'diff'" class="diff prose">

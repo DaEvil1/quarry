@@ -85,10 +85,11 @@ Scale check: the current material is about 320 KB of text. Even 1,000 revisions 
 
 **Concurrency.** A write sends `base_version`. If the server's version differs, it returns `409` with the server copy. The client then saves its text as a **conflict copy** (a revision with `reason=conflict`) and shows both versions side by side. There are no automatic merges and no CRDTs; with one writer per document at a time, conflicts should be rare.
 
-**Sync protocol.**
-- `GET /api/sync?since=<seq>` returns every changed document the user can see since that cursor, plus deletions.
-- Writes go through normal REST endpoints. Offline writes queue in a local outbox and replay in order when the device is back online.
-- Each device keeps the full working set and the **last 30 revisions of every document** in IndexedDB (via Dexie). It calls `navigator.storage.persist()` on first run so Chrome on Android doesn't evict the data.
+**Sync (as built).**
+- `GET /api/worlds/<world>/offline?since=<time>` returns every chapter changed (or given a new revision) since that time, with its **last 30 revisions**, and the ids of all chapters that still exist (so deletions reach the device). Each device syncs the world it has open: when it opens, when the connection comes back and every 15 minutes, into IndexedDB (via Dexie), pruning to 30 revisions per chapter. It calls `navigator.storage.persist()` at start so Chrome on Android doesn't evict the data.
+- Writes go through normal REST endpoints. Offline, new captures queue in an outbox (phase 2); text typed in a chapter is kept on the device as a draft until the server confirms it, so a reload or a closed app loses nothing; a restore made offline is applied on the device and the text it replaced is sent as a revision when back online.
+- A draft written on top of an older version than the server now has is not applied: it is kept as a conflict revision. A save whose answer was lost (signal dropped mid-save) is recognised on the retry and counts as saved.
+- The bible, items, journal and decisions are read online; offline, the app opens, captures, and lists and edits chapters. A general `change_log` for everything was not needed for v1.
 
 **History UI.** Every document has a History panel: a revision list, a word-level diff against the current text, and buttons to restore or copy a passage.
 
@@ -184,7 +185,7 @@ quarry/                      # public GitHub repo (code only)
 3. **Bible, mentions and journal.** Entity editing, aliases, mentions, near-miss detection, the Name check page, bible panels, `item_links` (tag on Capture, in the inbox, `l` in triage), and the Journal. *Done when* a misspelled entity name in a chapter or note is flagged and can be fixed or added as an alias in one action.
 4. **Manuscript, editor, export and restore.** CodeMirror editor (focus mode, typewriter scrolling, name squiggles with in-editor fixes), autosave/revision rules, History with word diffs and restore, chapter ordering (drag or arrows), POV tally, first appearance on bible pages, experiments and salvage with harvest notes, plus the export zip and Restore. Chapters live at `/w/<world>/chapters/<id>`. *Done when* a full chapter rewrite via an experiment can be accepted, with the old version in Salvage and a harvest note attached, and exporting a world then restoring the zip into an empty database reproduces it.
    **Then the move:** the existing material comes in (§8) and writing moves into Quarry.
-5. **Local history.** The 30-revision local cache with `storage.persist()`, and History that works offline. *Done when* the last 30 revisions of a chapter can be browsed and restored on the phone in airplane mode.
+5. **Local history.** The offline copy of every chapter with its last 30 revisions, `storage.persist()`, drafts that survive reloads, History and restore offline, the manuscript list offline, and an *Offline copy* section in Settings. *Done when* the last 30 revisions of a chapter can be browsed and restored on the phone in airplane mode.
 
 **Standing rule:** if two weeks pass without new story words, building pauses.
 

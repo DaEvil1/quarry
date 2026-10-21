@@ -4,7 +4,8 @@
 //    labelled checkpoint) and when the chapter is left;
 //  - when another device saved first, this device's text is kept as a "conflict" revision and the newer text
 //    is taken, so neither is lost;
-//  - without a connection, saving is retried every 10 seconds and the text stays in the editor.
+//  - without a connection, saving is retried every 10 seconds and the text stays in the editor; a retry whose
+//    text the server already has (the answer to the first try was lost) counts as saved, not as a conflict.
 
 import { ApiError } from "../api";
 import { ChapterConflict, type Chapter } from "../manuscript";
@@ -48,6 +49,11 @@ export class ChapterSaver {
     this.lastSnapshotAt = deps.now();
   }
 
+  /** The server version the editor's text builds on. */
+  get currentVersion(): number {
+    return this.version;
+  }
+
   get dirty(): boolean {
     return Object.keys(this.pending).length > 0;
   }
@@ -80,7 +86,16 @@ export class ChapterSaver {
         this.hooks.status(this.dirty ? "unsaved" : "saved");
         if (this.deps.now() - this.lastSnapshotAt >= LONG_MS) await this.keep("autosnap");
       } catch (e) {
-        if (e instanceof ChapterConflict) {
+        const sameText = e instanceof ChapterConflict &&
+          (sending.body === undefined || sending.body === e.current.body) &&
+          (sending.title === undefined || sending.title === e.current.title);
+        if (sameText) {
+          // the earlier try did reach the server; only its answer was lost (signal dropped mid-save)
+          const current = (e as ChapterConflict).current;
+          this.version = current.version;
+          this.hooks.saved(current, sending.body);
+          this.hooks.status(this.dirty ? "unsaved" : "saved");
+        } else if (e instanceof ChapterConflict) {
           const mine = sending.body ?? e.current.body;
           // keep this device's text before taking the other one
           if (sending.body !== undefined && sending.body !== e.current.body) {

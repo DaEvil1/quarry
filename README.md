@@ -4,7 +4,7 @@ A writing environment for long fiction set in shared worlds: capture sparks on t
 
 Quarry does bookkeeping only. It never generates, suggests or critiques story content.
 
-**Status:** phase 4 of 5. Sign in with a passkey; create worlds and their projects; capture sparks, questions and tasks on the phone (also offline, and by sharing from other apps); triage them at the desk with the keyboard; keep a decisions log and a journal; keep a bible of the world, see where every name is mentioned, and fix misspelled names in one click; write chapters in a distraction-free editor with history, experiments and salvage; export a world as Markdown and restore it. See [docs/SPEC.md](docs/SPEC.md) for the design and the phases, and [docs/DECISIONS.md](docs/DECISIONS.md) for the decisions behind it.
+**Status:** v1: all five phases built. Sign in with a passkey; create worlds and their projects; capture sparks, questions and tasks on the phone (also offline, and by sharing from other apps); triage them at the desk with the keyboard; keep a decisions log and a journal; keep a bible of the world, see where every name is mentioned, and fix misspelled names in one click; write chapters in a distraction-free editor with history, experiments and salvage; export a world as Markdown and restore it; and on the phone, open and write chapters and browse and restore their history with no network. See [docs/SPEC.md](docs/SPEC.md) for the design and the phases, and [docs/DECISIONS.md](docs/DECISIONS.md) for the decisions behind it.
 
 - [docs/development.md](docs/development.md): running it locally and the tests
 - [docs/deploy.md](docs/deploy.md): putting it on the droplet

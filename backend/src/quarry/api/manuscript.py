@@ -91,9 +91,10 @@ class OrderIn(BaseModel):
 
 
 class SnapshotIn(BaseModel):
-    reason: Literal["autosnap", "checkpoint", "conflict"] = "autosnap"
+    reason: Literal["autosnap", "checkpoint", "conflict", "restore"] = "autosnap"
     label: str | None = Field(default=None, max_length=200)
-    # only for a conflict copy: the text this device had, which lost to a newer save elsewhere
+    # only for a conflict copy (the text that lost to a newer save elsewhere) or a restore made offline (the text it
+    # replaced, kept on the device until it could be sent)
     body: str | None = Field(default=None, max_length=BODY_MAX)
 
 
@@ -366,8 +367,8 @@ def take_snapshot(slug: str, chapter_id: uuid.UUID, body: SnapshotIn, user: User
                   db: Session = Depends(get_db)) -> dict:
     world, _ = member_world(db, user, slug)
     ch = _chapter(db, world, chapter_id)
-    if body.body is not None and body.reason != "conflict":
-        raise HTTPException(422, "Only a conflict copy brings its own text.")
+    if body.body is not None and body.reason not in ("conflict", "restore"):
+        raise HTTPException(422, "Only a conflict copy or an offline restore brings its own text.")
     rev = snapshot(db, ch, body.reason, user, label=(body.label or "").strip() or None, body=body.body)
     db.commit()
     return {"id": str(rev.id) if rev else None, "skipped": rev is None}
@@ -538,3 +539,38 @@ def close_experiment(slug: str, chapter_id: uuid.UUID, body: CloseExperimentIn, 
         refresh_source(db, world.id, "decision", d.id, d.text)
     db.commit()
     return chapter_detail(db, world, ch)
+
+
+# the offline copy ---------------------------------------------------------------------------------------------
+
+LOCAL_REVISIONS = 30
+
+
+@router.get("/offline")
+def offline_pack(slug: str, since: datetime | None = None, user: User = Depends(current_user),
+                 db: Session = Depends(get_db)) -> dict:
+    """What a device needs to keep its offline copy of the world's chapters up to date: every chapter changed (or
+    given a new revision) since `since`, with its last 30 revisions, and the ids of all chapters that still exist."""
+    world, _ = member_world(db, user, slug)
+    now = datetime.now(UTC)
+    project_ids = [p.id for p in world.projects]
+    all_ids = list(db.scalars(select(Chapter.id).where(Chapter.project_id.in_(project_ids)))) if project_ids else []
+    q = select(Chapter).where(Chapter.project_id.in_(project_ids)) if project_ids else None
+    changed: list[Chapter] = []
+    if q is not None:
+        if since is not None:
+            if since.tzinfo is None:
+                since = since.replace(tzinfo=UTC)
+            fresh = select(Revision.doc_id).where(Revision.doc_table == "chapter", Revision.created_at > since)
+            q = q.where(or_(Chapter.updated_at > since, Chapter.id.in_(fresh)))
+        changed = list(db.scalars(q))
+    chapters, revisions = [], []
+    for ch in changed:
+        chapters.append(chapter_detail(db, world, ch).model_dump(mode="json"))
+        for r in db.scalars(select(Revision).where(Revision.doc_table == "chapter", Revision.doc_id == ch.id)
+                            .order_by(Revision.created_at.desc()).limit(LOCAL_REVISIONS)):
+            revisions.append({"id": str(r.id), "chapter_id": str(ch.id), "version": r.version, "title": r.title,
+                              "body": r.body, "reason": r.reason, "label": r.label,
+                              "words": r.meta.get("words", words(r.body)), "created_at": r.created_at.isoformat()})
+    return {"now": now.isoformat(), "chapters": chapters, "revisions": revisions,
+            "chapter_ids": [str(i) for i in all_ids]}
