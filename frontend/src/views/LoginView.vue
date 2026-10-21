@@ -23,8 +23,13 @@ function next(): string {
 }
 
 onMounted(async () => {
-  if (await session.load()) {
-    await router.replace(next());
+  try {
+    if (await session.load()) {
+      await router.replace(next());
+      return;
+    }
+  } catch {
+    error.value = "Quarry can't reach the server, and this device hasn't signed in before. Try again when you're online.";
     return;
   }
   const setup = await get<{ needed: boolean }>("/api/setup").catch(() => null);

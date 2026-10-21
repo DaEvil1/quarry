@@ -49,3 +49,65 @@ export interface Ceremony<T> {
 export function kindLabel(kind: ProjectKind): string {
   return PROJECT_KINDS.find((k) => k.value === kind)?.label ?? kind;
 }
+
+export type ItemKind = "spark" | "question" | "task" | "experiment";
+export type ItemStatus = "open" | "accepted" | "rejected" | "harvested" | "deferred";
+export type CloseStatus = Exclude<ItemStatus, "open">;
+
+export const CAPTURE_KINDS: { value: Exclude<ItemKind, "experiment">; label: string }[] = [
+  { value: "spark", label: "Spark" },
+  { value: "question", label: "Question" },
+  { value: "task", label: "Task" },
+];
+
+export const STATUS_LABELS: Record<ItemStatus, string> = {
+  open: "Open",
+  accepted: "Accepted",
+  rejected: "Rejected",
+  harvested: "Harvested",
+  deferred: "Deferred",
+};
+
+export interface Item {
+  id: string;
+  kind: ItemKind;
+  title: string | null;
+  body: string;
+  status: ItemStatus;
+  project: string | null;
+  source: string | null;
+  closed_note: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface ItemCounts {
+  open: number;
+  deferred: number;
+  open_by_project: Record<string, number>;
+}
+
+export interface Decision {
+  id: string;
+  decided_on: string;
+  text: string;
+  project: string | null;
+  item_id: string | null;
+  created_at: string;
+}
+
+/** "?project=-" on the API: items that belong to the whole world rather than one project. */
+export const WORLD_ONLY = "-";
+
+/** The first line of an item, for lists. */
+export function firstLine(item: Pick<Item, "title" | "body">): string {
+  return item.title || item.body.split("\n", 1)[0];
+}
+
+/** Today in the person's own time zone, as the API's date format. */
+export function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}

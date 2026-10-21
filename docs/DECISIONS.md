@@ -11,3 +11,7 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-21: The code repo is public, so no story content is ever committed; tests use made-up fixtures.
 - 2026-10-21: Deploy like Gauntlet (droplet, host nginx, managed Postgres, image from GHCR), not on Komodo.
 - 2026-10-21: No importer for the Google Doc or the Obsidian vault. Quarry starts empty; after phase 4 the doc is converted by hand into the export layout and loaded with Restore.
+- 2026-10-21: Phase 1 live at quarry.daevil1.com. Passkeys from 1Password don't reach Chrome on Android (Pixel 8, Android 17), so the phone has its own passkey; Quarry needs no change for either.
+- 2026-10-21: Capture's entity tag moves to phase 3, where entities exist. Phase 2 links captures to a project or the whole world only.
+- 2026-10-21: On the phone, tapping an item opens its actions instead of swipe gestures; every close can be undone.
+- 2026-10-21: Offline in phase 2 means new captures and opening the app; the inbox and triage need the network until the local copy in phase 5.

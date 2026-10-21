@@ -32,7 +32,7 @@ Single-user today; the data model leaves room for co-writers later (§7).
 
 ## 3. Data model (Postgres)
 
-All tables carry `created_at` and `updated_at`. Mutable documents also carry `created_by`/`updated_by` (user ids), `version int` for optimistic concurrency and `change_seq bigint` for sync. Rows with a nullable `project_id` belong to the whole world when it is null.
+All tables carry `created_at` and `updated_at`. Mutable documents also carry `created_by`/`updated_by` (user ids), `version int` for optimistic concurrency and `change_seq bigint` for sync. Rows with a nullable `project_id` belong to the whole world when it is null. `change_seq` and `change_log` arrive with the local copy in phase 5; until then the only offline writes are new captures, which carry a client-chosen id so a retried capture is saved once.
 
 ```sql
 users         (id, display_name, created_at)
@@ -115,9 +115,9 @@ Bible pages show:
 
 ### Phone (Android PWA, portrait first)
 
-- **Capture.** This opens by default. It has one big text field, kind chips (spark / question / task), a project chip (defaults to the last used; "world" for ideas not tied to one book) and an entity tag with autocomplete. Save works offline and clears the screen for the next capture.
+- **Capture.** This opens by default (the installed app starts at `/capture`). It has one big text field, kind chips (spark / question / task) and project chips ("Whole world" for ideas not tied to one book); the last choice sticks per world. An entity tag with autocomplete comes with the bible in phase 3. Save works offline: the capture waits on the device (shown as "waiting to sync") and is sent when the connection is back, keeping the time it was written.
 - **Share target.** The app registers as an Android share target (Web Share Target API). Sharing text or a link from a browser, an e-book reader or a chat app opens Capture prefilled, with `source=share:<app>` recorded where available.
-- **Inbox.** Open items, newest first. Swiping closes an item.
+- **Inbox.** Open items, newest first, with Deferred and Closed tabs and a project filter. Tapping an item opens it with Accept / Reject / Harvest / Defer, an optional decision line, edit and move; every close can be undone. Reading the inbox needs the network until phase 5.
 - **Look up.** Search across the world, plus read-only entity and chapter views.
 - **Journal.** Quick dated entries.
 
@@ -180,8 +180,8 @@ quarry/                      # public GitHub repo (code only)
 ## 10. Phases and "done when"
 
 1. **Skeleton.** Repo, CI and image, compose, migrations (with users, worlds and projects), passkey setup and login with recovery codes, creating and switching worlds and projects, and the cockpit-style app shell on desktop and phone. *Done when* Thomas signs in with a passkey on the phone and the desktop and creates a world with a project in it.
-2. **Capture and triage.** The phone Capture screen, share target, Inbox, desk Triage with keyboard closing, Decisions, and the offline outbox. *Done when* a spark shared from Chrome on Android while in airplane mode appears in desk Triage after reconnecting.
-3. **Bible and mentions.** Entity editing, aliases, mentions, near-miss detection, and bible panels. *Done when* a misspelled entity name in a chapter or note is flagged and can be fixed or added as an alias in one action.
+2. **Capture and triage.** The phone Capture screen, share target, Inbox, desk Triage with keyboard closing (oldest first; `a` `r` `h` `d`, `e` edit, `p` project, `1`–`3` kind, `j`/`k`, `u` undo), Decisions, the offline outbox, and an app shell that opens without a network. *Done when* a spark shared from Chrome on Android while in airplane mode appears in desk Triage after reconnecting.
+3. **Bible and mentions.** Entity editing, aliases, mentions, near-miss detection, bible panels, `item_links`, and the entity tag on Capture. *Done when* a misspelled entity name in a chapter or note is flagged and can be fixed or added as an alias in one action.
 4. **Manuscript, editor, export and restore.** CodeMirror editor, autosave/revision rules, History with diffs, chapter ordering, POV tally, experiments and salvage, plus the export zip and Restore. *Done when* a full chapter rewrite via an experiment can be accepted, with the old version in Salvage and a harvest note attached, and exporting a world then restoring the zip into an empty database reproduces it.
    **Then the move:** the existing material comes in (§8) and writing moves into Quarry.
 5. **Local history.** The 30-revision local cache with `storage.persist()`, and History that works offline. *Done when* the last 30 revisions of a chapter can be browsed and restored on the phone in airplane mode.

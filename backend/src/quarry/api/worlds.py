@@ -131,7 +131,8 @@ def _my_worlds(db: Session, user: User) -> list[WorldOut]:
     return [_world_out(w, role) for w, role in rows]
 
 
-def _world(db: Session, user: User, slug: str) -> tuple[World, str]:
+def member_world(db: Session, user: User, slug: str) -> tuple[World, str]:
+    """The world with this address, if the user is a member of it (404 otherwise), and their role."""
     row = db.execute(
         select(World, WorldMember.role)
         .join(WorldMember, WorldMember.world_id == World.id)
@@ -187,14 +188,14 @@ def create_world(body: WorldIn, user: User = Depends(current_user), db: Session 
 
 @router.get("/worlds/{slug}")
 def get_world(slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> WorldOut:
-    w, role = _world(db, user, slug)
+    w, role = member_world(db, user, slug)
     return _world_out(w, role)
 
 
 @router.patch("/worlds/{slug}")
 def update_world(slug: str, body: WorldUpdate, user: User = Depends(current_user),
                  db: Session = Depends(get_db)) -> WorldOut:
-    w, role = _world(db, user, slug)
+    w, role = member_world(db, user, slug)
     if body.name is not None:
         w.name = _clean_name(body.name)
     if body.slug is not None:
@@ -213,7 +214,7 @@ def update_world(slug: str, body: WorldUpdate, user: User = Depends(current_user
 @router.post("/worlds/{slug}/projects", status_code=201)
 def create_project(slug: str, body: ProjectIn, user: User = Depends(current_user),
                    db: Session = Depends(get_db)) -> ProjectOut:
-    w, _ = _world(db, user, slug)
+    w, _ = member_world(db, user, slug)
     name = _clean_name(body.name)
     taken = {p.slug for p in w.projects}
     position = max((p.position for p in w.projects), default=-1) + 1
@@ -227,7 +228,7 @@ def create_project(slug: str, body: ProjectIn, user: User = Depends(current_user
 @router.patch("/worlds/{slug}/projects/{project_slug}")
 def update_project(slug: str, project_slug: str, body: ProjectUpdate, user: User = Depends(current_user),
                    db: Session = Depends(get_db)) -> ProjectOut:
-    w, _ = _world(db, user, slug)
+    w, _ = member_world(db, user, slug)
     p = _project(w, project_slug)
     if body.name is not None:
         p.name = _clean_name(body.name)
@@ -246,7 +247,7 @@ def update_project(slug: str, project_slug: str, body: ProjectUpdate, user: User
 @router.put("/worlds/{slug}/project-order")
 def reorder_projects(slug: str, body: ProjectOrder, user: User = Depends(current_user),
                      db: Session = Depends(get_db)) -> list[ProjectOut]:
-    w, _ = _world(db, user, slug)
+    w, _ = member_world(db, user, slug)
     by_id = {p.id: p for p in w.projects}
     if len(body.ids) != len(by_id) or set(body.ids) != set(by_id):
         raise HTTPException(422, "Send every project in the world exactly once.")

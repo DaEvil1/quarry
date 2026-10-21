@@ -6,16 +6,18 @@ Ids are UUIDs so that later phases can create rows on an offline phone and sync 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     ARRAY,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
     LargeBinary,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -25,6 +27,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 PROJECT_KINDS = ("novel", "novella", "short", "other")
 MEMBER_ROLES = ("owner",)
 CHALLENGE_PURPOSES = ("setup", "login", "add_passkey")
+# "experiment" items arrive with the editor (phase 4); the column accepts them already
+ITEM_KINDS = ("spark", "question", "task", "experiment")
+ITEM_STATUSES = ("open", "accepted", "rejected", "harvested", "deferred")
 
 
 class Base(DeclarativeBase):
@@ -152,3 +157,49 @@ class AuthChallenge(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Item(Base):
+    """Anything that needs attention: a spark, a question, a task. Belongs to a world, and to a project or not."""
+
+    __tablename__ = "items"
+    __table_args__ = (
+        CheckConstraint(_in("kind", ITEM_KINDS), name="ck_items_kind"),
+        CheckConstraint(_in("status", ITEM_STATUSES), name="ck_items_status"),
+    )
+
+    # chosen by the client when it captures, so a capture replayed from an offline phone is not saved twice
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="spark")
+    title: Mapped[str | None] = mapped_column(String(300))
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    closed_note: Mapped[str | None] = mapped_column(Text)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # where it came from: "phone", "desk", "share"
+    source: Mapped[str | None] = mapped_column(String(40))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # when it was captured (an offline capture keeps its own time, not the time it synced)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()
+
+
+class Decision(Base):
+    """A dated one-line verdict, optionally tied to the item it closed."""
+
+    __tablename__ = "decisions"
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), index=True)
+    decided_on: Mapped[date] = mapped_column(Date, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"))
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()

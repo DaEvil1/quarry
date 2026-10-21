@@ -3,10 +3,13 @@ import { computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { readLastUsed, writeLastUsed } from "../lastUsed";
+import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
+import Icon from "./Icon.vue";
 import WorldSwitcher from "./WorldSwitcher.vue";
 
 const session = useSession();
+const outbox = useOutbox();
 const route = useRoute();
 const router = useRouter();
 
@@ -27,10 +30,26 @@ watch(
   { immediate: true },
 );
 
-const worldLink = computed(() => (world.value ? { name: "world", params: { world: world.value.slug } } : { name: "home" }));
-const onWorldTab = computed(() => route.name === "world" || route.name === "project" || route.name === "new-world");
+// the inbox count in the nav follows the world on screen, and catches up when captures sync
+watch(world, (w) => w && session.refreshCounts(w.slug), { immediate: true });
+watch(
+  () => outbox.waiting,
+  (now, before) => {
+    if (world.value && now < before) void session.refreshCounts(world.value.slug);
+  },
+);
+const openCount = computed(() =>
+  world.value && session.counts?.world === world.value.slug ? session.counts.open : null,
+);
+
+const to = (name: string) => (world.value ? { name, params: { world: world.value.slug } } : { name: "home" });
+const tabActive = (...names: string[]) => names.includes(String(route.name));
+const offline = computed(() => !outbox.online || session.offline);
 
 async function signOut() {
+  if (outbox.waiting && !confirm(`${outbox.waiting} capture(s) haven't synced yet and stay on this device. Sign out anyway?`)) {
+    return;
+  }
   await session.signOut();
   await router.push("/login");
 }
@@ -43,8 +62,21 @@ async function signOut() {
       <WorldSwitcher :worlds="session.worlds" :current="world" />
       <nav>
         <template v-if="world">
-          <RouterLink :to="{ name: 'world', params: { world: world.slug } }">
-            <span class="ico" aria-hidden="true">◇</span><span>Overview</span>
+          <RouterLink :to="to('world')">
+            <Icon name="world" /><span>Overview</span>
+          </RouterLink>
+          <RouterLink :to="to('capture')">
+            <Icon name="capture" /><span>Capture</span>
+          </RouterLink>
+          <RouterLink :to="to('inbox')" data-testid="nav-inbox">
+            <Icon name="inbox" /><span>Inbox</span>
+            <span v-if="openCount" class="badge">{{ openCount }}</span>
+          </RouterLink>
+          <RouterLink :to="to('triage')">
+            <Icon name="triage" /><span>Triage</span>
+          </RouterLink>
+          <RouterLink :to="to('decisions')">
+            <Icon name="decisions" /><span>Decisions</span>
           </RouterLink>
           <div class="nav-title">Projects</div>
           <RouterLink
@@ -52,13 +84,16 @@ async function signOut() {
             :key="p.id"
             :to="{ name: 'project', params: { world: world.slug, project: p.slug } }"
           >
-            <span class="ico" aria-hidden="true">▤</span><span>{{ p.name }}</span>
+            <Icon name="project" /><span>{{ p.name }}</span>
+            <span v-if="session.counts?.world === world.slug && session.counts.open_by_project[p.slug]" class="badge dim">
+              {{ session.counts.open_by_project[p.slug] }}
+            </span>
           </RouterLink>
           <p v-if="!world.projects.length" class="nav-empty">No projects yet</p>
         </template>
       </nav>
       <div class="nav-foot">
-        <RouterLink :to="{ name: 'settings' }" data-testid="nav-settings">⚙ {{ session.user?.display_name }}</RouterLink>
+        <RouterLink :to="{ name: 'settings' }" data-testid="nav-settings"><Icon name="settings" /> {{ session.user?.display_name }}</RouterLink>
         <button type="button" class="linkish" @click="signOut">Sign out</button>
       </div>
     </aside>
@@ -69,15 +104,29 @@ async function signOut() {
     </header>
 
     <main>
+      <div v-if="offline" class="notice offline" role="status" data-testid="offline">
+        Offline. Captures are kept on this device and sync when you're back.
+        <template v-if="outbox.waiting"> {{ outbox.waiting }} waiting.</template>
+      </div>
+      <div v-else-if="outbox.needsSignIn" class="notice warn" role="status">
+        Sign in again to send {{ outbox.waiting }} capture(s) saved on this device.
+        <RouterLink to="/login">Sign in</RouterLink>
+      </div>
       <RouterView />
     </main>
 
     <nav class="tabbar" aria-label="Sections">
-      <RouterLink :to="worldLink" :class="{ active: onWorldTab }">
-        <span class="ico" aria-hidden="true">◇</span>World
+      <RouterLink :to="to('capture')" :class="{ active: tabActive('capture') }">
+        <Icon name="capture" />Capture
       </RouterLink>
-      <RouterLink :to="{ name: 'settings' }" :class="{ active: route.name === 'settings' }">
-        <span class="ico" aria-hidden="true">⚙</span>Settings
+      <RouterLink :to="to('inbox')" :class="{ active: tabActive('inbox', 'triage', 'decisions') }">
+        <Icon name="inbox" />Inbox<span v-if="openCount" class="tab-badge">{{ openCount }}</span>
+      </RouterLink>
+      <RouterLink :to="to('world')" :class="{ active: tabActive('world', 'project', 'new-world') }">
+        <Icon name="world" />World
+      </RouterLink>
+      <RouterLink :to="{ name: 'settings' }" :class="{ active: tabActive('settings') }">
+        <Icon name="settings" />Settings
       </RouterLink>
     </nav>
   </div>

@@ -65,3 +65,16 @@ describe("lastUsed", () => {
     expect(readLastUsed()).toEqual({ world: undefined, project: undefined });
   });
 });
+
+describe("homeTarget on a phone", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    localStorage.clear();
+  });
+
+  it("opens capture in the last world", () => {
+    useSession().me = { user: { id: "u", display_name: "W" }, worlds: [world("alpha"), world("beta", ["book"])] };
+    writeLastUsed({ world: "beta", project: "book" });
+    expect(homeTarget(true)).toEqual({ name: "capture", params: { world: "beta" } });
+  });
+});

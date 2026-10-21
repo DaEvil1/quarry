@@ -26,28 +26,20 @@ Quarry creates its tables at startup and keeps at most 5 connections.
 
 `.github/workflows/ci.yml` pushes `ghcr.io/daevil1/quarry:latest` after the tests pass on `master`.
 
-* The repository is public, so the package can be public too: on GitHub, **your profile › Packages › quarry ›
-  Package settings › Change visibility › Public**. Then the droplet pulls without logging in.
-* If you keep the package private, log in on the droplet once with a classic token that has only
-  `read:packages`: `docker login ghcr.io -u DaEvil1`.
+The package inherits the repository's visibility, so it is public and the droplet pulls it without logging in.
+(If it were ever private: log in once on the droplet with a classic token that has only `read:packages`,
+`docker login ghcr.io -u DaEvil1`.)
 
 ## 3. The app (on the droplet)
 
-From the repo checkout on your PC:
+The repository is public, so the droplet fetches the three files itself. On the droplet (`ssh root@usjibush.com`):
 
 ```bash
-ssh droplet "sudo mkdir -p /srv/quarry && sudo chown \$USER /srv/quarry"
-scp deploy/compose.yaml droplet:/srv/quarry/compose.yaml
-scp deploy/quarry.env.example droplet:/srv/quarry/quarry.env
-scp deploy/nginx-quarry.conf droplet:/srv/quarry/nginx-quarry.conf
-```
-
-On the droplet:
-
-```bash
-cd /srv/quarry
-echo "QUARRY_IMAGE=ghcr.io/daevil1/quarry:latest" > .env
-chmod 600 quarry.env
+mkdir -p /srv/quarry && cd /srv/quarry
+curl -fsSLO https://raw.githubusercontent.com/DaEvil1/quarry/master/deploy/compose.yaml
+curl -fsSL https://raw.githubusercontent.com/DaEvil1/quarry/master/deploy/quarry.env.example -o quarry.env
+curl -fsSLO https://raw.githubusercontent.com/DaEvil1/quarry/master/deploy/nginx-quarry.conf
+echo "QUARRY_IMAGE=ghcr.io/daevil1/quarry:latest" > .env && chmod 600 quarry.env
 ```
 
 Fill in `quarry.env`:
@@ -56,17 +48,20 @@ Fill in `quarry.env`:
 |---|---|
 | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGSSLMODE=require` | from step 1 (or one `QUARRY_DATABASE_URL`) |
 | `QUARRY_BASE_URL` | `https://quarry.daevil1.com` |
-| `QUARRY_SETUP_TOKEN` | output of `python3 -c "import secrets; print(secrets.token_urlsafe(24))"` |
+| `QUARRY_SETUP_TOKEN` | output of `openssl rand -hex 24` (keep it in your password manager until setup is done) |
 
 ```bash
 docker compose up -d
-docker compose logs -f app          # "Application startup complete", then Ctrl+C
+docker compose logs -f app          # "Application startup complete", then Ctrl+C (the container keeps running)
 curl -s http://127.0.0.1:8091/healthz     # ok
 ```
 
 ## 4. DNS and HTTPS
 
-1. Domeneshop › daevil1.com › DNS: an `A` record `quarry` pointing at the droplet (skip if a wildcard exists).
+1. Domeneshop › **Mine domener › daevil1.com › DNS-pekere**: write `quarry` on the left of `.daevil1.com`, the
+   droplet's IP (`167.99.83.56`) on the right, and press **+**. There is no wildcard record and no `AAAA` (the
+   droplet isn't serving IPv6), so only this `A` record is needed. It answers within minutes:
+   `nslookup quarry.daevil1.com`.
 2. On the droplet:
 
 ```bash
@@ -86,10 +81,16 @@ match.
    or a security key).
 3. Save the ten recovery codes somewhere that is not this computer.
 4. Create the first world.
-5. On the Android phone: open the same address in Chrome and sign in. Chrome offers your phone, or a passkey
-   saved in Google Password Manager. If the desktop's passkey isn't available on the phone, sign in with a
-   recovery code there, then **Settings › Add passkey** on the phone. Afterwards, Chrome's menu ›
-   **Add to home screen** installs Quarry as an app.
+5. On the Android phone, open the same address in Chrome and give the phone a passkey of its own:
+   * A passkey in Windows Hello can't be used from the phone. The QR code in a passkey prompt only works the
+     other way round: a computer shows it, and a phone scans it to act as the computer's passkey.
+   * A passkey in 1Password should sync to the phone, but Chrome on Android didn't offer it (Pixel 8,
+     Android 17, Chrome set to "Autofill using another service": it still went straight to Google Password
+     Manager). Webauthn.io behaved the same, so it is not something Quarry can fix.
+   * What works: **Lost your passkey?** → a recovery code → **Settings › Add passkey**. Chrome saves it in
+     Google Password Manager. Then **Make new codes** if you want the full ten again.
+   * Chrome's menu › **Add to home screen** installs Quarry. It opens on Capture, and appears in Android's share
+     sheet.
 
 Once set up, `QUARRY_SETUP_TOKEN` is ignored; you may remove it from `quarry.env`.
 
