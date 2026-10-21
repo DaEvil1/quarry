@@ -1,0 +1,9 @@
+.git
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/node_modules
+frontend/dist
+e2e/test-results
+e2e/playwright-report
+*.egg-info

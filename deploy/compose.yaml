@@ -1,0 +1,20 @@
+# Production on a single server: the app only (the database is the DigitalOcean managed PostgreSQL).
+# The image comes from ghcr.io (GitHub Actions builds it on master), so the server never builds anything.
+# On the server this file lives as /srv/quarry/compose.yaml next to quarry.env and .env (docs/deploy.md):
+#   docker compose up -d                          # start
+#   docker compose pull && docker compose up -d   # update to the latest master
+# nginx on the host proxies the Quarry domain to 127.0.0.1:8091 (see nginx-quarry.conf).
+services:
+  app:
+    # set in .env: QUARRY_IMAGE=ghcr.io/daevil1/quarry:latest
+    image: ${QUARRY_IMAGE:?set QUARRY_IMAGE in .env}
+    restart: unless-stopped
+    env_file: quarry.env
+    ports:
+      - "127.0.0.1:8091:8000"
+    # one worker and a small pool, next to the droplet's other apps
+    mem_limit: 256m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }

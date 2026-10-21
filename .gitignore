@@ -31,3 +31,8 @@ coverage/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Build and test output
+/backend/src/quarry/web/
+/frontend/test-results/
+/frontend/playwright-report/

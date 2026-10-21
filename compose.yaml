@@ -1,0 +1,32 @@
+# Local stack: the app plus its own PostgreSQL, built from this checkout.
+#   docker compose up -d --build   -> http://localhost:8766  (setup token: local-setup-token)
+# Passkeys work on http://localhost without HTTPS; use "localhost", not 127.0.0.1.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: quarry
+      POSTGRES_PASSWORD: quarry
+      POSTGRES_DB: quarry
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quarry"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      QUARRY_DATABASE_URL: postgresql://quarry:quarry@db:5432/quarry
+      QUARRY_BASE_URL: http://localhost:8766
+      QUARRY_SETUP_TOKEN: local-setup-token
+    ports:
+      - "127.0.0.1:8766:8000"
+
+volumes:
+  pgdata:
