@@ -10,3 +10,4 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-21: A users table from day one (single user for now), because co-writing is a real possibility.
 - 2026-10-21: The code repo is public, so no story content is ever committed; tests use made-up fixtures.
 - 2026-10-21: Deploy like Gauntlet (droplet, host nginx, managed Postgres, image from GHCR), not on Komodo.
+- 2026-10-21: No importer for the Google Doc or the Obsidian vault. Quarry starts empty; after phase 4 the doc is converted by hand into the export layout and loaded with Restore.

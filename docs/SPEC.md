@@ -12,7 +12,7 @@ Single-user today; the data model leaves room for co-writers later (§7).
 4. **Writing never waits for the tool.** Each build phase is usable on its own. Prose can stay in other tools until the editor lands.
 5. **Plain Markdown everywhere.** Prose, notes and bible entries are Markdown strings, so export is lossless.
 6. **Cheap habits only.** Every ritual (status, decision line, harvest note) must take seconds, not minutes.
-7. **No story content in this repo.** The code repo is public. Manuscripts, bible text and the imported vault live only in the database and in exports. Tests use made-up fixtures.
+7. **No story content in this repo.** The code repo is public. Manuscripts, bible text and planning live only in the database and in exports. Tests use made-up fixtures.
 
 ## 2. Vocabulary
 
@@ -152,7 +152,8 @@ Bible pages show:
 
 - **Backups.** The Postgres server's own backups are the disaster-recovery path. Every revision lives in the database, so restoring the database restores the full history.
 - **Export now.** Downloads a zip in the same layout as the Obsidian vault, one folder per world: `Bible/Characters`, `Bible/World`, `Journal/`, `Decisions.md`, and per project `Manuscript/`, `Planning/` (items) and `Old chapters & backstory/`, with YAML frontmatter carrying ids, status, links and aliases. Each project also gets a compiled `manuscript.md`.
-- **Import.** Imports a vault zip into a world and project chosen at import time (for the first run: the existing world and its novel). Chapters come in Longform order; glossary and character notes become entities; planning notes become items with `status=open`; old chapters become retired chapters. The importer is idempotent, keyed on file path.
+- **Restore.** Imports an export zip into an empty world (or a new world), recreating worlds, projects, chapters, entities, items, journal, decisions and harvest notes from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats.
+- **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
 
 ## 9. Tech stack, deploy and repo
@@ -177,11 +178,12 @@ quarry/                      # public GitHub repo (code only)
 
 ## 10. Phases and "done when"
 
-1. **Skeleton and import.** Repo, compose, migrations (with users, worlds and projects), passkey login, vault import into a world and project, read-only browsing of chapters, entities and items. *Done when* all eleven chapters and every bible note are browsable behind a passkey on the phone and the desktop.
+1. **Skeleton.** Repo, CI and image, compose, migrations (with users, worlds and projects), passkey setup and login with recovery codes, creating and switching worlds and projects, and the cockpit-style app shell on desktop and phone. *Done when* Thomas signs in with a passkey on the phone and the desktop and creates a world with a project in it.
 2. **Capture and triage.** The phone Capture screen, share target, Inbox, desk Triage with keyboard closing, Decisions, and the offline outbox. *Done when* a spark shared from Chrome on Android while in airplane mode appears in desk Triage after reconnecting.
-3. **Bible and mentions.** Entity editing, aliases, mentions, near-miss detection, and bible panels. *Done when* the known misspellings in the imported material (listed in Thomas's private notes, not in this repo) are flagged.
-4. **Manuscript and editor.** CodeMirror editor, autosave/revision rules, History with diffs, chapter ordering, POV tally, experiments and salvage. *Done when* a full chapter rewrite via an experiment can be accepted, with the old version in Salvage and a harvest note attached.
-5. **Export and local history.** The export zip and the 30-revision local cache with `storage.persist()`. *Done when* exporting a world and importing the zip into an empty database reproduces it.
+3. **Bible and mentions.** Entity editing, aliases, mentions, near-miss detection, and bible panels. *Done when* a misspelled entity name in a chapter or note is flagged and can be fixed or added as an alias in one action.
+4. **Manuscript, editor, export and restore.** CodeMirror editor, autosave/revision rules, History with diffs, chapter ordering, POV tally, experiments and salvage, plus the export zip and Restore. *Done when* a full chapter rewrite via an experiment can be accepted, with the old version in Salvage and a harvest note attached, and exporting a world then restoring the zip into an empty database reproduces it.
+   **Then the move:** the existing material comes in (§8) and writing moves into Quarry.
+5. **Local history.** The 30-revision local cache with `storage.persist()`, and History that works offline. *Done when* the last 30 revisions of a chapter can be browsed and restored on the phone in airplane mode.
 
 **Standing rule:** if two weeks pass without new story words, building pauses.
 
