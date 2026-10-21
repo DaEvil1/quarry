@@ -4,7 +4,7 @@
 
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
-import { STATE_FILE } from "./state";
+import { STATE_FILE, waitForServiceWorker } from "./state";
 
 test.describe.configure({ mode: "serial" });
 
@@ -52,12 +52,10 @@ test("online: write, keep two checkpoints, sync the offline copy", async () => {
   const offline = page.getByTestId("offline-settings");
   await offline.getByRole("button", { name: "Sync now" }).click();
   await expect(offline).toContainText("Synced.");
-  await expect(offline).toContainText(/\d+ chapters and their last \d+ snapshots/);
+  await expect(offline).toContainText(/\d+ chapters and \d+ snapshots \(up to the last 30 of each\)/);
 
   // the app must be installed (the service worker in control) before the network goes away
-  await page.waitForFunction(async () => !!(await navigator.serviceWorker.getRegistration())?.active, null, { timeout: 15_000 });
-  await page.reload();
-  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  await waitForServiceWorker(page);
 });
 
 test("airplane mode: the chapter list and the chapter open from the device", async () => {

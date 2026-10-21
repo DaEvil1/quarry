@@ -256,15 +256,9 @@ async function fixNearMiss(kind: "replace" | "spelling" | "ignore") {
 
 // ---- side panel actions ----
 async function setPov(id: string) {
-  if (!chapter.value) return;
+  // through the save queue, so it can't race the autosave of the text
+  saver?.edit({ pov_entity_id: id || null });
   await saver?.flush();
-  try {
-    const ch = await saveChapter(worldSlug.value, chapter.value.id, chapter.value.version, { pov_entity_id: id || null });
-    chapter.value = { ...ch, body: prose.value?.view.state.doc.toString() ?? ch.body };
-    saver?.rebase(ch);
-  } catch (e) {
-    error.value = (e as Error).message;
-  }
 }
 
 async function restore(revisionId: string, body: string) {

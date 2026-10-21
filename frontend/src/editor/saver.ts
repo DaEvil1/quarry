@@ -17,8 +17,15 @@ export const RETRY_MS = 10_000;
 
 export type SaveStatus = "saved" | "unsaved" | "saving" | "offline" | "conflict";
 
+/** What can change in a chapter from the editor page; every save goes through the same queue. */
+export interface Changes {
+  title?: string;
+  body?: string;
+  pov_entity_id?: string | null;
+}
+
 export interface SaverDeps {
-  save(baseVersion: number, changes: { title?: string; body?: string }): Promise<Chapter>;
+  save(baseVersion: number, changes: Changes): Promise<Chapter>;
   snapshot(reason: "autosnap" | "checkpoint" | "conflict", extra?: { label?: string; body?: string }): Promise<unknown>;
   now(): number;
 }
@@ -32,7 +39,7 @@ export interface SaverHooks {
 
 export class ChapterSaver {
   private version: number;
-  private pending: { title?: string; body?: string } = {};
+  private pending: Changes = {};
   private inFlight: Promise<void> | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -58,8 +65,8 @@ export class ChapterSaver {
     return Object.keys(this.pending).length > 0;
   }
 
-  /** The text or title changed in the editor. */
-  edit(changes: { title?: string; body?: string }): void {
+  /** The text, title or point of view changed on the editor page. */
+  edit(changes: Changes): void {
     if (this.closed) return;
     this.pending = { ...this.pending, ...changes };
     this.editedSinceSnapshot = true;
@@ -88,7 +95,8 @@ export class ChapterSaver {
       } catch (e) {
         const sameText = e instanceof ChapterConflict &&
           (sending.body === undefined || sending.body === e.current.body) &&
-          (sending.title === undefined || sending.title === e.current.title);
+          (sending.title === undefined || sending.title === e.current.title) &&
+          (sending.pov_entity_id === undefined || sending.pov_entity_id === (e.current.pov?.id ?? null));
         if (sameText) {
           // the earlier try did reach the server; only its answer was lost (signal dropped mid-save)
           const current = (e as ChapterConflict).current;

@@ -215,7 +215,7 @@ onMounted(() => Promise.all([loadKeys(), loadCodes(), loadOffline()]));
       <span class="muted small">{{ offlineWorld.name }}</span>
     </div>
     <p v-if="offline" class="small">
-      {{ offline.chapters }} chapters and their last {{ offline.revisions }} snapshots on this device · synced {{ when(offline.synced) }}
+      {{ offline.chapters }} chapters and {{ offline.revisions }} snapshots (up to the last 30 of each) on this device · synced {{ when(offline.synced) }}
       <br />
       <span class="muted">
         Storage: {{ offline.persisted ? "kept by the browser" : "may be cleared when space runs low (install the app to keep it)" }} ·
