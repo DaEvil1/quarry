@@ -14,11 +14,12 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Decision, Item, Project, User, World
+from ..mentions import refresh_source
+from ..models import Decision, Entity, Item, ItemLink, Mention, Project, User, World
 from .deps import current_user
 from .worlds import member_world
 
@@ -35,6 +36,21 @@ CLOCK_SKEW = timedelta(minutes=5)
 WORLD_ONLY = "-"
 
 
+class EntityRef(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: str
+
+
+class MentionOut(BaseModel):
+    entity_id: uuid.UUID
+    entity_name: str
+    start: int
+    end: int
+    matched_text: str
+    kind: str
+
+
 class ItemOut(BaseModel):
     id: uuid.UUID
     kind: str
@@ -48,6 +64,10 @@ class ItemOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     version: int
+    # bible entries the item is tagged with
+    entities: list[EntityRef] = []
+    # names (and near misses of names) found in the body
+    mentions: list[MentionOut] = []
 
 
 class ItemIn(BaseModel):
@@ -58,6 +78,12 @@ class ItemIn(BaseModel):
     project: str | None = None
     source: str | None = Field(default=None, max_length=40)
     captured_at: datetime | None = None
+    # bible entries to tag it with (unknown ones are skipped: the phone's list may be older)
+    entities: list[uuid.UUID] = Field(default_factory=list, max_length=50)
+
+
+class LinkIn(BaseModel):
+    entity_id: uuid.UUID
 
 
 class ItemUpdate(BaseModel):
@@ -92,12 +118,38 @@ def project_by_slug(world: World, slug: str | None) -> Project | None:
     raise HTTPException(422, "No such project in this world.")
 
 
-def item_out(item: Item, world: World) -> ItemOut:
+def item_out(item: Item, world: World, entities: list[EntityRef] | None = None,
+             mentions: list[MentionOut] | None = None) -> ItemOut:
     slugs = {p.id: p.slug for p in world.projects}
     return ItemOut(id=item.id, kind=item.kind, title=item.title, body=item.body, status=item.status,
                    project=slugs.get(item.project_id) if item.project_id else None, source=item.source,
                    closed_note=item.closed_note, closed_at=item.closed_at, created_at=item.created_at,
-                   updated_at=item.updated_at, version=item.version)
+                   updated_at=item.updated_at, version=item.version, entities=entities or [],
+                   mentions=mentions or [])
+
+
+def items_out(db: Session, world: World, items: list[Item]) -> list[ItemOut]:
+    """Items with their tags and mentions, in two queries for the whole list."""
+    ids = [i.id for i in items]
+    tags: dict[uuid.UUID, list[EntityRef]] = {i: [] for i in ids}
+    found: dict[uuid.UUID, list[MentionOut]] = {i: [] for i in ids}
+    if ids:
+        for item_id, e in db.execute(
+            select(ItemLink.item_id, Entity).join(Entity, Entity.id == ItemLink.target_id)
+            .where(ItemLink.item_id.in_(ids), ItemLink.target_table == "entity").order_by(Entity.name)
+        ).all():
+            tags[item_id].append(EntityRef(id=e.id, name=e.name, kind=e.kind))
+        for m, name in db.execute(
+            select(Mention, Entity.name).join(Entity, Entity.id == Mention.entity_id)
+            .where(Mention.source_table == "item", Mention.source_id.in_(ids)).order_by(Mention.start)
+        ).all():
+            found[m.source_id].append(MentionOut(entity_id=m.entity_id, entity_name=name, start=m.start, end=m.end,
+                                                 matched_text=m.matched_text, kind=m.kind))
+    return [item_out(i, world, tags[i.id], found[i.id]) for i in items]
+
+
+def one_out(db: Session, world: World, item: Item) -> ItemOut:
+    return items_out(db, world, [item])[0]
 
 
 def _item(db: Session, world: World, item_id: uuid.UUID) -> Item:
@@ -147,7 +199,7 @@ def list_items(slug: str, status: StatusFilter = "open", project: str | None = N
         q = q.order_by(Item.created_at, Item.id)
     else:
         q = q.order_by(Item.created_at.desc(), Item.id)
-    return [item_out(i, world) for i in db.scalars(q.limit(limit))]
+    return items_out(db, world, list(db.scalars(q.limit(limit))))
 
 
 @router.get("/items/counts")
@@ -177,7 +229,7 @@ def create_item(slug: str, body: ItemIn, user: User = Depends(current_user), db:
             if existing.world_id != world.id or existing.created_by != user.id:
                 raise HTTPException(409, "That id is already taken.")
             # the same capture sent again (an offline phone retrying): already saved
-            return JSONResponse(status_code=200, content=item_out(existing, world).model_dump(mode="json"))
+            return JSONResponse(status_code=200, content=one_out(db, world, existing).model_dump(mode="json"))
     project = project_by_slug(world, body.project)
     now = datetime.now(UTC)
     captured = body.captured_at
@@ -189,15 +241,21 @@ def create_item(slug: str, body: ItemIn, user: User = Depends(current_user), db:
                 kind=body.kind, title=(body.title or "").strip() or None, body=_clean_body(body.body),
                 source=body.source, created_by=user.id, updated_by=user.id, created_at=captured)
     db.add(item)
+    db.flush()
+    if body.entities:
+        known = set(db.scalars(select(Entity.id).where(Entity.world_id == world.id, Entity.id.in_(body.entities))))
+        db.add_all(ItemLink(item_id=item.id, target_table="entity", target_id=e) for e in dict.fromkeys(body.entities)
+                   if e in known)
+    refresh_source(db, world.id, "item", item.id, item.body)
     db.commit()
-    return item_out(item, world)
+    return one_out(db, world, item)
 
 
 @router.get("/items/{item_id}")
 def get_item(slug: str, item_id: uuid.UUID, user: User = Depends(current_user),
              db: Session = Depends(get_db)) -> ItemOut:
     world, _ = member_world(db, user, slug)
-    return item_out(_item(db, world, item_id), world)
+    return one_out(db, world, _item(db, world, item_id))
 
 
 @router.patch("/items/{item_id}")
@@ -218,8 +276,37 @@ def update_item(slug: str, item_id: uuid.UUID, body: ItemUpdate, user: User = De
         item.project_id = p.id if p else None
     item.version += 1
     item.updated_by = user.id
+    db.flush()
+    if body.body is not None:
+        refresh_source(db, world.id, "item", item.id, item.body)
     db.commit()
-    return item_out(item, world)
+    return one_out(db, world, item)
+
+
+@router.post("/items/{item_id}/links", status_code=201)
+def link_item(slug: str, item_id: uuid.UUID, body: LinkIn, user: User = Depends(current_user),
+              db: Session = Depends(get_db)) -> ItemOut:
+    """Tag an item with a bible entry."""
+    world, _ = member_world(db, user, slug)
+    item = _item(db, world, item_id)
+    e = db.get(Entity, body.entity_id)
+    if e is None or e.world_id != world.id:
+        raise HTTPException(422, "No such entry in this world's bible.")
+    if db.get(ItemLink, (item.id, "entity", e.id)) is None:
+        db.add(ItemLink(item_id=item.id, target_table="entity", target_id=e.id))
+        db.commit()
+    return one_out(db, world, item)
+
+
+@router.delete("/items/{item_id}/links/{entity_id}")
+def unlink_item(slug: str, item_id: uuid.UUID, entity_id: uuid.UUID, user: User = Depends(current_user),
+                db: Session = Depends(get_db)) -> ItemOut:
+    world, _ = member_world(db, user, slug)
+    item = _item(db, world, item_id)
+    db.execute(delete(ItemLink).where(ItemLink.item_id == item.id, ItemLink.target_table == "entity",
+                                      ItemLink.target_id == entity_id))
+    db.commit()
+    return one_out(db, world, item)
 
 
 @router.post("/items/{item_id}/close")
@@ -243,9 +330,10 @@ def close_item(slug: str, item_id: uuid.UUID, body: CloseIn, user: User = Depend
                      text=text, item_id=item.id, created_by=user.id, updated_by=user.id)
         db.add(d)
         db.flush()
+        refresh_source(db, world.id, "decision", d.id, d.text)
         decision_id = d.id
     db.commit()
-    return CloseOut(item=item_out(item, world), decision_id=decision_id)
+    return CloseOut(item=one_out(db, world, item), decision_id=decision_id)
 
 
 @router.post("/items/{item_id}/reopen")
@@ -260,4 +348,4 @@ def reopen_item(slug: str, item_id: uuid.UUID, user: User = Depends(current_user
         item.version += 1
         item.updated_by = user.id
         db.commit()
-    return item_out(item, world)
+    return one_out(db, world, item)

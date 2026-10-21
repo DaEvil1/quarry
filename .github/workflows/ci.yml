@@ -58,6 +58,7 @@ jobs:
           QUARRY_DATABASE_URL: postgresql://quarry:quarry@localhost:5432/quarry_e2e
           QUARRY_BASE_URL: http://localhost:8767
           QUARRY_SETUP_TOKEN: e2e-setup-token
+          QUARRY_AUTH_RATE_LIMIT: "1000"
           QUARRY_PORT: "8767"
           PGPASSWORD: quarry
         run: |

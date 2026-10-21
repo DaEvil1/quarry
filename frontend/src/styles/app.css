@@ -73,6 +73,7 @@ p { margin: 0 0 10px; }
 .small { font-size: 12.5px; }
 .prose { font-family: var(--prose); font-size: 17px; line-height: 1.6; max-width: 70ch; }
 .spacer { flex: 1; }
+.grow { flex: 1; min-width: 0; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* shell ---------------------------------------------------------------------------------------------------------- */
@@ -273,3 +274,46 @@ button.item-head:hover { background: var(--surface-2); }
 .triage-help { margin: 14px 0 0; }
 .triage-done { max-width: 820px; text-align: center; padding: 32px; }
 kbd { font-family: var(--mono); font-size: 11px; padding: 0 4px; border-radius: 3px; border: 1px solid currentColor; opacity: .75; margin-right: 2px; }
+
+/* bible: mentions, near misses, tags ------------------------------------------------------------------------------ */
+
+.mention { color: inherit; text-decoration: underline dotted color-mix(in srgb, var(--accent) 60%, transparent); text-underline-offset: 3px; }
+.mention:visited { color: inherit; }
+.mention:hover { color: var(--accent); }
+.near-miss-wrap { position: relative; display: inline; }
+.near-miss { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
+  text-decoration: underline wavy var(--warn); text-decoration-skip-ink: none; text-underline-offset: 3px; }
+.near-miss.static { cursor: default; }
+mark { background: var(--accent-soft); color: inherit; border-radius: 3px; padding: 0 2px; }
+mark.near-miss { background: var(--warn-soft); }
+.fix-menu { position: absolute; left: 0; top: calc(100% + 6px); z-index: 35; display: flex; flex-direction: column; min-width: 240px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 28px rgb(0 0 0 / .22);
+  padding: 6px; font: 13.5px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.fix-menu .fix-title { padding: 4px 8px 6px; color: var(--muted); }
+.fix-menu button { font: inherit; text-align: left; background: none; border: 0; color: var(--text); padding: 7px 8px; border-radius: 5px; cursor: pointer; }
+.fix-menu button:hover { background: var(--surface-2); }
+.fix-error { color: var(--err); padding: 4px 8px; }
+@media (max-width: 767px) { .fix-menu { position: fixed; left: 16px; right: 16px; top: auto; bottom: calc(var(--tabbar-h) + 16px); } }
+
+.chip.static { cursor: default; display: inline-flex; align-items: center; gap: 4px; }
+.chip.tag { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.chip.tag a { color: inherit; }
+.chip-x { font: inherit; background: none; border: 0; color: inherit; cursor: pointer; padding: 0 2px; opacity: .7; line-height: 1; }
+.chip-x:hover { opacity: 1; }
+.picker { position: relative; max-width: 420px; }
+.picker input { width: 100%; font: inherit; font-size: 15px; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 6px;
+  background: var(--surface); color: var(--text); }
+.picker input:focus { outline: 2px solid var(--accent-soft); }
+.picker-list { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); box-shadow: 0 8px 22px rgb(0 0 0 / .15); }
+.picker-list li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
+.picker-list li[aria-selected="true"], .picker-list li:hover { background: var(--accent-soft); }
+.snippet { font-family: var(--prose); font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.group-title { margin: 12px 0 2px; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
+.badge.warn { background: #b86a00; color: #fff; }
+.search { width: 100%; }
+.triage-tags { margin: -6px 0 16px; }
+.journal-entry .item-text { max-width: 70ch; }
+.snippet-link { color: var(--text); display: block; }
+.snippet-link:visited { color: var(--text); }
+.snippet-link:hover { color: var(--accent); }

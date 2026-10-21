@@ -68,6 +68,82 @@ export const STATUS_LABELS: Record<ItemStatus, string> = {
   deferred: "Deferred",
 };
 
+export type EntityKind = "character" | "place" | "term" | "faction" | "object" | "other";
+
+export const ENTITY_KINDS: { value: EntityKind; label: string; plural: string }[] = [
+  { value: "character", label: "Character", plural: "Characters" },
+  { value: "place", label: "Place", plural: "Places" },
+  { value: "term", label: "Term", plural: "Terms" },
+  { value: "faction", label: "Faction", plural: "Factions" },
+  { value: "object", label: "Object", plural: "Objects" },
+  { value: "other", label: "Other", plural: "Other" },
+];
+
+export interface EntityRef {
+  id: string;
+  name: string;
+  kind: EntityKind;
+}
+
+export interface Entity extends EntityRef {
+  aliases: string[];
+  body: string;
+  version: number;
+  updated_at: string;
+  mention_count: number;
+}
+
+export interface Mention {
+  entity_id: string;
+  entity_name: string;
+  start: number;
+  end: number;
+  matched_text: string;
+  kind: "exact" | "alias" | "near_miss";
+}
+
+export type SourceTable = "item" | "decision" | "journal" | "entity";
+
+export interface Snippet {
+  before: string;
+  match: string;
+  after: string;
+}
+
+export interface SourceRef {
+  source_table: SourceTable;
+  source_id: string;
+  title: string;
+  project: string | null;
+  snippet: Snippet;
+}
+
+export interface EntityDetail {
+  entity: Entity;
+  mentions: (SourceRef & { count: number })[];
+  unlinked: (SourceRef & { count: number })[];
+  linked_items: { id: string; title: string; status: ItemStatus; project: string | null }[];
+  near_misses: (SourceRef & { token: string })[];
+}
+
+export interface NearMissGroup {
+  token: string;
+  entity: { id: string; name: string };
+  count: number;
+  sources: SourceRef[];
+}
+
+export interface JournalEntry {
+  id: string;
+  entry_date: string;
+  title: string | null;
+  body: string;
+  project: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Item {
   id: string;
   kind: ItemKind;
@@ -81,6 +157,8 @@ export interface Item {
   created_at: string;
   updated_at: string;
   version: number;
+  entities: EntityRef[];
+  mentions: Mention[];
 }
 
 export interface ItemCounts {

@@ -2,10 +2,12 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { entityNames } from "../bible";
+import EntityPicker from "../components/EntityPicker.vue";
 import { isPhone, readCaptureDefaults, readLastUsed, writeCaptureDefaults } from "../lastUsed";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
-import { CAPTURE_KINDS } from "../types";
+import { CAPTURE_KINDS, type EntityRef } from "../types";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
@@ -23,6 +25,23 @@ const source = ref("desk");
 const saving = ref(false);
 const message = ref("");
 const box = ref<HTMLTextAreaElement | null>(null);
+// what it's about: names from the bible (the list on this device when offline)
+const tags = ref<EntityRef[]>([]);
+const names = ref<EntityRef[]>([]);
+const tagging = ref(false);
+const picker = ref<InstanceType<typeof EntityPicker> | null>(null);
+
+async function startTag() {
+  tagging.value = true;
+  await nextTick();
+  picker.value?.focus();
+}
+
+function addTag(e: EntityRef) {
+  if (!tags.value.some((t) => t.id === e.id)) tags.value.push(e);
+  tagging.value = false;
+  box.value?.focus();
+}
 
 function setDefaults() {
   const saved = readCaptureDefaults(worldSlug.value);
@@ -48,10 +67,15 @@ function takeQuery() {
 onMounted(async () => {
   setDefaults();
   takeQuery();
+  void entityNames(worldSlug.value).then((n) => (names.value = n));
   await nextTick();
   box.value?.focus();
 });
-watch(worldSlug, setDefaults);
+watch(worldSlug, () => {
+  setDefaults();
+  tags.value = [];
+  void entityNames(worldSlug.value).then((n) => (names.value = n));
+});
 
 const pendingHere = computed(() => outbox.forWorld(worldSlug.value));
 
@@ -63,9 +87,10 @@ async function save() {
   writeCaptureDefaults(worldSlug.value, { project: project.value, kind: kind.value });
   try {
     const sent = await outbox.add({ world: worldSlug.value, body: text, kind: kind.value, project: project.value,
-                                    source: source.value });
+                                    source: source.value, entities: tags.value.map((t) => t.id) });
     message.value = sent ? "Saved." : "Saved on this device. It goes to the inbox when you're back online.";
     body.value = "";
+    tags.value = [];
     source.value = isPhone() ? "phone" : "desk";
     if (sent) void session.refreshCounts(worldSlug.value);
   } catch (e) {
@@ -128,6 +153,22 @@ function onKey(e: KeyboardEvent) {
         {{ p.name }}
       </button>
     </div>
+
+    <div class="chips" aria-label="About">
+      <span v-for="t in tags" :key="t.id" class="chip static tag">
+        {{ t.name }}
+        <button type="button" class="chip-x" :aria-label="`Remove ${t.name}`" @click="tags = tags.filter((x) => x.id !== t.id)">×</button>
+      </span>
+      <button v-if="!tagging" type="button" class="chip" @click="startTag">+ Tag</button>
+    </div>
+    <EntityPicker
+      v-if="tagging"
+      ref="picker"
+      :entities="names"
+      :exclude="tags.map((t) => t.id)"
+      @pick="addTag"
+      @cancel="tagging = false"
+    />
 
     <div class="actions">
       <button class="btn btn-primary capture-save" type="submit" :disabled="saving || !body.trim()">Save</button>

@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 
+import { entityNames, linkItem, unlinkItem } from "../bible";
 import { age, closeItem, ItemConflict, reopenItem, undoClose, updateItem } from "../items";
-import { CAPTURE_KINDS, STATUS_LABELS, firstLine, type CloseStatus, type Item, type World } from "../types";
+import { CAPTURE_KINDS, STATUS_LABELS, firstLine, type CloseStatus, type EntityRef, type Item, type World } from "../types";
+import EntityPicker from "./EntityPicker.vue";
+import MentionText from "./MentionText.vue";
 
 const props = defineProps<{ item: Item; world: World; open: boolean }>();
 const emit = defineEmits<{
@@ -11,6 +14,8 @@ const emit = defineEmits<{
   changed: [item: Item];
   /** the item left this list (closed, deferred or reopened); `undo` puts it back */
   moved: [item: Item, label: string, undo: () => Promise<void>];
+  /** something else changed it (a name fix, a tag): load it again */
+  refresh: [];
 }>();
 
 const projectName = computed(() =>
@@ -69,6 +74,32 @@ const saveEdit = () =>
     emit("changed", item);
   });
 
+// tags: bible entries the item is about
+const tagging = ref(false);
+const names = ref<EntityRef[]>([]);
+const picker = ref<InstanceType<typeof EntityPicker> | null>(null);
+
+async function startTag() {
+  // the names first: a picker that opens empty swallows a quick "type and Enter"
+  names.value = await entityNames(props.world.slug);
+  tagging.value = true;
+  await nextTick();
+  picker.value?.focus();
+}
+
+const tag = (e: EntityRef) =>
+  run(async () => {
+    await linkItem(props.world.slug, props.item.id, e.id);
+    tagging.value = false;
+    emit("refresh");
+  });
+
+const untag = (e: EntityRef) =>
+  run(async () => {
+    await unlinkItem(props.world.slug, props.item.id, e.id);
+    emit("refresh");
+  });
+
 const move = (project: string) =>
   run(async () => {
     emit("changed", await updateItem(props.world.slug, props.item, { project: project || null }));
@@ -97,7 +128,30 @@ const move = (project: string) =>
         </div>
       </template>
       <template v-else>
-        <p class="item-text">{{ props.item.body }}</p>
+        <p class="item-text">
+          <MentionText
+            :text="props.item.body"
+            :mentions="props.item.mentions"
+            :world="props.world.slug"
+            :source="{ table: 'item', id: props.item.id }"
+            @fixed="emit('refresh')"
+          />
+        </p>
+        <div class="chips">
+          <span v-for="e in props.item.entities" :key="e.id" class="chip static tag">
+            <RouterLink :to="{ name: 'entity', params: { world: props.world.slug, id: e.id } }">{{ e.name }}</RouterLink>
+            <button type="button" class="chip-x" :aria-label="`Untag ${e.name}`" @click="untag(e)">×</button>
+          </span>
+          <button v-if="!tagging" type="button" class="chip" @click="startTag">+ Tag</button>
+        </div>
+        <EntityPicker
+          v-if="tagging"
+          ref="picker"
+          :entities="names"
+          :exclude="props.item.entities.map((e) => e.id)"
+          @pick="tag"
+          @cancel="tagging = false"
+        />
         <p v-if="props.item.closed_note" class="muted small">Note: {{ props.item.closed_note }}</p>
         <p class="muted small">
           {{ STATUS_LABELS[props.item.status] }}

@@ -2,11 +2,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
+import { get } from "../api";
+import { entityNames, linkItem, unlinkItem } from "../bible";
+import EntityPicker from "../components/EntityPicker.vue";
+import MentionText from "../components/MentionText.vue";
 import ProjectFilter from "../components/ProjectFilter.vue";
 import UndoToast from "../components/UndoToast.vue";
 import { age, closeItem, ItemConflict, listItems, undoClose, updateItem } from "../items";
 import { useSession } from "../stores/session";
-import { STATUS_LABELS, type CloseStatus, type Item } from "../types";
+import { STATUS_LABELS, type CloseStatus, type EntityRef, type Item } from "../types";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
@@ -32,6 +36,48 @@ const projectSelect = ref<HTMLSelectElement | null>(null);
 const busy = ref(false);
 const toast = ref<{ label: string; undo: () => Promise<void> } | null>(null);
 const showKeys = ref(false);
+const tagging = ref(false);
+const names = ref<EntityRef[]>([]);
+const picker = ref<InstanceType<typeof EntityPicker> | null>(null);
+
+/** Load the current item again (after a name fix or a tag). */
+async function reloadCurrent() {
+  const current = item.value;
+  if (!current) return;
+  try {
+    replace(await get<Item>(`/api/worlds/${encodeURIComponent(worldSlug.value)}/items/${current.id}`));
+  } catch {
+    /* keep what is shown */
+  }
+}
+
+async function startTag() {
+  if (!item.value) return;
+  // the names first: a picker that opens empty swallows a quick "type and Enter"
+  names.value = await entityNames(worldSlug.value);
+  tagging.value = true;
+  await nextTick();
+  picker.value?.focus();
+}
+
+function tag(e: EntityRef) {
+  const current = item.value;
+  if (!current) return;
+  return act(async () => {
+    await linkItem(worldSlug.value, current.id, e.id);
+    tagging.value = false;
+    await reloadCurrent();
+  });
+}
+
+function untag(e: EntityRef) {
+  const current = item.value;
+  if (!current) return;
+  return act(async () => {
+    await unlinkItem(worldSlug.value, current.id, e.id);
+    await reloadCurrent();
+  });
+}
 
 const projectName = (slug: string | null) =>
   slug ? (world.value?.projects.find((p) => p.slug === slug)?.name ?? slug) : "Whole world";
@@ -140,6 +186,10 @@ function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") prompt.value = null;
     return;
   }
+  if (tagging.value) {
+    if (e.key === "Escape") tagging.value = false;
+    return;
+  }
   if (editing.value) {
     if (e.key === "Escape") editing.value = false;
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void saveEdit();
@@ -152,6 +202,7 @@ function onKey(e: KeyboardEvent) {
     h: () => ask("harvested"),
     d: () => ask("deferred"),
     e: startEdit,
+    l: startTag,
     p: () => projectSelect.value?.focus(),
     j: () => step(1),
     k: () => step(-1),
@@ -228,7 +279,31 @@ const promptLabel = computed(() =>
           <span class="muted small">Ctrl+Enter saves, Esc cancels</span>
         </div>
       </template>
-      <p v-else class="prose triage-text">{{ item.body }}</p>
+      <p v-else class="prose triage-text">
+        <MentionText
+          :text="item.body"
+          :mentions="item.mentions"
+          :world="world.slug"
+          :source="{ table: 'item', id: item.id }"
+          @fixed="reloadCurrent"
+        />
+      </p>
+
+      <div class="chips triage-tags">
+        <span v-for="t in item.entities" :key="t.id" class="chip static tag">
+          <RouterLink :to="{ name: 'entity', params: { world: world.slug, id: t.id } }">{{ t.name }}</RouterLink>
+          <button type="button" class="chip-x" :aria-label="`Untag ${t.name}`" @click="untag(t)">×</button>
+        </span>
+        <button v-if="!tagging" type="button" class="chip" @click="startTag"><kbd>l</kbd> Tag</button>
+      </div>
+      <EntityPicker
+        v-if="tagging"
+        ref="picker"
+        :entities="names"
+        :exclude="item.entities.map((t) => t.id)"
+        @pick="tag"
+        @cancel="tagging = false"
+      />
 
       <form v-if="prompt" class="triage-prompt" @submit.prevent="finish(prompt, promptText)">
         <label for="triage-prompt">{{ promptLabel }}</label>

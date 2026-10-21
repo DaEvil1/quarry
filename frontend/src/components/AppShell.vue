@@ -31,7 +31,15 @@ watch(
 );
 
 // the inbox count in the nav follows the world on screen, and catches up when captures sync
-watch(world, (w) => w && session.refreshCounts(w.slug), { immediate: true });
+watch(
+  world,
+  (w) => {
+    if (!w) return;
+    void session.refreshCounts(w.slug);
+    void session.refreshNearMisses(w.slug);
+  },
+  { immediate: true },
+);
 watch(
   () => outbox.waiting,
   (now, before) => {
@@ -42,6 +50,9 @@ const openCount = computed(() =>
   world.value && session.counts?.world === world.value.slug ? session.counts.open : null,
 );
 
+const nearMissCount = computed(() =>
+  world.value && session.nearMisses?.world === world.value.slug ? session.nearMisses.words : 0,
+);
 const to = (name: string) => (world.value ? { name, params: { world: world.value.slug } } : { name: "home" });
 const tabActive = (...names: string[]) => names.includes(String(route.name));
 const offline = computed(() => !outbox.online || session.offline);
@@ -77,6 +88,17 @@ async function signOut() {
           </RouterLink>
           <RouterLink :to="to('decisions')">
             <Icon name="decisions" /><span>Decisions</span>
+          </RouterLink>
+          <RouterLink :to="to('journal')">
+            <Icon name="journal" /><span>Journal</span>
+          </RouterLink>
+          <div class="nav-title">World</div>
+          <RouterLink :to="to('bible')">
+            <Icon name="bible" /><span>Bible</span>
+          </RouterLink>
+          <RouterLink :to="to('names')" data-testid="nav-names">
+            <Icon name="names" /><span>Name check</span>
+            <span v-if="nearMissCount" class="badge warn">{{ nearMissCount }}</span>
           </RouterLink>
           <div class="nav-title">Projects</div>
           <RouterLink
@@ -119,8 +141,11 @@ async function signOut() {
       <RouterLink :to="to('capture')" :class="{ active: tabActive('capture') }">
         <Icon name="capture" />Capture
       </RouterLink>
-      <RouterLink :to="to('inbox')" :class="{ active: tabActive('inbox', 'triage', 'decisions') }">
+      <RouterLink :to="to('inbox')" :class="{ active: tabActive('inbox', 'triage', 'decisions', 'item') }">
         <Icon name="inbox" />Inbox<span v-if="openCount" class="tab-badge">{{ openCount }}</span>
+      </RouterLink>
+      <RouterLink :to="to('bible')" :class="{ active: tabActive('bible', 'entity', 'names') }">
+        <Icon name="bible" />Bible
       </RouterLink>
       <RouterLink :to="to('world')" :class="{ active: tabActive('world', 'project', 'new-world') }">
         <Icon name="world" />World

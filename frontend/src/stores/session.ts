@@ -12,6 +12,8 @@ export const useSession = defineStore("session", {
     offline: false,
     /** open and deferred counts of the world shown in the nav */
     counts: null as (ItemCounts & { world: string }) | null,
+    /** how many words in the world look like misspelled names (the name check's badge) */
+    nearMisses: null as { world: string; words: number } | null,
   }),
   getters: {
     user: (s) => s.me?.user ?? null,
@@ -63,6 +65,14 @@ export const useSession = defineStore("session", {
       const rest = this.me.worlds.filter((w) => w.id !== world.id && w.slug !== oldSlug);
       this.me.worlds = [...rest, world].sort((a, b) => a.name.localeCompare(b.name));
       void saveMeSnapshot(this.me);
+    },
+    async refreshNearMisses(world: string): Promise<void> {
+      try {
+        const c = await get<{ words: number }>(`/api/worlds/${encodeURIComponent(world)}/near-misses/count`);
+        this.nearMisses = { world, words: c.words };
+      } catch {
+        /* offline: keep what we had */
+      }
     },
     /** Refresh the inbox counts shown in the nav; quietly keeps the old ones when offline. */
     async refreshCounts(world: string): Promise<void> {

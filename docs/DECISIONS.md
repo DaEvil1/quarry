@@ -15,3 +15,6 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-21: Capture's entity tag moves to phase 3, where entities exist. Phase 2 links captures to a project or the whole world only.
 - 2026-10-21: On the phone, tapping an item opens its actions instead of swipe gestures; every close can be undone.
 - 2026-10-21: Offline in phase 2 means new captures and opening the app; the inbox and triage need the network until the local copy in phase 5.
+- 2026-10-21: The Journal is built in phase 3. The spec described it but gave it no phase, and the planning essays need a home before the move after phase 4.
+- 2026-10-21: Near misses: one edit for words of 5–6 letters, two for 7 or more, with a swapped pair counting as one edit (OSA distance). Two edits on short words flagged too many ordinary words.
+- 2026-10-21: Mentions are recomputed on save, and for the whole world when names, aliases or "not a typo" words change; fast enough at a novel's scale, so no background jobs.
