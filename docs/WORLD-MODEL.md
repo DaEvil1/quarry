@@ -53,7 +53,8 @@ Every entry has:
 A relationship joins two entries with a **type**, in a direction where it matters. For example, *Varren is the
 father of Isolde* is read back from Isolde's side as *Isolde is the daughter of Varren*.
 
-Each world starts with a vocabulary per pair of kinds, and you can rename, add or remove types:
+**Any kind can be related to any kind.** Each world starts with a vocabulary per pair of kinds; you can rename,
+add or remove types, and every pair also has a plain *linked to* for when you don't want to name the connection yet:
 
 | Between | Starting types |
 |---|---|
@@ -61,11 +62,19 @@ Each world starts with a vocabulary per pair of kinds, and you can rename, add o
 | Character – place | lives in, born in, rules, works at, imprisoned in, visits |
 | Character – faction | member of, leads, founded, opposes |
 | Character – culture | belongs to, converted to |
-| Character – object | owns, carries, made, seeks |
+| Character – object | owns, carries, made, seeks, lost, guards |
 | Place – place | inside/contains, borders, road to, sea route to |
 | Faction – faction | allied, at war, vassal of/overlord of, splinter of |
 | Faction – place | controls, based in, claims |
-| Event – anything | took part in, happened at, caused, followed from |
+| Faction – object | owns, symbol of, seeks, guards |
+| Faction – culture | rooted in, persecutes |
+| Object – object | part of/has part, key to, copy of, paired with |
+| Object – place | kept at, hidden in, made in, lost at |
+| Object – culture | sacred to, made by |
+| Culture – place | native to, spread to |
+| Culture – culture | descended from, related to |
+| Term – anything | applies to, practised by, origin |
+| Event – anything | took part in, happened at, caused, followed from, involved |
 
 A relationship can also carry:
 
@@ -76,7 +85,7 @@ A relationship can also carry:
 - **A note.**
 
 Connections you never record still count as **evidence**: two names in the same paragraph, a character in a
-chapter that mentions a place. Evidence is shown, never stored as fact (§6).
+chapter that mentions a place. Evidence is shown, never stored as fact (§7).
 
 ## 4. Story time
 
@@ -95,7 +104,26 @@ The **chapter is the clock**:
 **In-world dates** come later: an optional date per chapter (free text with a sortable value), added without
 changing anything above.
 
-## 5. Views
+## 5. Writing in the editor
+
+The rule: **nothing ever appears under the cursor or takes the keyboard while you type.** No dropdowns, no
+completion lists, no dialogs. The world shows itself around the text, never in its way.
+
+- **Names light up as you type.** The editor colours every known name by kind, the moment it's written: characters
+  one colour, places another, factions, objects and the rest their own. The matching runs in the browser on the
+  names kept on the device, so it doesn't wait for a save and works offline. The colours are quiet tints in both
+  themes, and can be switched off ("plain text" mode).
+- **Hover (or long-press on the phone) shows the card**: the one-liner, key facts *as of this chapter*, and the
+  closest relationships, with a link to the entry. The card never takes focus; moving on hides it.
+- **Likely misspellings** keep their wavy underline. **Possible new names** (a capitalised word that recurs and
+  isn't in the bible) get a faint dotted underline, so they can be dealt with later in the panel, or not at all.
+- **Everything else waits in the side panel** (§7): suggestions arrive there quietly, sorted by strength, and can be
+  ignored for as long as you like. The panel can be closed; focus mode hides it.
+- **Keyboard only, when wanted**: with the cursor on a name, one shortcut opens its card for keyboard use, and
+  another records a connection to another name in the paragraph. Both are opt-in actions, never prompts.
+- What exists stays: autosave, snapshots, focus mode, typewriter scrolling, word count.
+
+## 6. Views
 
 - **Relationship graph.** Entries as nodes and relationships as edges. You can:
   - filter by kind, type and standing;
@@ -107,7 +135,7 @@ changing anything above.
 - **Cast per chapter.** On the manuscript page, the characters and places of each chapter.
 - **Later: your own map.** Upload a map image, pin places on it, and see who is where as of a chapter.
 
-## 6. The writing companion
+## 7. The writing companion
 
 A panel beside the editor (and a **Checks** page for the whole world) that keeps the world and the prose in step.
 Each line has one-click actions and can be dismissed for good.
@@ -116,8 +144,15 @@ Each line has one-click actions and can be dismissed for good.
 
 - The **cast**: everyone mentioned, with what is true *as of this chapter*: status, where they are, and how they
   are connected to each other.
-- **Unrecorded connections**: "Varren and Isolde share a paragraph three times here and nothing connects them."
-  → *Record how* opens the relationship picker, with this chapter as *established in*.
+- **Unrecorded connections**, for any two kinds (a character and an object, a faction and a place …), with a
+  strength from how close they appear:
+  - **strong**: in the same sentence;
+  - **medium**: in the same paragraph;
+  - **weak**: only in the same chapter.
+
+  Repeats add up ("Varren and the logbook share a sentence three times here"). Strong ones come first; weak ones
+  are folded away unless asked for. *Record how* opens the relationship picker with this chapter as *established
+  in*; *Not connected* silences the pair.
 - **Unknown names**: a capitalised word used repeatedly (not only at sentence starts) that isn't in the bible.
   → *Add as character / place / …*, or *Not a name*.
 - **Where are they?**: a character with several places in their paragraphs and no "is at" for this chapter.
@@ -137,7 +172,7 @@ Each check says what it found and where. "Fine as it is" silences that one findi
 word count and left out of the compiled manuscript and the export's `manuscript.md`. It is still exported (in the
 chapter file) so nothing is lost.
 
-## 7. Data model additions
+## 8. Data model additions
 
 ```sql
 entities          + summary text, match_case bool, first_name_alias bool         -- kinds gain culture, event
@@ -153,18 +188,21 @@ chapters          + in_world_date NULL (later)
 map_images, map_pins                                                              -- later
 ```
 
-Co-occurrence (two entries in one paragraph) is computed from the mentions on save, at paragraph level, and stored
-per chapter for the graph and the companion.
+Co-occurrence (two entries in the same sentence, paragraph or chapter) is computed from the mentions on save, and
+stored per chapter with its strength for the graph and the companion. The browser does the same matching live for
+highlighting; the server's result is the one that is stored.
 
-## 8. Phases
+## 9. Phases
 
 6. **The bible as data.**
    - The kinds in the nav, a page per kind, and the entry page reworked: one-liner, other names in place, matching
      options, facts, and decisions about it.
+   - Live highlighting by kind in the editor and hover cards (§5), with the matching running in the browser.
    - Relationships with the starting vocabulary and an editor for it.
    - Faction and place hierarchies via relationships, and Culture as a new kind.
    - *Done when* Varren's page shows that he is Isolde's father, lives in Old Harbour and belongs to the Lamp
-     Guild, and Isolde's page shows the reverse, with a one-liner on hover wherever their names appear.
+     Guild, Isolde's page shows the reverse, and typing their names in a chapter colours them by kind at once,
+     with their cards on hover and no popup while typing.
 7. **Story time and events.**
    - *From/until* on facts and relationships, *as of chapter* on entry pages, and the Event kind.
    - "Is at" presence, and the Where-everyone-is grid.
@@ -176,14 +214,14 @@ per chapter for the graph and the companion.
    - *Done when* centring on a character shows who they know directly and through one other person, and the graph
      separates two groups that only know each other through one character.
 9. **The writing companion.**
-   - The editor panel (cast as of this chapter, unrecorded connections, unknown names, where are they), the Checks
-     page, dismissals, and margin notes.
+   - The editor panel (cast as of this chapter, unrecorded connections by strength, possible new names, where are
+     they), the Checks page, dismissals, the keyboard shortcuts of §5, and margin notes.
    - *Done when*, writing a scene with two unconnected characters and a new name, the panel offers to record their
      connection and to add the name, each in one click, and a character recorded dead who appears later is listed
      on Checks.
 10. **Later:** in-world dates, and map images with pins.
 
-## 9. Not planned
+## 10. Not planned
 
 - Anything that writes, rewrites or proposes story content.
 - Automatic relationship *types* from the prose: the companion shows evidence, you name the connection.
