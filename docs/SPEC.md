@@ -66,7 +66,8 @@ name_ignores  (world_id, token)                                 -- near-misses m
 change_log    (seq bigserial, world_id, doc_table, doc_id, op)  -- feeds /sync
 passkeys      (id, user_id, credential_id, public_key, sign_count, label, created_at, last_used_at)
 recovery_codes(id, user_id, code_hash, used_at NULL)
-sessions      (id, user_id, created_at, expires_at, user_agent)
+sessions      (id, user_id, token_hash, created_at, expires_at, user_agent)  -- the cookie value is stored hashed
+auth_challenges(id, purpose, challenge, user_id NULL, data jsonb, expires_at)  -- pending WebAuthn ceremonies, used once
 ```
 
 First appearance is computed, not stored: for each entity and project, the earliest current chapter (by position) with a mention.
@@ -143,7 +144,7 @@ Bible pages show:
 
 - **Users from day one.** There is one user, but passkeys, sessions, revisions and `created_by`/`updated_by` all point at a user, and access goes through `world_members`. Co-writing later then means adding a second member and deciding what they may do, not reworking every table.
 - **Passkeys in the app.** WebAuthn via `py_webauthn`. The Relying Party ID is the app's domain, served over HTTPS. Login lives in the app rather than behind an auth proxy, because an offline PWA, its service worker and the share target need API calls that fail cleanly with a 401 instead of being redirected to a login page.
-- **Bootstrap.** With zero users, `/setup` accepts a one-time `SETUP_TOKEN` from the environment, creates the first user, a first world, and registers the first passkey. After that, setup is disabled.
+- **Bootstrap.** With zero users, `/setup` accepts a one-time `QUARRY_SETUP_TOKEN` from the environment, creates the first user and registers the first passkey, shows the recovery codes, then asks for the first world. After that, setup is disabled.
 - **More devices.** From a signed-in session, choose "Add passkey" (desktop and the Android phone via Google Password Manager).
 - **Recovery.** Ten one-time recovery codes are generated at setup and stored hashed. A CLI command `quarry passkey reset <user>` recovers from the server shell.
 - Sessions use an httpOnly, Secure, SameSite=Strict cookie with a 30-day sliding expiry. CSRF is covered by SameSite plus an Origin check. Login is rate-limited.
@@ -164,7 +165,7 @@ Bible pages show:
 | DB | Postgres 16+, via `DATABASE_URL` (DigitalOcean managed cluster in production, a local container in development) |
 | Frontend | Vue 3 + TypeScript + Vite, Pinia, vue-router, CodeMirror 6, Dexie, vite-plugin-pwa (Workbox) |
 | Packaging | One image: FastAPI serves `/api` and the built SPA. GitHub Actions builds `ghcr.io/daevil1/quarry` on `master`. |
-| Deploy | Same pattern as Gauntlet: the droplet runs the container from a compose file in `/srv/quarry`, bound to localhost, behind host nginx + certbot. One worker and a small DB pool: the droplet is shared, so no busy background work. |
+| Deploy | Same pattern as Gauntlet: the droplet runs the container from a compose file in `/srv/quarry`, bound to `127.0.0.1:8091`, behind host nginx + certbot (docs/deploy.md). One worker and a small DB pool: the droplet is shared, so no busy background work. |
 | Tests | pytest (API, sync, mention matching), Vitest (stores, outbox), Playwright smoke test (capture offline → sync) |
 
 ```

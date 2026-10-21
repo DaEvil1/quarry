@@ -1,0 +1,73 @@
+<script setup lang="ts">
+import { computed, ref } from "vue";
+import { useRouter } from "vue-router";
+
+import { get, post } from "../api";
+import { useSession } from "../stores/session";
+import { PROJECT_KINDS, type Project, type ProjectKind, type World } from "../types";
+
+const router = useRouter();
+const session = useSession();
+
+const first = computed(() => session.worlds.length === 0);
+const name = ref("");
+const projectName = ref("");
+const kind = ref<ProjectKind>("novel");
+const busy = ref(false);
+const error = ref("");
+
+async function create() {
+  error.value = "";
+  busy.value = true;
+  try {
+    let world = await post<World>("/api/worlds", { name: name.value });
+    let project: Project | undefined;
+    if (projectName.value.trim()) {
+      project = await post<Project>(`/api/worlds/${world.slug}/projects`, { name: projectName.value, kind: kind.value });
+      world = await get<World>(`/api/worlds/${world.slug}`);
+    }
+    session.putWorld(world);
+    await router.push(
+      project
+        ? { name: "project", params: { world: world.slug, project: project.slug } }
+        : { name: "world", params: { world: world.slug } },
+    );
+  } catch (e) {
+    error.value = (e as Error).message;
+  } finally {
+    busy.value = false;
+  }
+}
+</script>
+
+<template>
+  <div class="page-head">
+    <div>
+      <h1>{{ first ? "Create your first world" : "New world" }}</h1>
+      <p class="muted">
+        A world is a shared setting. It holds the bible, and any number of projects (novels, novellas, stories) set in
+        it.
+      </p>
+    </div>
+  </div>
+  <form class="card form" @submit.prevent="create">
+    <div class="field">
+      <label for="world-name">World name</label>
+      <input id="world-name" v-model="name" type="text" maxlength="200" required />
+    </div>
+    <div class="field">
+      <label for="project-name">First project <span class="muted">(optional)</span></label>
+      <input id="project-name" v-model="projectName" type="text" maxlength="200" />
+    </div>
+    <div v-if="projectName.trim()" class="field">
+      <label for="project-kind">Kind</label>
+      <select id="project-kind" v-model="kind">
+        <option v-for="k in PROJECT_KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
+      </select>
+    </div>
+    <div v-if="error" class="notice error" role="alert">{{ error }}</div>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit" :disabled="busy">Create world</button>
+    </div>
+  </form>
+</template>
