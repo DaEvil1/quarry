@@ -28,3 +28,4 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-22: Chapters are the story clock (facts and relationships hold from/until chapters); in-world dates come later.
 - 2026-10-22: Relationship graph and place tree first; uploaded map images with pins later.
 - 2026-10-22: New kinds Event and Culture; lore stays in Term.
+- 2026-10-22: Research (docs/research/) adds to the world model: evidence on facts and relationships, knows/has met, resolved findings (intentional/later), Drafting vs Revising, getting back in, spell-check skipping names, per-entry "not in this sense". A cuts bin, revision passes, a thread grid, scenes and a corkboard wait for later.

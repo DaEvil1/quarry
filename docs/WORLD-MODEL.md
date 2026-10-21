@@ -5,7 +5,8 @@ and when each of those things is true. Quarry keeps the two joined while you wri
 data, and the data tells you what you have and haven't settled. Think of LaTeX: you write text, and the structure
 around it is checked and assembled for you, but with nothing to learn and no markup to type.
 
-This builds on what exists (entities, aliases, mentions, the name check, tags) and stays inside the principles:
+This builds on what exists (entities, aliases, mentions, the name check, tags) and on the research in
+[research/](research/README.md). It stays inside the principles:
 
 - **No AI in the story.** Every suggestion below is a rule applied to your own data: "these two share a scene and
   nothing connects them", never "here is what could happen".
@@ -40,10 +41,14 @@ Every entry has:
 - **Matching:**
   - *Match capitals exactly* is on by default; switch it off for names that are never ordinary words.
   - For characters with a multi-word name, the *first name* also matches unless another entry claims it.
+  - *Not in this sense*: phrases where the name is an ordinary word ("rose garden" for a character called Rose),
+    added from the card when a match is wrong, so it is never matched there again.
 - **Facts**: labelled values, optionally true only for a stretch of the story (§4).
   - Some are suggested per kind, e.g. a character's *status* (alive, dead, missing), *age* and *role*.
   - You can add your own (*eye colour: grey*).
   - "Status: dead from chapter 9" is a fact like any other.
+  - A fact can keep its **evidence**: the chapter and the passage that established it. Selecting a passage in a
+    chapter and recording a fact from it fills both in.
 - **Relationships** (§3), shown grouped by type, with the other entry's one-liner.
 - What exists today stays: mentions, first appearance, tagged items, possible misspellings, and now the
   **decisions** that are tagged with it or name it.
@@ -58,7 +63,7 @@ add or remove types, and every pair also has a plain *linked to* for when you do
 
 | Between | Starting types |
 |---|---|
-| Character – character | parent/child, sibling, married, lovers, friends, rivals, enemies, serves/served by, mentor/student, knows |
+| Character – character | parent/child, sibling, married, lovers, friends, rivals, enemies, serves/served by, mentor/student, knows, knows about (one way), has met |
 | Character – place | lives in, born in, rules, works at, imprisoned in, visits |
 | Character – faction | member of, leads, founded, opposes |
 | Character – culture | belongs to, converted to |
@@ -81,8 +86,13 @@ A relationship can also carry:
 - **When it holds**: *from* a chapter and/or *until* a chapter (§4). Left empty, it holds throughout.
 - **Standing**: *canon* (true in the book), *planned* (true in your head, not on the page yet) or *rumour*
   (believed by someone in the story). Graphs and checks can include or leave out planned and rumour.
-- **Where it was established**: the chapter, set automatically when you record it from the editor.
+- **Evidence**: the chapter where it was established and, optionally, the passage (as for facts). Set
+  automatically when it is recorded from the editor.
 - **A note.**
+
+**Who knows what** is one of the most common continuity failures, so *knows* and *knows about* are ordinary,
+time-bounded relationships ("Isolde knows about the second logbook from chapter 7"), and *have they met?* is
+answered from the chapters where both were present (§4), until you record otherwise.
 
 Connections you never record still count as **evidence**: two names in the same paragraph, a character in a
 chapter that mentions a place. Evidence is shown, never stored as fact (§7).
@@ -142,6 +152,26 @@ editor answers *intent*, never keystrokes:
 - **On the phone**, a long-press opens the strip.
 - What exists stays: autosave, snapshots, focus mode, typewriter scrolling, word count.
 
+**Drafting and revising.** A switch in the editor:
+
+- *Drafting* (the default): names are coloured and cards work, but no wavy or dotted underlines are drawn, and the
+  side panel collects its findings without showing new ones until a natural break: opening the panel, a scene
+  break (a blank line after `***`), or the end of the session.
+- *Revising*: underlines inline, and the panel shows everything as it is found.
+
+Pauses while typing are where writers plan the next sentence (research/04), so nothing is ever shown because typing
+paused.
+
+**Small rules**, from what writers complain about in other tools:
+
+- Typewriter scrolling recentres only while typing, never when you click or select.
+- Cards close on any keystroke. A setting shows them only while Ctrl is held.
+- Names are marked for the browser's spell-check to skip, so invented names aren't flagged.
+- New entries start as just a name; nothing has to be filled in.
+
+**Settings** (per device): colours by kind on/off and per kind, underlines in Drafting on/off, card delay, cards
+only with Ctrl, typing quiet period, text size and line width, and the default mode.
+
 ## 6. Views
 
 - **Relationship graph.** Entries as nodes and relationships as edges. You can:
@@ -177,6 +207,10 @@ Each line has one-click actions and can be dismissed for good.
 - **Where are they?**: a character with several places in their paragraphs and no "is at" for this chapter.
   → pick one.
 
+**Getting back in.** When a chapter opens, the panel shows where you stopped and, if you left one, a one-line note
+to yourself ("what's next") asked for, skippably, when you leave the chapter. A key stashes a passing thought in the
+inbox, tagged with the chapter, without leaving the sentence.
+
 **Checks** (rules over recorded data, listed per chapter):
 
 - Mentioned in a chapter where they are recorded dead (or before they are born or introduced).
@@ -184,8 +218,12 @@ Each line has one-click actions and can be dismissed for good.
 - A POV character who isn't mentioned in their own chapter.
 - A relationship *from* a chapter that comes after its *until*.
 - A place inside itself (cycles in the place tree).
+- Two values of the same fact that hold at the same time (eye colour grey from chapter 1, brown from chapter 4).
+- Knowing too early: a *knows* that starts after a chapter where the character acts on it is only flagged when
+  you have recorded the act; nothing is guessed from prose.
 
-Each check says what it found and where. "Fine as it is" silences that one finding.
+Each finding says what it found and where, and is **resolved** rather than just dismissed: *fix the text*, *update
+the fact*, *intentional* (planted on purpose: never flagged again) or *later* (kept on a list).
 
 **Margin notes.** A line starting with `%%` in a chapter is a note to yourself. It is shown dimmed, ignored by the
 word count and left out of the compiled manuscript and the export's `manuscript.md`. It is still exported (in the
@@ -195,14 +233,16 @@ chapter file) so nothing is lost.
 
 ```sql
 entities          + summary text, match_case bool, first_name_alias bool         -- kinds gain culture, event
+entities          + exclusions text[]                                              -- "not in this sense"
 facts             (id, entity_id, label, value, from_chapter_id NULL, until_chapter_id NULL,
-                   standing, established_in_chapter_id NULL, note, version)
+                   standing, established_in_chapter_id NULL, evidence NULL, note, version)
 relation_types    (id, world_id, a_kind, b_kind, label, reverse_label NULL, symmetric, position)
 relationships     (id, world_id, type_id, a_id, b_id, from_chapter_id NULL, until_chapter_id NULL,
-                   standing, established_in_chapter_id NULL, note, version)
+                   standing, established_in_chapter_id NULL, evidence NULL, note, version)
 presence          (id, entity_id, place_id, chapter_id, note)                     -- explicit "is at"
 decision_links    (decision_id, entity_id)
-dismissals        (world_id, rule, key)                                           -- "fine as it is"
+resolutions       (world_id, rule, key, outcome, note)                            -- intentional / later / not connected
+session_notes     (chapter_id, user_id, note, cursor, updated_at)                 -- getting back in
 chapters          + in_world_date NULL (later)
 map_images, map_pins                                                              -- later
 ```
@@ -215,8 +255,9 @@ highlighting; the server's result is the one that is stored.
 
 6. **The bible as data.**
    - The kinds in the nav, a page per kind, and the entry page reworked: one-liner, other names in place, matching
-     options, facts, and decisions about it.
-   - Live highlighting by kind in the editor and hover cards (§5), with the matching running in the browser.
+     options (capitals, first names, *not in this sense*), facts with evidence, and decisions about it.
+   - Live highlighting by kind in the editor and hover cards (§5), with the matching running in the browser, the
+     small rules, the settings, and the quick-fix strip for misspellings, known names and selections.
    - Relationships with the starting vocabulary and an editor for it.
    - Faction and place hierarchies via relationships, and Culture as a new kind.
    - *Done when* Varren's page shows that he is Isolde's father, lives in Old Harbour and belongs to the Lamp
@@ -234,11 +275,13 @@ highlighting; the server's result is the one that is stored.
      separates two groups that only know each other through one character.
 9. **The writing companion.**
    - The editor panel (cast as of this chapter, unrecorded connections by strength, possible new names, where are
-     they), the Checks page, dismissals, the keyboard shortcuts of §5, and margin notes.
+     they), Drafting/Revising, getting back in (session note, stash a thought), the Checks page with resolutions,
+     Alt+Enter and F8, and margin notes.
    - *Done when*, writing a scene with two unconnected characters and a new name, the panel offers to record their
      connection and to add the name, each in one click, and a character recorded dead who appears later is listed
      on Checks.
-10. **Later:** in-world dates, and map images with pins.
+10. **Later:** in-world dates, map images with pins, and from the research: a cuts bin, named revision passes, a
+    chapter-by-thread grid, scenes below chapters, and a corkboard (research/README.md).
 
 ## 10. Not planned
 
