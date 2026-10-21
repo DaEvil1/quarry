@@ -3,6 +3,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { STATE_FILE } from "./state";
+
 const SETUP_TOKEN = process.env.E2E_SETUP_TOKEN ?? "e2e-setup-token";
 
 test.describe.configure({ mode: "serial" });
@@ -67,7 +69,7 @@ test("add, reorder and rename", async () => {
   await page.getByRole("button", { name: "Move Ebb Tide up" }).click();
   await expect(rows.first()).toContainText("Ebb Tide");
   // the nav follows the new order
-  await expect(page.locator(".nav nav a").nth(1)).toContainText("Ebb Tide");
+  await expect(page.locator(".nav nav a[href*='/p/']").first()).toContainText("Ebb Tide");
 
   await page.getByRole("button", { name: "Rename" }).click();
   await page.getByLabel("Name", { exact: true }).first().fill("The Grey Shore");
@@ -103,6 +105,8 @@ test("settings lists the passkey; a recovery code also signs in", async () => {
   await expect(page).toHaveURL(/\/settings\?recovered=1$/);
   await expect(page.getByText("You signed in with a recovery code")).toBeVisible();
   await expect(page.getByText("9 unused")).toBeVisible();
+  // later spec files carry on from this signed-in session
+  await page.context().storageState({ path: STATE_FILE });
 });
 
 test("on a phone the nav becomes a top bar and tabs", async () => {

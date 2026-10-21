@@ -13,7 +13,7 @@ from sqlalchemy import text
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__
-from .api import auth, worlds
+from .api import auth, decisions, items, worlds
 from .config import get_settings
 from .db import engine
 
@@ -92,7 +92,8 @@ def _mount_frontend(app: FastAPI) -> None:
     root = get_settings().web_path.resolve()
     index = root / "index.html"
 
-    @app.get("/{path:path}", include_in_schema=False)
+    # HEAD too: uptime monitors check the front page that way
+    @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     def frontend(path: str):  # type: ignore[no-untyped-def]
         if path.startswith("api/") or path == "api":
             return JSONResponse({"detail": "Not found."}, status_code=404)
@@ -121,7 +122,7 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.add_middleware(SameOriginWrites)
     app.add_middleware(SecurityHeaders)
 
-    @app.get("/healthz", include_in_schema=False)
+    @app.api_route("/healthz", methods=["GET", "HEAD"], include_in_schema=False)
     def healthz() -> PlainTextResponse:
         with engine().connect() as c:
             c.execute(text("SELECT 1"))
@@ -129,5 +130,7 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(worlds.router)
+    app.include_router(items.router)
+    app.include_router(decisions.router)
     _mount_frontend(app)
     return app

@@ -3,8 +3,9 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { get, patch } from "../api";
+import { age, listItems } from "../items";
 import { useSession } from "../stores/session";
-import { PROJECT_KINDS, kindLabel, type Project, type ProjectKind, type World } from "../types";
+import { PROJECT_KINDS, firstLine, kindLabel, type Item, type Project, type ProjectKind, type World } from "../types";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
@@ -14,6 +15,21 @@ const session = useSession();
 const world = computed(() => session.world(String(route.params.world)));
 const project = computed(() =>
   world.value ? session.project(world.value.slug, String(route.params.project)) : undefined,
+);
+
+const openItems = ref<Item[]>([]);
+watch(
+  project,
+  async (p) => {
+    openItems.value = [];
+    if (!p || !world.value) return;
+    try {
+      openItems.value = await listItems(world.value.slug, { project: p.slug, limit: 20 });
+    } catch {
+      /* offline: the list fills in when back */
+    }
+  },
+  { immediate: true },
 );
 
 const editing = ref(false);
@@ -92,8 +108,30 @@ async function save() {
     </form>
 
     <section class="card">
+      <div class="card-head">
+        <h2>Open items</h2>
+        <div class="actions">
+          <RouterLink class="btn btn-sm" :to="{ name: 'triage', params: { world: world.slug }, query: { project: project.slug } }">
+            Triage
+          </RouterLink>
+          <RouterLink :to="{ name: 'inbox', params: { world: world.slug }, query: { project: project.slug } }">
+            Inbox
+          </RouterLink>
+        </div>
+      </div>
+      <ul v-if="openItems.length" class="rows">
+        <li v-for="i in openItems" :key="i.id">
+          <span class="pill" :class="`kind-${i.kind}`">{{ i.kind }}</span>
+          <span class="grow">{{ firstLine(i) }}</span>
+          <span class="muted small">{{ age(i.created_at) }}</span>
+        </li>
+      </ul>
+      <p v-else class="empty">Nothing open for this project.</p>
+    </section>
+
+    <section class="card">
       <div class="card-head"><h2>Manuscript</h2></div>
-      <p class="empty">No chapters yet. Chapters, planning and the inbox arrive in the next versions of Quarry.</p>
+      <p class="empty">No chapters yet. The editor arrives in phase 4.</p>
     </section>
   </template>
 </template>

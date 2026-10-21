@@ -1,7 +1,8 @@
 import { createRouter, createWebHistory, type RouteLocationRaw } from "vue-router";
 
 import { get } from "./api";
-import { readLastUsed } from "./lastUsed";
+import { isPhone, readLastUsed } from "./lastUsed";
+import { sharedText } from "./share";
 import { useSession } from "./stores/session";
 
 declare module "vue-router" {
@@ -10,6 +11,11 @@ declare module "vue-router" {
     public?: boolean;
   }
 }
+
+const first = (v: unknown): string | undefined => {
+  const x = Array.isArray(v) ? v[0] : v;
+  return typeof x === "string" ? x : undefined;
+};
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -21,9 +27,25 @@ export const router = createRouter({
       component: () => import("./components/AppShell.vue"),
       children: [
         { path: "", name: "home", component: { render: () => null }, beforeEnter: () => homeTarget() },
+        // the installed app starts here (manifest start_url): capture in the world last used
+        { path: "capture", component: { render: () => null }, beforeEnter: () => captureTarget() },
+        // the Android share sheet lands here (manifest share_target)
+        {
+          path: "share",
+          component: { render: () => null },
+          beforeEnter: (to) =>
+            captureTarget({
+              text: sharedText({ title: first(to.query.title), text: first(to.query.text), url: first(to.query.url) }),
+              source: "share",
+            }),
+        },
         { path: "new-world", name: "new-world", component: () => import("./views/NewWorldView.vue") },
         { path: "settings", name: "settings", component: () => import("./views/SettingsView.vue") },
         { path: "w/:world", name: "world", component: () => import("./views/WorldView.vue") },
+        { path: "w/:world/capture", name: "capture", component: () => import("./views/CaptureView.vue") },
+        { path: "w/:world/inbox", name: "inbox", component: () => import("./views/InboxView.vue") },
+        { path: "w/:world/triage", name: "triage", component: () => import("./views/TriageView.vue") },
+        { path: "w/:world/decisions", name: "decisions", component: () => import("./views/DecisionsView.vue") },
         { path: "w/:world/p/:project", name: "project", component: () => import("./views/ProjectView.vue") },
         { path: ":rest(.*)*", name: "not-found", component: () => import("./views/NotFoundView.vue") },
       ],
@@ -31,23 +53,46 @@ export const router = createRouter({
   ],
 });
 
-/** Where "/" leads: the world (and project) last opened on this device, else the first world, else a new one. */
-export function homeTarget(): RouteLocationRaw {
+/** The world last opened on this device, else the first one. */
+function currentWorld() {
   const s = useSession();
   const last = readLastUsed();
-  const world = (last.world && s.world(last.world)) || s.worlds[0];
+  return (last.world && s.world(last.world)) || s.worlds[0];
+}
+
+/**
+ * Where "/" leads. On a phone: capture, in the world last used. At the desk: the world (and project) last opened on
+ * this device, else the first world. Without any world: making one.
+ */
+export function homeTarget(phone = isPhone()): RouteLocationRaw {
+  const s = useSession();
+  const last = readLastUsed();
+  const world = currentWorld();
   if (!world) return { name: "new-world" };
+  if (phone) return { name: "capture", params: { world: world.slug } };
   if (last.world === world.slug && last.project && s.project(world.slug, last.project)) {
     return { name: "project", params: { world: world.slug, project: last.project } };
   }
   return { name: "world", params: { world: world.slug } };
 }
 
+export function captureTarget(query: { text?: string; source?: string } = {}): RouteLocationRaw {
+  const world = currentWorld();
+  if (!world) return { name: "new-world" };
+  const q = Object.fromEntries(Object.entries(query).filter(([, v]) => v));
+  return { name: "capture", params: { world: world.slug }, query: q };
+}
+
 router.beforeEach(async (to) => {
   if (to.meta.public) return true;
   const s = useSession();
-  if (s.me || (await s.load())) return true;
-  const setup = await get<{ needed: boolean }>("/api/setup");
-  if (setup.needed) return { path: "/setup" };
+  if (s.me) return true;
+  try {
+    if (await s.load()) return true;
+    const setup = await get<{ needed: boolean }>("/api/setup");
+    if (setup.needed) return { path: "/setup" };
+  } catch {
+    /* no network and nothing saved on this device: the sign-in page explains */
+  }
   return { path: "/login", query: to.fullPath === "/" ? {} : { next: to.fullPath } };
 });

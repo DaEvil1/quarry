@@ -4,6 +4,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** the parsed error body, e.g. the newer copy of an item on a 409 */
+    public body: unknown = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -43,7 +45,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   }
   if (res.status === 204) return undefined as T;
   const data: unknown = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, errorMessage(res.status, data));
+  if (!res.ok) throw new ApiError(res.status, errorMessage(res.status, data), data);
   return data as T;
 }
 

@@ -68,3 +68,8 @@ def test_cli_passkey_reset(client: Client, passkey: SoftPasskey, capsys, db_url)
     assert client.sign_in(passkey).status_code == 400
     assert client.post("/api/auth/recover", json={"code": codes[0]}).status_code == 200
     assert main(["passkey", "reset", "nobody"]) == 2
+
+
+def test_head_requests_are_answered(client: Client):
+    assert client.head("/healthz").status_code == 200
+    assert client.head("/").status_code in (200, 503)
