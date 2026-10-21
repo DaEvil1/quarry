@@ -189,6 +189,20 @@ only with Ctrl, typing quiet period, text size and line width, and the default m
 A panel beside the editor (and a **Checks** page for the whole world) that keeps the world and the prose in step.
 Each line has one-click actions and can be dismissed for good.
 
+**Five editors.** The findings are grouped into editors, each a lens with one focus. Each is a tab in the panel,
+can be switched off, and has its own "show inline while Revising" setting; Drafting silences them all. They are
+collections of rule-based findings, nothing more: none of them rewrites a sentence or suggests story content.
+
+| Editor | Looks at |
+|---|---|
+| **Proofreader** | spelling (aware of the bible's names), likely misspelled names, doubled words, the same word repeated close together, stray spaces and punctuation, optionally very long sentences |
+| **Continuity** | the checks below: dead but mentioned, two places at once, conflicting facts, knowing too early |
+| **Connections** | unrecorded connections by strength, have they met, where are they |
+| **Archivist** | the bible itself: possible new names, entries without a one-liner, entries never mentioned, other names worth adding |
+| **Loose ends** | your own threads: open items and questions tied to the chapter, TK placeholders, margin notes, the note to yourself |
+
+The sections below describe what each editor finds.
+
 **In this chapter**
 
 - The **cast**: everyone mentioned, with what is true *as of this chapter*: status, where they are, and how they
@@ -274,9 +288,10 @@ highlighting; the server's result is the one that is stored.
    - *Done when* centring on a character shows who they know directly and through one other person, and the graph
      separates two groups that only know each other through one character.
 9. **The writing companion.**
-   - The editor panel (cast as of this chapter, unrecorded connections by strength, possible new names, where are
-     they), Drafting/Revising, getting back in (session note, stash a thought), the Checks page with resolutions,
-     Alt+Enter and F8, and margin notes.
+   - The editor panel with its five editors (Proofreader, Continuity, Connections, Archivist, Loose ends):
+     cast as of this chapter, unrecorded connections by strength, possible new names, where are they, the
+     proofreading rules; Drafting/Revising, getting back in (session note, stash a thought), the Checks page with
+     resolutions, Alt+Enter and F8, and margin notes.
    - *Done when*, writing a scene with two unconnected characters and a new name, the panel offers to record their
      connection and to add the name, each in one click, and a character recorded dead who appears later is listed
      on Checks.
