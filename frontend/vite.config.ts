@@ -9,8 +9,9 @@ export default defineConfig({
   plugins: [
     vue(),
     VitePWA({
-      registerType: "autoUpdate",
-      injectRegister: "script",
+      // a new version waits until the person chooses to reload (UpdateBar), so it never interrupts writing
+      registerType: "prompt",
+      injectRegister: false,
       includeAssets: ["favicon.svg"],
       manifest: {
         name: "Quarry",

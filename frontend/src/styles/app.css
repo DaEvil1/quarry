@@ -380,3 +380,7 @@ main:has(.chapter-page) { max-width: none; padding: 0; }
   .title-wrap { margin-top: 10px; }
   .chapter-title { font-size: 1.25em; }
 }
+
+.update-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 12px; border-radius: 6px;
+  background: var(--accent-soft); border-left: 3px solid var(--accent); }
+.chapter-page .update-bar, main:has(.chapter-page) > .update-bar { margin: 8px 16px 0; }

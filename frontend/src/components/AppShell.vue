@@ -7,6 +7,7 @@ import { syncWorld } from "../offline";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import Icon from "./Icon.vue";
+import UpdateBar from "./UpdateBar.vue";
 import WorldSwitcher from "./WorldSwitcher.vue";
 
 const session = useSession();
@@ -133,6 +134,7 @@ async function signOut() {
     </header>
 
     <main>
+      <UpdateBar />
       <div v-if="offline" class="notice offline" role="status" data-testid="offline">
         Offline. Captures are kept on this device and sync when you're back.
         <template v-if="outbox.waiting"> {{ outbox.waiting }} waiting.</template>
