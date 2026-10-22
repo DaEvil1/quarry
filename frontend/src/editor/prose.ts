@@ -29,7 +29,7 @@ import type { WritingPrefs } from "../prefs";
 import type { EntityKind, EntityRef } from "../types";
 import type { Card } from "../world/cards";
 import type { Hit, Matcher } from "../world/matcher";
-import { cardDom, selectionStripDom, nearMissStripDom } from "./strips";
+import { cardDom, selectionStripDom, nearMissStripDom, type LinkActions } from "./strips";
 
 export { countWords } from "../words";
 
@@ -47,6 +47,8 @@ export interface WorldHooks {
   create(name: string, kind: EntityKind): Promise<void>;
   /** "not a name here": the phrase around a wrongly matched name */
   exclude(entityId: string, phrase: string): Promise<void>;
+  /** recording a relationship from a name's card */
+  link(entityId: string): LinkActions;
 }
 
 // ---- names: coloured by kind, recomputed for what is on screen --------------------------------------------------
@@ -71,18 +73,16 @@ function namesPlugin(hooks: WorldHooks) {
         const matcher = hooks.matcher();
         const b = new RangeSetBuilder<Decoration>();
         if (matcher.empty) return b.finish();
-        let last = -1;
+        const doc = view.state.doc;
+        let next = 0;
         for (const { from, to } of view.visibleRanges) {
-          // whole lines, so a name is never cut in half at the edge of the screen
-          const start = Math.max(view.state.doc.lineAt(from).from, last);
-          const end = view.state.doc.lineAt(to).to;
-          if (start >= end) continue;
-          for (const h of matcher.scan(view.state.doc.sliceString(start, end), start, prefs.underlines)) {
-            if (h.start < last) continue;
-            b.add(h.start, h.end, markFor(h, prefs));
-            last = h.end;
+          // whole lines (paragraphs), so a name is never cut in half at the edge of the screen; the matcher
+          // remembers each line, so a keystroke only rescans the paragraph being written
+          for (let pos = Math.max(from, next); pos <= to; ) {
+            const line = doc.lineAt(pos);
+            for (const h of matcher.scanLine(line.text, line.from, prefs.underlines)) b.add(h.start, h.end, markFor(h, prefs));
+            next = pos = line.to + 1;
           }
-          last = Math.max(last, end);
         }
         return b.finish();
       }
@@ -106,12 +106,18 @@ function markFor(h: Hit, prefs: WritingPrefs): Decoration {
 }
 
 /** The name (or likely misspelling) under a position, found the same way the colours were. */
-function hitAt(view: EditorView, hooks: WorldHooks, pos: number): Hit | undefined {
-  const line = view.state.doc.lineAt(pos);
+function hitAt(state: EditorState, hooks: WorldHooks, pos: number): Hit | undefined {
+  const line = state.doc.lineAt(pos);
   return hooks
     .matcher()
-    .scan(line.text, line.from, hooks.prefs().underlines)
+    .scanLine(line.text, line.from, hooks.prefs().underlines)
     .find((h) => h.start <= pos && pos < h.end);
+}
+
+function wrap(el: HTMLElement): HTMLElement {
+  const box = document.createElement("div");
+  box.append(el);
+  return box;
 }
 
 /** The few words around a match, for "not a name here" ("rose garden"). */
@@ -137,6 +143,23 @@ if (typeof window !== "undefined") {
 }
 let lastKey = 0;
 
+/** What resting on (or selecting) a marked word shows: a misspelling's fixes, or a name's card. */
+function hitDom(v: EditorView, hooks: WorldHooks, h: Hit): HTMLElement {
+  if (h.kind === "near_miss") {
+    const target = hooks.card(h.entityId);
+    return nearMissStripDom(h.matched, target?.name ?? "?", {
+      replace: () => v.dispatch({ changes: { from: h.start, to: h.end, insert: target?.name ?? h.matched } }),
+      spelling: () => hooks.addName(h.entityId, h.matched),
+      ignore: () => hooks.notATypo(h.matched),
+    });
+  }
+  return cardDom(hooks.card(h.entityId), {
+    open: () => hooks.open(h.entityId),
+    notHere: () => hooks.exclude(h.entityId, phraseAround(v, h)),
+    link: hooks.link(h.entityId),
+  });
+}
+
 function intent(hooks: WorldHooks): Extension[] {
 
   const hover = hoverTooltip(
@@ -144,30 +167,13 @@ function intent(hooks: WorldHooks): Extension[] {
       const prefs = hooks.prefs();
       if (Date.now() - lastKey < prefs.quietMs) return null;
       if (prefs.cardsWithCtrl && !ctrl) return null;
-      const h = hitAt(view, hooks, pos);
+      const h = hitAt(view.state, hooks, pos);
       if (!h) return null;
       return {
         pos: h.start,
         end: h.end,
         above: false,
-        create: (v): { dom: HTMLElement } => {
-          if (h.kind === "near_miss") {
-            const target = hooks.card(h.entityId);
-            return {
-              dom: nearMissStripDom(h.matched, target?.name ?? "?", {
-                replace: () => v.dispatch({ changes: { from: h.start, to: h.end, insert: target?.name ?? h.matched } }),
-                spelling: () => hooks.addName(h.entityId, h.matched),
-                ignore: () => hooks.notATypo(h.matched),
-              }),
-            };
-          }
-          return {
-            dom: cardDom(hooks.card(h.entityId), {
-              open: () => hooks.open(h.entityId),
-              notHere: () => hooks.exclude(h.entityId, phraseAround(v, h)),
-            }),
-          };
-        },
+        create: (v): { dom: HTMLElement } => ({ dom: hitDom(v, hooks, h) }),
       };
     },
     { hoverTime: hooks.prefs().cardDelay, hideOnChange: true },
@@ -183,13 +189,19 @@ function intent(hooks: WorldHooks): Extension[] {
       if (sel.empty || tr.state.readOnly) return [];
       const text = tr.state.sliceDoc(sel.from, sel.to).trim();
       if (text.length < 2 || text.length > 80 || text.includes("\n")) return [];
+      // selecting a marked word (a long-press does that on a phone) shows what resting on it would
+      const hit = hitAt(tr.state, hooks, sel.from);
+      if (hit && hit.start <= sel.from && sel.to <= hit.end) {
+        return [{ pos: hit.start, above: false, strictSide: false, create: (view) => ({ dom: wrap(hitDom(view, hooks, hit)) }) }];
+      }
       return [
         {
           pos: sel.to,
           above: false,
           strictSide: false,
           create: (view) => ({
-            dom: selectionStripDom(text, hooks.names(), {
+            // wrapped: CodeMirror makes the returned element its (transparent) tooltip box
+            dom: wrap(selectionStripDom(text, hooks.names(), {
               create: async (kind) => {
                 await hooks.create(text, kind);
                 view.dispatch({ selection: { anchor: sel.to } });
@@ -199,7 +211,7 @@ function intent(hooks: WorldHooks): Extension[] {
                 view.dispatch({ selection: { anchor: sel.to } });
               },
               done: () => view.focus(),
-            }),
+            })),
           }),
         },
       ];
@@ -323,7 +335,10 @@ export interface Prose {
   setFocusMode(on: boolean): void;
   setTypewriter(on: boolean): void;
   /** the world's names or the writing settings changed */
+  /** the world's names changed: recolour (open cards and strips stay) */
   refreshNames(): void;
+  /** the writing settings changed: recolour, and rebuild cards and strips with the new timings */
+  refreshPrefs(): void;
   replaceDoc(text: string): void;
   replaceRange(from: number, to: number, text: string): void;
   destroy(): void;
@@ -366,7 +381,8 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
     view,
     setFocusMode: (on) => view.dispatch({ effects: focusMode.reconfigure(on ? focusPlugin : []) }),
     setTypewriter: (on) => view.dispatch({ effects: typewriterMode.reconfigure(on ? typewriter : []) }),
-    refreshNames: () =>
+    refreshNames: () => view.dispatch({ effects: namesChanged.of(null) }),
+    refreshPrefs: () =>
       view.dispatch({ effects: [namesChanged.of(null), intentMode.reconfigure(opts.readOnly ? [] : intent(opts.world))] }),
     replaceDoc(text) {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });

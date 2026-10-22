@@ -36,3 +36,4 @@ Thumbs.db
 /backend/src/quarry/web/
 /frontend/test-results/
 /frontend/playwright-report/
+/frontend/perf-results.json

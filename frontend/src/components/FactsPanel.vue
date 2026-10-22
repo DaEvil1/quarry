@@ -51,8 +51,14 @@ const set = (f: Fact, changes: Partial<Fact>) => run(() => updateFact(props.worl
           <th><InlineText :value="f.label" label="Label" :maxlength="100" @save="(v) => v && set(f, { label: v })" /></th>
           <td class="grow">
             <InlineText :value="f.value" label="Value" placeholder="—" :maxlength="5000" @save="(v) => set(f, { value: v })" />
-            <div v-if="f.evidence" class="evidence small muted">
-              “{{ f.evidence }}”<template v-if="f.established_in_chapter_id"> — {{ props.chapterTitles[f.established_in_chapter_id] ?? "a chapter" }}</template>
+            <div class="evidence small muted">
+              <InlineText
+                :value="f.evidence ?? ''"
+                label="Evidence"
+                placeholder="+ where it says so"
+                :maxlength="5000"
+                @save="(v) => set(f, { evidence: v || null })"
+              /><template v-if="f.evidence && f.established_in_chapter_id"> — {{ props.chapterTitles[f.established_in_chapter_id] ?? "a chapter" }}</template>
             </div>
           </td>
           <td>

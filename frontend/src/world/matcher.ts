@@ -25,20 +25,31 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Optimal string alignment distance: like Levenshtein, with a swapped pair of letters counting as one edit. */
 export function osa(a: string, b: string, limit = 99): number {
   if (Math.abs(a.length - b.length) > limit) return limit + 1;
-  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
-  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  // three rolling rows (two back, for the swapped pair) instead of a whole table: this runs for every capitalised
+  // word against every name, so it must not allocate much
+  let prev2 = new Uint16Array(b.length + 1);
+  let prev = new Uint16Array(b.length + 1);
+  let cur = new Uint16Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
   for (let i = 1; i <= a.length; i++) {
-    let rowMin = Infinity;
+    cur[0] = i;
+    let rowMin = i;
+    const ai = a.charCodeAt(i - 1);
     for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
-      rowMin = Math.min(rowMin, d[i][j]);
+      const bj = b.charCodeAt(j - 1);
+      let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ai === bj ? 0 : 1));
+      if (i > 1 && j > 1 && ai === b.charCodeAt(j - 2) && a.charCodeAt(i - 2) === bj) v = Math.min(v, prev2[j - 2] + 1);
+      cur[j] = v;
+      if (v < rowMin) rowMin = v;
     }
     if (rowMin > limit) return limit + 1;
+    [prev2, prev, cur] = [prev, cur, prev2];
   }
-  return d[a.length][b.length];
+  return prev[b.length];
 }
+
+/** How many lines' results a matcher remembers (a long chapter has a few hundred paragraphs). */
+const LINE_CACHE = 4000;
 
 export class Matcher {
   private exact = new Map<string, [string, Hit["kind"]]>();
@@ -50,6 +61,14 @@ export class Matcher {
   private knownLower = new Set<string>();
   private owner = new Map<string, string>();
   private ignored: Set<string>;
+  /** the near-miss candidates by length, so a word is only compared with names it could be one or two edits from */
+  private ownersByLength = new Map<number, string[]>();
+  /** ties go to the name met first, as on the server */
+  private ownerOrder = new Map<string, number>();
+  /** a word's verdict: the name it is likely a misspelling of, or null */
+  private nearCache = new Map<string, string | null>();
+  /** a line's hits (at offset 0), so typing in one paragraph doesn't rescan the others */
+  private lineCache = new Map<string, Hit[]>();
 
   constructor(cards: Card[], ignored: Iterable<string> = []) {
     for (const c of cards) {
@@ -84,6 +103,44 @@ export class Matcher {
       }
     }
     this.ignored = new Set(ignored);
+    let i = 0;
+    for (const k of this.owner.keys()) {
+      this.ownerOrder.set(k, i++);
+      this.ownersByLength.set(k.length, [...(this.ownersByLength.get(k.length) ?? []), k]);
+    }
+  }
+
+  /** Like scan, remembering each line's result: for the editor, which scans the lines on screen on every change. */
+  scanLine(text: string, offset = 0, nearMisses = true): Hit[] {
+    const key = `${nearMisses ? 1 : 0}${text}`;
+    let hits = this.lineCache.get(key);
+    if (!hits) {
+      hits = this.scan(text, 0, nearMisses);
+      if (this.lineCache.size >= LINE_CACHE) this.lineCache.clear();
+      this.lineCache.set(key, hits);
+    }
+    return offset ? hits.map((h) => ({ ...h, start: h.start + offset, end: h.end + offset })) : hits;
+  }
+
+  /** The name `base` is likely a misspelling of, if any. */
+  private nearest(base: string): string | null {
+    const known = this.nearCache.get(base);
+    if (known !== undefined) return known;
+    const limit = base.length <= 6 ? 1 : 2;
+    let best: string | null = null;
+    let bestD = limit + 1;
+    for (let len = base.length - limit; len <= base.length + limit; len++) {
+      for (const cand of this.ownersByLength.get(len) ?? []) {
+        const d = osa(base, cand, Math.min(limit, bestD));
+        if (d < bestD || (d === bestD && best !== null && this.ownerOrder.get(cand)! < this.ownerOrder.get(best)!)) {
+          bestD = d;
+          best = cand;
+        }
+      }
+    }
+    if (this.nearCache.size > 20_000) this.nearCache.clear();
+    this.nearCache.set(base, best);
+    return best;
   }
 
   get empty(): boolean {
@@ -135,16 +192,7 @@ export class Matcher {
         const base = word.replace(POSSESSIVE, "");
         if (base.length < NEAR_MIN || this.ignored.has(base) || this.ignored.has(word)) continue;
         if (this.knownLower.has(base.toLowerCase())) continue;
-        const limit = base.length <= 6 ? 1 : 2;
-        let best: string | null = null;
-        let bestD = limit + 1;
-        for (const cand of this.owner.keys()) {
-          const d = osa(base, cand, limit);
-          if (d < bestD) {
-            bestD = d;
-            best = cand;
-          }
-        }
+        const best = this.nearest(base);
         if (best) {
           const id = this.owner.get(best)!;
           out.push({ start: at + offset, end: at + base.length + offset, entityId: id, kind: "near_miss", entityKind: this.kindOf(id), matched: base });

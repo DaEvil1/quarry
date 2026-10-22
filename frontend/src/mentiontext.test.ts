@@ -1,4 +1,5 @@
 import { RouterLinkStub, mount } from "@vue/test-utils";
+import { createPinia } from "pinia";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./bible", () => ({
@@ -25,7 +26,7 @@ const m = (start: number, end: number, kind: Mention["kind"], name = "Varren"): 
 function render(text: string, mentions: Mention[]) {
   return mount(MentionText, {
     props: { text, mentions, world: "coast", source: { table: "item", id: "i1" } },
-    global: { stubs: { RouterLink: RouterLinkStub } },
+    global: { plugins: [createPinia()], stubs: { RouterLink: RouterLinkStub } },
   });
 }
 

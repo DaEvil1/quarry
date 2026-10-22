@@ -145,8 +145,11 @@ export function typeOptions(types: RelationType[], from: string, to: string): { 
   const fits = (kind: string, side: string) => side === "*" || side === kind;
   const out: { type: RelationType; reads: string; forward: boolean }[] = [];
   for (const t of types) {
-    if (fits(from, t.a_kind) && fits(to, t.b_kind)) out.push({ type: t, reads: t.label, forward: true });
-    else if (fits(to, t.a_kind) && fits(from, t.b_kind)) out.push({ type: t, reads: t.reverse_label ?? t.label, forward: false });
+    const forward = fits(from, t.a_kind) && fits(to, t.b_kind);
+    const backward = fits(to, t.a_kind) && fits(from, t.b_kind);
+    if (forward) out.push({ type: t, reads: t.label, forward: true });
+    // both ways round for a type with a reverse (parent of / child of); once for one that reads the same both ways
+    if (backward && (!forward || t.reverse_label)) out.push({ type: t, reads: t.reverse_label ?? t.label, forward: false });
   }
   // the specific ones first, "linked to" last
   return out.sort((a, b) => Number(a.type.a_kind === "*" && a.type.b_kind === "*") - Number(b.type.a_kind === "*" && b.type.b_kind === "*"));

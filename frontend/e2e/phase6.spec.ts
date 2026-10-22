@@ -146,6 +146,36 @@ test("a selected word becomes a new entry from the strip", async () => {
   await expect(page.getByTestId("bible-list")).toContainText("Brannoch");
 });
 
+test("selecting a name shows its card, and the card links it to another entry", async () => {
+  await page.goto(`${W}/p/first-light`);
+  await page.getByRole("link", { name: "Night watch" }).click();
+  const ed = page.getByTestId("editor");
+  await ed.locator(".cm-k-character", { hasText: "Isolde" }).dblclick();
+  const card = page.getByTestId("name-card");
+  await expect(card).toBeVisible();
+  await expect(card).toContainText("Isolde");
+  await card.getByRole("button", { name: "Link to…" }).click();
+  await page.getByLabel("Link to").fill("Old Harb");
+  await page.keyboard.press("Enter");
+  await card.getByRole("button", { name: "visits" }).click();
+  await expect(card).toContainText("Linked: visits Old Harbour.");
+
+  await openEntry("Isolde");
+  const rel = page.getByTestId("relationships");
+  await expect(rel.locator("dt")).toContainText(["child of", "visits"]);
+  await expect(rel.locator("dd").last()).toContainText("Old Harbour");
+});
+
+test("a fact's evidence is noted in place", async () => {
+  await openEntry("Varren");
+  const row = page.getByTestId("facts").locator("tr", { hasText: "eye colour" });
+  await row.hover();
+  await row.getByTitle("Edit evidence").click();
+  await page.getByLabel("Evidence").fill("his eyes, grey as the harbour");
+  await page.keyboard.press("Enter");
+  await expect(row).toContainText("his eyes, grey as the harbour");
+});
+
 test("writing settings: names uncoloured, then back to defaults", async () => {
   await page.goto("/settings");
   const s = page.getByTestId("writing-settings");

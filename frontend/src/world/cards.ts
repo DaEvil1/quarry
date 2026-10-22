@@ -5,7 +5,7 @@ import { defineStore } from "pinia";
 
 import { get } from "../api";
 import { localDb } from "../localdb";
-import type { EntityKind, EntityRef } from "../types";
+import type { EntityKind, EntityRef, RelationType } from "../types";
 import { Matcher } from "./matcher";
 
 export interface Card {
@@ -24,6 +24,8 @@ export interface Card {
 interface Kept {
   cards: Card[];
   ignored: string[];
+  /** the world's kinds of relationship, for linking names from the editor */
+  types?: RelationType[];
 }
 
 const key = (world: string) => `cards:${world}`;
@@ -33,6 +35,7 @@ export const useCards = defineStore("cards", {
     world: "" as string,
     cards: [] as Card[],
     ignored: [] as string[],
+    types: [] as RelationType[],
     /** bumped on every change, so editors know to rebuild their matcher */
     version: 0,
   }),
@@ -52,6 +55,7 @@ export const useCards = defineStore("cards", {
         this.world = world;
         this.cards = [];
         this.ignored = [];
+        this.types = [];
         try {
           const kept = (await localDb.kv.get(key(world)))?.value as Kept | undefined;
           if (kept && this.world === world) this.apply(kept);
@@ -69,10 +73,14 @@ export const useCards = defineStore("cards", {
       if (!world) return;
       try {
         const base = `/api/worlds/${encodeURIComponent(world)}`;
-        const [cards, ignored] = await Promise.all([get<Card[]>(`${base}/cards`), get<string[]>(`${base}/name-ignores`)]);
+        const [cards, ignored, types] = await Promise.all([
+          get<Card[]>(`${base}/cards`),
+          get<string[]>(`${base}/name-ignores`),
+          get<RelationType[]>(`${base}/relation-types`),
+        ]);
         if (world !== this.world) return;
-        this.apply({ cards, ignored });
-        await localDb.kv.put({ key: key(world), value: JSON.parse(JSON.stringify({ cards, ignored })) });
+        this.apply({ cards, ignored, types });
+        await localDb.kv.put({ key: key(world), value: JSON.parse(JSON.stringify({ cards, ignored, types })) });
       } catch {
         /* offline: keep what we have */
       }
@@ -80,6 +88,7 @@ export const useCards = defineStore("cards", {
     apply(kept: Kept) {
       this.cards = kept.cards;
       this.ignored = kept.ignored;
+      this.types = kept.types ?? [];
       this.version++;
     },
     matcher(): Matcher {

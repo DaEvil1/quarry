@@ -2,7 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 
-import { createEntity, fixes, getEntity, updateEntity } from "../bible";
+import { addRelationship, createEntity, fixes, getEntity, typeOptions, updateEntity } from "../bible";
+import ChapterSide from "../components/ChapterSide.vue";
 import HistoryPanel from "../components/HistoryPanel.vue";
 import { createProse, countWords, type Prose, type WorldHooks } from "../editor/prose";
 import { ChapterSaver, type SaveStatus } from "../editor/saver";
@@ -53,6 +54,13 @@ const offlineCopy = ref(false);
 let draftTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Keep what's in the editor on this device until the server has it. */
+// the word count over a whole chapter is too slow for every keystroke on a phone: it catches up when typing pauses
+let countTimer = 0;
+function countLater(text: string) {
+  clearTimeout(countTimer);
+  countTimer = window.setTimeout(() => (words.value = countWords(text)), 300);
+}
+
 function keepDraft() {
   clearTimeout(draftTimer);
   draftTimer = setTimeout(() => {
@@ -72,18 +80,6 @@ const STATUS_TEXT: Record<SaveStatus, string> = {
   conflict: "Changed elsewhere: your text is in History",
 };
 
-// the names in this chapter, for the side panel
-const inChapter = computed(() => {
-  const counts = new Map<string, { id: string; name: string; count: number }>();
-  for (const m of chapter.value?.mentions ?? []) {
-    if (m.kind === "near_miss") continue;
-    const c = counts.get(m.entity_id) ?? { id: m.entity_id, name: m.entity_name, count: 0 };
-    c.count++;
-    counts.set(m.entity_id, c);
-  }
-  return [...counts.values()].sort((a, b) => b.count - a.count);
-});
-const nearMissCount = computed(() => chapter.value?.mentions.filter((m) => m.kind === "near_miss").length ?? 0);
 
 function mount(ch: Chapter) {
   prose.value?.destroy();
@@ -96,7 +92,7 @@ function mount(ch: Chapter) {
     readOnly: ch.state === "retired",
     placeholderText: ch.state === "experiment" && !ch.body ? "Start the rewrite from a blank page…" : "Write…",
     onChange: (text) => {
-      words.value = countWords(text);
+      countLater(text);
       saver?.edit({ body: text });
       keepDraft();
     },
@@ -229,7 +225,7 @@ watch(
     prose.value?.refreshNames();
   },
 );
-watch(() => ({ ...prefs.$state }), () => prose.value?.refreshNames(), { deep: true });
+watch(() => ({ ...prefs.$state }), () => prose.value?.refreshPrefs(), { deep: true });
 const names = computed(() => cards.names);
 
 async function worldChange(fn: () => Promise<unknown>) {
@@ -257,6 +253,18 @@ const worldHooks: WorldHooks = {
       const { entity } = await getEntity(worldSlug.value, id);
       await updateEntity(worldSlug.value, entity, { exclusions: [...entity.exclusions, phrase] });
     }),
+  link: (id) => ({
+    names: () => cards.names,
+    options: (other) => {
+      const from = cards.byId.get(id)?.kind ?? "other";
+      return typeOptions(cards.types, from, other.kind).map((o) => ({ key: `${o.type.id}|${o.forward}`, reads: o.reads }));
+    },
+    add: (other, key) => {
+      const [typeId, forward] = key.split("|");
+      const [a, b] = forward === "true" ? [id, other.id] : [other.id, id];
+      return worldChange(() => addRelationship(worldSlug.value, { type_id: typeId!, a_id: a, b_id: b, established_in_chapter_id: chapter.value?.id ?? null }));
+    },
+  }),
 };
 const editorStyle = computed(() => ({ "--prose-size": `${prefs.textSize}px`, "--prose-width": `${prefs.lineWidth}ch` }));
 watch(title, (t) => {
@@ -314,11 +322,10 @@ async function restore(revisionId: string, body: string) {
   notice.value = "Restored. The text it replaced is in History.";
 }
 
-const experimentFrom = ref<"copy" | "scratch">("copy");
-async function experiment() {
+async function experiment(from: "copy" | "scratch") {
   if (!chapter.value) return;
   await saver?.leave();
-  const ch = await startExperiment(worldSlug.value, chapter.value.id, experimentFrom.value);
+  const ch = await startExperiment(worldSlug.value, chapter.value.id, from);
   await router.push({ name: "chapter", params: { world: worldSlug.value, id: ch.id } });
 }
 
@@ -439,45 +446,17 @@ const CLOSE_TEXT = {
       <div ref="host" class="editor-host" :class="{ focus: focusMode }" :style="editorStyle" data-testid="editor" />
     </div>
 
-    <aside v-if="chapter && !showHistory" class="chapter-side">
-      <section>
-        <h3 class="small muted">Point of view</h3>
-        <select class="filter" aria-label="Point of view" :value="chapter.pov?.id ?? ''" :disabled="readOnly" @change="setPov(($event.target as HTMLSelectElement).value)">
-          <option value="">None</option>
-          <option v-for="e in names.filter((n) => n.kind === 'character')" :key="e.id" :value="e.id">{{ e.name }}</option>
-        </select>
-      </section>
-      <section>
-        <h3 class="small muted">In this chapter</h3>
-        <ul class="plain-list">
-          <li v-for="e in inChapter" :key="e.id">
-            <RouterLink :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink>
-            <span class="muted small">×{{ e.count }}</span>
-          </li>
-          <li v-if="!inChapter.length" class="muted small">No names from the bible yet.</li>
-        </ul>
-        <p v-if="nearMissCount" class="small">
-          <RouterLink :to="{ name: 'names', params: { world: world.slug } }">{{ nearMissCount }} possible misspelling(s)</RouterLink>
-        </p>
-      </section>
-      <section v-if="chapter.harvest_notes.length">
-        <h3 class="small muted">Harvest notes</h3>
-        <p v-for="n in chapter.harvest_notes" :key="n.id" class="small">{{ n.body }}</p>
-      </section>
-      <section class="side-actions">
-        <button type="button" class="btn btn-sm" :disabled="readOnly" @click="checkpoint">Checkpoint <kbd>Ctrl S</kbd></button>
-        <template v-if="chapter.state === 'current'">
-          <div class="actions">
-            <select v-model="experimentFrom" class="filter" aria-label="Experiment starts from">
-              <option value="copy">from a copy</option>
-              <option value="scratch">from scratch</option>
-            </select>
-            <button type="button" class="btn btn-sm" @click="experiment">Start an experiment</button>
-          </div>
-          <button type="button" class="btn btn-sm" @click="closing = 'retire'">Retire to Salvage</button>
-        </template>
-      </section>
-    </aside>
+    <ChapterSide
+      v-if="chapter && !showHistory"
+      :world="world.slug"
+      :chapter="chapter"
+      :names="names"
+      :read-only="readOnly"
+      @pov="setPov"
+      @checkpoint="checkpoint"
+      @experiment="experiment"
+      @retire="closing = 'retire'"
+    />
 
     <HistoryPanel
       v-if="showHistory && chapter"

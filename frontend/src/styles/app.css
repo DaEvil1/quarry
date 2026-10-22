@@ -507,3 +507,12 @@ h2 a .kdot { margin-right: 6px; }
 .kind-toggles .chip { gap: 6px; padding: 4px 10px; }
 .form h3 { margin: 14px 0 4px; }
 .field input[type="range"] { width: 100%; max-width: 360px; padding: 0; border: 0; }
+/* "canon" is the default: it recedes until the row is pointed at; planned and rumour stand out */
+select.standing.canon { background: transparent; opacity: .5; }
+tr:hover select.standing, .rel:hover select.standing, select.standing:focus { opacity: 1; }
+table.facts { max-width: 780px; }
+@media (max-width: 600px) { .entry-head { flex-wrap: wrap; } .entry-head > .grow { flex-basis: 100%; } }
+/* "+ where it says so" shows only when the row is pointed at (always on touch screens) */
+.evidence .inline-text.empty { opacity: 0; font-style: normal; }
+tr:hover .evidence .inline-text.empty, .evidence .inline-text.empty:focus-visible { opacity: 1; }
+@media (hover: none) { .evidence .inline-text.empty { opacity: .7; } }

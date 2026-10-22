@@ -10,6 +10,8 @@ const emit = defineEmits<{ pick: [entity: EntityRef]; cancel: [] }>();
 const q = ref("");
 const active = ref(0);
 const box = ref<HTMLInputElement | null>(null);
+// the suggestions show while the field is in use, not as a permanent list under it
+const focused = ref(!!props.autofocus);
 
 const matches = computed(() => {
   const needle = q.value.trim().toLowerCase();
@@ -53,8 +55,10 @@ defineExpose({ focus: () => nextTick(() => box.value?.focus()) });
       :autofocus="props.autofocus"
       @keydown="onKey"
       @input="active = 0"
+      @focus="focused = true"
+      @blur="focused = false"
     />
-    <ul v-if="matches.length" class="picker-list" role="listbox">
+    <ul v-if="(focused || q) && matches.length" class="picker-list" role="listbox">
       <li
         v-for="(e, i) in matches"
         :key="e.id"

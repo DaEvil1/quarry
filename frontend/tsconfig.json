@@ -15,5 +15,5 @@
     "jsx": "preserve",
     "types": ["vite/client", "vite-plugin-pwa/client", "vite-plugin-pwa/vue", "node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts", "playwright.config.ts", "e2e/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts", "playwright.config.ts", "playwright.perf.config.ts", "e2e/**/*.ts", "perf/**/*.ts"]
 }

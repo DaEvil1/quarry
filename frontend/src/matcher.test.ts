@@ -72,6 +72,20 @@ describe("Matcher (same rules as the server)", () => {
   it("an offset shifts positions (scanning part of a document)", () => {
     expect(m.scan("x Varren", 100)[0].start).toBe(102);
   });
+
+  it("scanLine remembers a line and gives the same hits as scan, at any offset", () => {
+    const text = "Varen met Isolde. Modroch watched.";
+    expect(m.scanLine(text, 40)).toEqual(m.scan(text, 40));
+    expect(m.scanLine(text, 7)).toEqual(m.scan(text, 7));
+    expect(m.scanLine(text, 0, false)).toEqual(m.scan(text, 0, false));
+  });
+
+  it("a misspelling equally close to two names goes to the one met first, as on the server", () => {
+    const a = card("Karran");
+    const b = card("Barren");
+    expect(hits(new Matcher([a, b]), "Barran")).toEqual([["Barran", "near_miss", "Karran"]]);
+    expect(hits(new Matcher([b, a]), "Barran")).toEqual([["Barran", "near_miss", "Barren"]]);
+  });
 });
 
 describe("osa", () => {

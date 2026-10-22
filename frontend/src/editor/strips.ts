@@ -31,7 +31,15 @@ function chip(label: string, onClick: () => unknown, cls = ""): HTMLButtonElemen
 const kindLabel = (k: string) => ENTITY_KINDS.find((x) => x.value === k)?.label ?? k;
 
 /** A name's card: the one-liner, a few facts and relationships, and two actions. */
-export function cardDom(card: Card | undefined, actions: { open: () => void; notHere?: () => unknown }): HTMLElement {
+/** Recording a relationship from a name's card: who or what with, then how. */
+export interface LinkActions {
+  names: () => EntityRef[];
+  /** the ways this entry can be related to `other`, as they read from this entry */
+  options: (other: EntityRef) => { key: string; reads: string }[];
+  add: (other: EntityRef, key: string) => Promise<unknown>;
+}
+
+export function cardDom(card: Card | undefined, actions: { open: () => void; notHere?: () => unknown; link?: LinkActions }): HTMLElement {
   const root = el("div", "qcard");
   root.setAttribute("role", "tooltip");
   root.dataset.testid = "name-card";
@@ -61,9 +69,55 @@ export function cardDom(card: Card | undefined, actions: { open: () => void; not
   }
   const row = el("div", "qrow");
   row.append(chip("Open", actions.open));
+  const link = actions.link;
+  if (link) row.append(chip("Link to…", () => linkFlow(row, card, link)));
   if (actions.notHere) row.append(chip("Not a name here", actions.notHere, "quiet"));
   root.append(row);
   return root;
+}
+
+/** In place of the card's buttons: a name to link to, then the relationship as chips. */
+function linkFlow(row: HTMLElement, card: Card, link: LinkActions) {
+  const box = el("input", "qinput");
+  box.placeholder = `Link ${card.name} to…`;
+  box.setAttribute("aria-label", "Link to");
+  const list = el("div", "qlist");
+  const pickName = (other: EntityRef) => {
+    list.replaceChildren();
+    box.remove();
+    const head = el("div", "qcard-also");
+    head.append(`${card.name} … `, el("span", `qname k-${other.kind}`, other.name));
+    const opts = el("div", "qrow");
+    for (const o of link.options(other)) {
+      opts.append(
+        chip(o.reads, async () => {
+          await link.add(other, o.key);
+          row.replaceChildren(el("span", "qcard-also", `Linked: ${o.reads} ${other.name}.`));
+        }),
+      );
+    }
+    row.replaceChildren(head, opts);
+  };
+  const render = () => {
+    const q = box.value.trim().toLowerCase();
+    list.replaceChildren(
+      ...link
+        .names()
+        .filter((n) => n.id !== card.id && (!q || n.name.toLowerCase().includes(q)))
+        .slice(0, 6)
+        .map((n) => chip(n.name, () => pickName(n), `k-${n.kind}`)),
+    );
+  };
+  box.addEventListener("input", render);
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      (list.firstElementChild as HTMLButtonElement | null)?.click();
+    }
+  });
+  render();
+  row.replaceChildren(box, list);
+  setTimeout(() => box.focus());
 }
 
 /** A likely misspelling: replace it, keep it as another spelling, or never flag it again. */
