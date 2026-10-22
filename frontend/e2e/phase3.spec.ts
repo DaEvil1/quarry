@@ -46,12 +46,13 @@ test("build the bible: entries, another spelling, notes", async () => {
   await addEntry("Old Harbour", "place");
   await addEntry("Isolde");
   await addEntry("Varren");
+  await page.getByLabel("Add another name").fill("the Grey Keeper");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("aliases")).toContainText("the Grey Keeper");
   await page.getByRole("button", { name: "Edit" }).click();
-  await page.getByLabel("Other spellings and names").fill("the Grey Keeper");
-  await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.getByLabel("Notes").fill("Keeper of the light at Old Harbour.");
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Also: the Grey Keeper")).toBeVisible();
+  await expect(page.getByText("Keeper of the light at Old Harbour.")).toBeVisible();
 
   await page.goto(`${W}/bible`);
   await expect(page.getByTestId("bible-list").first()).toContainText("Isolde");
@@ -115,7 +116,7 @@ test("an entry's page: mentions everywhere, untagged items, tagging from there",
   // and Isolde gained a spelling, which now counts
   await page.goto(`${W}/bible`);
   await page.getByRole("link", { name: "Isolde" }).click();
-  await expect(page.getByText("Also: Isolda")).toBeVisible();
+  await expect(page.getByTestId("aliases")).toContainText("Isolda");
   await expect(page.getByTestId("mentions")).toContainText("Isolda waits on the pier");
 });
 

@@ -36,12 +36,13 @@ test("write a chapter: autosave, word count, a misspelled name fixed in the edit
   await page.keyboard.type("Varen walks down to Old Harbour.");
   await expect(page.getByTestId("word-count")).toHaveText("6 words");
   await expect(status()).toHaveText("Saved", { timeout: 10_000 });
-  // after the save the server's name marks arrive: Old Harbour linked, Varen squiggled
+  // names are marked as they are typed: Old Harbour coloured as a place, Varen squiggled
   const miss = page.getByTestId("editor").locator(".cm-near-miss");
   await expect(miss).toHaveText("Varen");
-  await expect(page.getByTestId("editor").locator(".cm-mention")).toHaveText("Old Harbour");
-  await miss.click();
-  await page.getByRole("menuitem", { name: "Replace with Varren" }).click();
+  await expect(page.getByTestId("editor").locator(".cm-name.cm-k-place")).toHaveText("Old Harbour");
+  // resting on the squiggle (once typing has paused) offers the fixes
+  await miss.hover();
+  await page.getByTestId("near-miss-strip").getByRole("button", { name: "Replace with Varren" }).click();
   await expect(editor()).toHaveText("Varren walks down to Old Harbour.");
   await expect(status()).toHaveText("Saved", { timeout: 10_000 });
   await expect(page.getByTestId("editor").locator(".cm-near-miss")).toHaveCount(0);

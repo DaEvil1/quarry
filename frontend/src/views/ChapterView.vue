@@ -2,9 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 
-import { entityNames, fixes } from "../bible";
+import { createEntity, fixes, getEntity, updateEntity } from "../bible";
 import HistoryPanel from "../components/HistoryPanel.vue";
-import { createProse, countWords, type Prose } from "../editor/prose";
+import { createProse, countWords, type Prose, type WorldHooks } from "../editor/prose";
 import { ChapterSaver, type SaveStatus } from "../editor/saver";
 import {
   closeExperiment,
@@ -19,8 +19,10 @@ import {
 } from "../manuscript";
 import { ApiError } from "../api";
 import { cacheChapter, dropDraft, getDraft, localChapter, queueRevision, saveDraft } from "../offline";
+import { usePrefs } from "../prefs";
 import { useSession } from "../stores/session";
-import { localToday, type EntityRef } from "../types";
+import { localToday } from "../types";
+import { useCards } from "../world/cards";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
@@ -40,10 +42,11 @@ const host = ref<HTMLElement | null>(null);
 const prose = shallowRef<Prose | null>(null);
 let saver: ChapterSaver | null = null;
 
-const focusMode = ref(false);
-const typewriter = ref(false);
+const prefs = usePrefs();
+const cards = useCards();
+const focusMode = ref(prefs.focusMode);
+const typewriter = ref(prefs.typewriter);
 const showHistory = ref(false);
-const names = ref<EntityRef[]>([]);
 const project = computed(() => world.value?.projects.find((p) => p.slug === chapter.value?.project));
 // shown from the copy on this device: the server couldn't be reached
 const offlineCopy = ref(false);
@@ -98,9 +101,8 @@ function mount(ch: Chapter) {
       keepDraft();
     },
     onSave: () => void checkpoint(),
-    onNearMiss: (info) => (menu.value = info),
+    world: worldHooks,
   });
-  prose.value.setMentions(ch.mentions);
   prose.value.setFocusMode(focusMode.value);
   prose.value.setTypewriter(typewriter.value);
   saver = new ChapterSaver(ch, {
@@ -114,15 +116,13 @@ function mount(ch: Chapter) {
       offlineCopy.value = false;
       void cacheChapter(worldSlug.value, saved);
       void dropDraft(saved.id, sentBody);
-      // fresh name marks, if nothing was typed while the save was on its way
-      if (sentBody !== undefined && sentBody === current) prose.value?.setMentions(saved.mentions);
+      void sentBody;
     },
     conflict: (current) => {
       chapter.value = current;
       void dropDraft(current.id);
       void cacheChapter(worldSlug.value, current);
       prose.value?.replaceDoc(current.body);
-      prose.value?.setMentions(current.mentions);
       saver?.rebase(current);
       notice.value = "This chapter was changed on another device. Its text is shown now; yours was kept in History as a conflict copy.";
     },
@@ -180,8 +180,8 @@ async function recoverDraft(ch: Chapter) {
 }
 
 onMounted(async () => {
+  void cards.load(worldSlug.value);
   await load();
-  names.value = await entityNames(worldSlug.value);
   document.addEventListener("visibilitychange", onHide);
   window.addEventListener("beforeunload", onUnload);
 });
@@ -211,8 +211,54 @@ function onUnload(e: BeforeUnloadEvent) {
   }
 }
 
-watch(focusMode, (on) => prose.value?.setFocusMode(on));
-watch(typewriter, (on) => prose.value?.setTypewriter(on));
+watch(focusMode, (on) => {
+  prose.value?.setFocusMode(on);
+  prefs.set("focusMode", on);
+});
+watch(typewriter, (on) => {
+  prose.value?.setTypewriter(on);
+  prefs.set("typewriter", on);
+});
+
+// ---- the world in the editor: names coloured by kind, cards and quick fixes (docs/WORLD-MODEL.md §5) ----
+let matcher = cards.matcher();
+watch(
+  () => cards.version,
+  () => {
+    matcher = cards.matcher();
+    prose.value?.refreshNames();
+  },
+);
+watch(() => ({ ...prefs.$state }), () => prose.value?.refreshNames(), { deep: true });
+const names = computed(() => cards.names);
+
+async function worldChange(fn: () => Promise<unknown>) {
+  error.value = "";
+  try {
+    await fn();
+    await cards.refresh(worldSlug.value);
+    void session.refreshNearMisses(worldSlug.value);
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+
+const worldHooks: WorldHooks = {
+  matcher: () => matcher,
+  card: (id) => cards.byId.get(id),
+  names: () => cards.names,
+  prefs: () => prefs.$state,
+  open: (id) => void router.push({ name: "entity", params: { world: worldSlug.value, id } }),
+  addName: (id, word) => worldChange(() => fixes.addSpelling(worldSlug.value, word, id)),
+  notATypo: (word) => worldChange(() => fixes.notATypo(worldSlug.value, word)),
+  create: (name, kind) => worldChange(() => createEntity(worldSlug.value, { name, kind })),
+  exclude: (id, phrase) =>
+    worldChange(async () => {
+      const { entity } = await getEntity(worldSlug.value, id);
+      await updateEntity(worldSlug.value, entity, { exclusions: [...entity.exclusions, phrase] });
+    }),
+};
+const editorStyle = computed(() => ({ "--prose-size": `${prefs.textSize}px`, "--prose-width": `${prefs.lineWidth}ch` }));
 watch(title, (t) => {
   if (chapter.value && t.trim() && t !== chapter.value.title) saver?.edit({ title: t });
 });
@@ -233,25 +279,6 @@ async function keepCheckpoint() {
   await saver?.checkpoint(label.value.trim() || undefined);
   notice.value = label.value.trim() ? `Checkpoint “${label.value.trim()}” kept.` : "Checkpoint kept.";
   prose.value?.view.focus();
-}
-
-// ---- near-miss menu in the editor ----
-const menu = ref<{ word: string; entityId: string; name: string; from: number; to: number; x: number; y: number } | null>(null);
-async function fixNearMiss(kind: "replace" | "spelling" | "ignore") {
-  const m = menu.value;
-  if (!m || !chapter.value) return;
-  menu.value = null;
-  if (kind === "replace") {
-    prose.value?.replaceRange(m.from, m.to, m.name);
-    return;
-  }
-  await saver?.flush();
-  if (kind === "spelling") await fixes.addSpelling(worldSlug.value, m.word, m.entityId);
-  else await fixes.notATypo(worldSlug.value, m.word);
-  const fresh = await getChapter(worldSlug.value, chapter.value.id);
-  if (fresh.body === prose.value?.view.state.doc.toString()) prose.value?.setMentions(fresh.mentions);
-  chapter.value = { ...fresh };
-  void session.refreshNearMisses(worldSlug.value);
 }
 
 // ---- side panel actions ----
@@ -282,7 +309,6 @@ async function restore(revisionId: string, body: string) {
   chapter.value = ch;
   showHistory.value = false;
   prose.value?.replaceDoc(ch.body);
-  prose.value?.setMentions(ch.mentions);
   title.value = ch.title;
   saver?.rebase(ch);
   notice.value = "Restored. The text it replaced is in History.";
@@ -410,15 +436,7 @@ const CLOSE_TEXT = {
       <div class="title-wrap">
         <input v-model="title" class="chapter-title" aria-label="Chapter title" maxlength="300" :readonly="readOnly" />
       </div>
-      <div ref="host" class="editor-host" :class="{ focus: focusMode }" data-testid="editor" />
-
-      <div v-if="menu" class="fix-menu floating" role="menu" :style="{ left: `${menu.x}px`, top: `${menu.y + 6}px` }">
-        <span class="fix-title">Did you mean <strong>{{ menu.name }}</strong>?</span>
-        <button type="button" role="menuitem" @click="fixNearMiss('replace')">Replace with {{ menu.name }}</button>
-        <button type="button" role="menuitem" @click="fixNearMiss('spelling')">“{{ menu.word }}” is another spelling</button>
-        <button type="button" role="menuitem" @click="fixNearMiss('ignore')">Not a typo</button>
-        <button type="button" role="menuitem" class="muted" @click="menu = null">Close</button>
-      </div>
+      <div ref="host" class="editor-host" :class="{ focus: focusMode }" :style="editorStyle" data-testid="editor" />
     </div>
 
     <aside v-if="chapter && !showHistory" class="chapter-side">

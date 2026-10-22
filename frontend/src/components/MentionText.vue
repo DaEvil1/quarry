@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
+import { useRouter } from "vue-router";
 
 import { fixes } from "../bible";
+import { usePrefs } from "../prefs";
 import type { Mention, SourceTable } from "../types";
+import { useCards } from "../world/cards";
+import { hideCard, showCard } from "../world/hovercard";
 
 // A text with its bible names linked and its near misses (likely misspelled names) squiggled. A near miss opens
 // the three fixes: replace it here, add it as another spelling of the name, or mark it "not a typo".
@@ -22,6 +26,16 @@ const parts = computed<Part[]>(() => {
   if (at < props.text.length) out.push({ text: props.text.slice(at) });
   return out;
 });
+
+const prefs = usePrefs();
+const cards = useCards();
+const router = useRouter();
+const nameClass = (m: Mention) => (prefs.colourNames && m.entity_kind && !prefs.plainKinds.includes(m.entity_kind) ? `kname k-${m.entity_kind}` : "");
+function hover(e: MouseEvent, m: Mention) {
+  const to = { name: "entity", params: { world: props.world, id: m.entity_id } };
+  showCard(e.currentTarget as HTMLElement, cards.byId.get(m.entity_id), () => void router.push(to), prefs.cardDelay);
+}
+onBeforeUnmount(() => hideCard(true));
 
 // the three fixes, as plain functions for the template
 const fixReplace = fixes.replace;
@@ -54,9 +68,11 @@ async function run(fn: () => Promise<unknown>) {
       <RouterLink
         v-else-if="p.mention.kind !== 'near_miss'"
         class="mention"
+        :class="nameClass(p.mention)"
         :to="{ name: 'entity', params: { world: props.world, id: p.mention.entity_id } }"
-        :title="p.mention.kind === 'alias' ? `${p.mention.entity_name} (other spelling)` : p.mention.entity_name"
-        @click.stop
+        @mouseenter="hover($event, p.mention)"
+        @mouseleave="hideCard()"
+        @click.stop="hideCard(true)"
         >{{ p.text }}</RouterLink
       >
       <span v-else class="near-miss-wrap"
