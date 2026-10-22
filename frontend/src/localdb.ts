@@ -19,6 +19,8 @@ export interface PendingCapture {
   capturedAt: string;
   /** bible entries it is tagged with */
   entities?: string[];
+  /** the chapter it was thought of in (a thought stashed while writing) */
+  chapterId?: string;
   /** the server refused it (not a network problem); kept so nothing is lost silently */
   error?: string;
 }

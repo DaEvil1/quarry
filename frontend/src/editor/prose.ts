@@ -29,7 +29,8 @@ import type { WritingPrefs } from "../prefs";
 import type { EntityKind, EntityRef } from "../types";
 import type { Card } from "../world/cards";
 import type { Hit, Matcher } from "../world/matcher";
-import { cardDom, selectionStripDom, nearMissStripDom, type IsAtActions, type LinkActions } from "./strips";
+import { buildMarks, companionExtensions, marksChanged, markedAt, openKbd, Since, type CompanionHooks } from "./companion";
+import { cardDom, findingStripDom, selectionStripDom, nearMissStripDom, type IsAtActions, type LinkActions } from "./strips";
 
 export { countWords } from "../words";
 
@@ -51,7 +52,12 @@ export interface WorldHooks {
   link(entityId: string): LinkActions;
   /** where a character is in this chapter */
   isAt(entityId: string): IsAtActions;
+  /** the writing companion; without it the editor shows the world only */
+  companion?: Omit<CompanionHooks, "stripAt" | "nextMiss">;
 }
+
+/** Wavy underlines for likely misspellings: a setting, and only while Revising. */
+const underlines = (hooks: WorldHooks) => hooks.prefs().underlines && (hooks.companion?.revising() ?? true);
 
 // ---- names: coloured by kind, recomputed for what is on screen --------------------------------------------------
 
@@ -82,7 +88,7 @@ function namesPlugin(hooks: WorldHooks) {
           // remembers each line, so a keystroke only rescans the paragraph being written
           for (let pos = Math.max(from, next); pos <= to; ) {
             const line = doc.lineAt(pos);
-            for (const h of matcher.scanLine(line.text, line.from, prefs.underlines)) b.add(h.start, h.end, markFor(h, prefs));
+            for (const h of matcher.scanLine(line.text, line.from, underlines(hooks))) b.add(h.start, h.end, markFor(h, prefs));
             next = pos = line.to + 1;
           }
         }
@@ -108,11 +114,11 @@ function markFor(h: Hit, prefs: WritingPrefs): Decoration {
 }
 
 /** The name (or likely misspelling) under a position, found the same way the colours were. */
-function hitAt(state: EditorState, hooks: WorldHooks, pos: number): Hit | undefined {
+function hitAt(state: EditorState, hooks: WorldHooks, pos: number, nearMisses = underlines(hooks)): Hit | undefined {
   const line = state.doc.lineAt(pos);
   return hooks
     .matcher()
-    .scanLine(line.text, line.from, hooks.prefs().underlines)
+    .scanLine(line.text, line.from, nearMisses)
     .find((h) => h.start <= pos && pos < h.end);
 }
 
@@ -163,6 +169,46 @@ function hitDom(v: EditorView, hooks: WorldHooks, h: Hit): HTMLElement {
   });
 }
 
+/** The companion hooks with the editor's own parts added: what a spot shows, and the next likely misspelling. */
+function full(hooks: WorldHooks): CompanionHooks | null {
+  const c = hooks.companion;
+  if (!c) return null;
+  return {
+    ...c,
+    stripAt(view, pos) {
+      const sel = view.state.selection.main;
+      const h = hitAt(view.state, hooks, pos, true);
+      if (h && (sel.empty || (h.start <= sel.from && sel.to <= h.end))) return { from: h.start, dom: hitDom(view, hooks, h) };
+      if (sel.empty) return null;
+      const text = view.state.sliceDoc(sel.from, sel.to).trim();
+      if (text.length < 2 || text.length > 80 || text.includes("\n")) return null;
+      return {
+        from: sel.from,
+        dom: selectionStripDom(text, hooks.names(), {
+          create: async (kind) => {
+            await hooks.create(text, kind);
+            view.dispatch({ selection: { anchor: sel.to } });
+          },
+          addName: async (id) => {
+            await hooks.addName(id, text);
+            view.dispatch({ selection: { anchor: sel.to } });
+          },
+          done: () => view.focus(),
+        }),
+      };
+    },
+    nextMiss(state, after) {
+      const matcher = hooks.matcher();
+      for (let n = after < 0 ? 1 : state.doc.lineAt(after).number; n <= state.doc.lines; n++) {
+        const line = state.doc.line(n);
+        const h = matcher.scanLine(line.text, line.from, true).find((x) => x.kind === "near_miss" && x.start > after);
+        if (h) return { from: h.start, to: h.end };
+      }
+      return null;
+    },
+  };
+}
+
 function intent(hooks: WorldHooks): Extension[] {
 
   const hover = hoverTooltip(
@@ -171,7 +217,12 @@ function intent(hooks: WorldHooks): Extension[] {
       if (Date.now() - lastKey < prefs.quietMs) return null;
       if (prefs.cardsWithCtrl && !ctrl) return null;
       const h = hitAt(view.state, hooks, pos);
-      if (!h) return null;
+      if (!h) {
+        const c = full(hooks);
+        const m = c && c.revising() ? markedAt(c, pos) : undefined;
+        if (!m || !c!.drawn(m.finding)) return null;
+        return { pos: m.from, end: m.to, above: false, create: (v) => ({ dom: findingStripDom(m.finding.message, c!.findingActions(m, v)) }) };
+      }
       return {
         pos: h.start,
         end: h.end,
@@ -186,6 +237,8 @@ function intent(hooks: WorldHooks): Extension[] {
   const selectionTip = StateField.define<readonly Tooltip[]>({
     create: () => [],
     update(tips, tr) {
+      // the keyboard's strip (Alt+Enter, F8) shows instead
+      if (tr.effects.some((e) => e.is(openKbd) && e.value)) return [];
       if (!tr.selection && !tr.docChanged) return tips;
       if (tr.docChanged) return [];
       const sel = tr.state.selection.main;
@@ -298,6 +351,9 @@ const theme = EditorView.theme({
   },
   ".cm-placeholder": { color: "var(--muted)", fontStyle: "italic" },
   ".cm-dim": { opacity: "0.32", transition: "opacity .15s" },
+  ".cm-margin": { color: "var(--muted)", fontStyle: "italic", fontSize: "0.9em" },
+  ".cm-find": { textDecoration: "underline dotted var(--accent)", textDecorationThickness: "2px", textUnderlineOffset: "4px" },
+  ".cm-find-name": { textDecorationColor: "var(--muted)" },
   ".cm-near-miss": { textDecoration: "underline wavy var(--warn)", textDecorationSkipInk: "none", textUnderlineOffset: "4px" },
   ".cm-searchMatch": { backgroundColor: "var(--warn-soft)", outline: "1px solid var(--warn)" },
   ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--accent-soft)" },
@@ -344,10 +400,17 @@ export interface Prose {
   refreshPrefs(): void;
   replaceDoc(text: string): void;
   replaceRange(from: number, to: number, text: string): void;
+  /** redraw the companion's marks (new findings, or Drafting/Revising switched) */
+  setMarks(): void;
+  /** start mapping positions in the text as it is now to the text as it will be */
+  since(): Since;
   destroy(): void;
 }
 
 export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
+  const companion = opts.readOnly ? null : full(opts.world);
+  // the few position mappers still in use (the latest analyses)
+  let trackers: Since[] = [];
   const focusMode = new Compartment();
   const typewriterMode = new Compartment();
   const intentMode = new Compartment();
@@ -365,6 +428,7 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
     theme,
     namesPlugin(opts.world),
     intentMode.of(opts.readOnly ? [] : intent(opts.world)),
+    companion ? companionExtensions(companion) : [],
     focusMode.of([]),
     typewriterMode.of([]),
     placeholder(opts.placeholderText ?? "Write…"),
@@ -376,7 +440,9 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
     ]),
     EditorView.contentAttributes.of({ spellcheck: "true", autocapitalize: "sentences", "aria-label": "Chapter text" }),
     EditorView.updateListener.of((u) => {
-      if (u.docChanged) opts.onChange(u.state.doc.toString());
+      if (!u.docChanged) return;
+      for (const s of trackers) s.add(u.changes);
+      opts.onChange(u.state.doc.toString());
     }),
   ];
   const view = new EditorView({ parent, state: EditorState.create({ doc: opts.doc, extensions }) });
@@ -392,6 +458,14 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
     },
     replaceRange(from, to, text) {
       view.dispatch({ changes: { from, to, insert: text } });
+    },
+    setMarks: () => {
+      if (companion) view.dispatch({ effects: marksChanged.of(buildMarks(view.state, companion)) });
+    },
+    since: () => {
+      const s = new Since();
+      trackers = [...trackers.slice(-3), s];
+      return s;
     },
     destroy: () => view.destroy(),
   };

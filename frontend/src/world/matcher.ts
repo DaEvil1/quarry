@@ -143,6 +143,11 @@ export class Matcher {
     return best;
   }
 
+  /** Is this word part of a known name, or a word marked "not a typo / not a name"? */
+  knows(word: string): boolean {
+    return this.knownLower.has(word.toLowerCase()) || this.ignored.has(word);
+  }
+
   get empty(): boolean {
     return !this.exactRe && !this.looseRe;
   }

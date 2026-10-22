@@ -1,11 +1,26 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
-import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
+import { onBeforeRouteLeave, useRoute, useRouter, type RouteLocationRaw } from "vue-router";
 
 import { addRelationship, createEntity, fixes, getEntity, typeOptions, updateEntity } from "../bible";
 import ChapterSide from "../components/ChapterSide.vue";
+import CompanionPanel from "../components/CompanionPanel.vue";
+import {
+  chapterItems,
+  checks as loadChecksApi,
+  linkedPairs,
+  resolutions,
+  resolve as resolveApi,
+  saveSessionNote,
+  sessionNote,
+  type Check,
+  type PanelActions,
+} from "../companion";
+import type { Since } from "../editor/companion";
 import { chapterPresence, setPresence } from "../storytime";
 import HistoryPanel from "../components/HistoryPanel.vue";
+import { EditorView } from "@codemirror/view";
+
 import { createProse, countWords, type Prose, type WorldHooks } from "../editor/prose";
 import { ChapterSaver, type SaveStatus } from "../editor/saver";
 import {
@@ -22,9 +37,11 @@ import {
 import { ApiError } from "../api";
 import { cacheChapter, dropDraft, getDraft, localChapter, queueRevision, saveDraft } from "../offline";
 import { usePrefs } from "../prefs";
+import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import { localToday, type EntityRef, type Presence } from "../types";
 import { useCards } from "../world/cards";
+import { analyse, linkKey, storyText, type Finding } from "../world/findings";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
@@ -59,7 +76,7 @@ let draftTimer: ReturnType<typeof setTimeout> | undefined;
 let countTimer = 0;
 function countLater(text: string) {
   clearTimeout(countTimer);
-  countTimer = window.setTimeout(() => (words.value = countWords(text)), 300);
+  countTimer = window.setTimeout(() => (words.value = countWords(storyText(text))), 300);
 }
 
 function keepDraft() {
@@ -86,7 +103,9 @@ function mount(ch: Chapter) {
   prose.value?.destroy();
   saver?.close();
   title.value = ch.title;
-  words.value = countWords(ch.body);
+  words.value = countWords(storyText(ch.body));
+  wordsAtOpen = words.value;
+  asked = false;
   if (!host.value) return;
   prose.value = createProse(host.value, {
     doc: ch.body,
@@ -96,6 +115,7 @@ function mount(ch: Chapter) {
       countLater(text);
       saver?.edit({ body: text });
       keepDraft();
+      scheduleAnalysis();
     },
     onSave: () => void checkpoint(),
     world: worldHooks,
@@ -113,6 +133,7 @@ function mount(ch: Chapter) {
       offlineCopy.value = false;
       void cacheChapter(worldSlug.value, saved);
       void dropDraft(saved.id, sentBody);
+      if (panelTab.value === "continuity") void loadChecks();
       void sentBody;
     },
     conflict: (current) => {
@@ -150,6 +171,7 @@ async function load() {
   await nextTick();
   mount(ch);
   await recoverDraft(ch);
+  void loadCompanion(ch);
 }
 
 /** Text written on this device that never reached the server (a reload, a closed app, no signal). */
@@ -185,11 +207,22 @@ onMounted(async () => {
 });
 watch(() => route.params.id, async (id, old) => {
   if (id && id !== old) {
+    keepPlace();
     await saver?.leave();
     await load();
   }
 });
-onBeforeRouteLeave(async () => {
+onBeforeRouteLeave(async (to) => {
+  // wrote something this time: ask (once, skippably) for a note for next time
+  if (!asked && prefs.askNote && !readOnly.value && chapter.value && words.value - wordsAtOpen >= 30) {
+    asked = true;
+    leaving.value = to.fullPath;
+    leaveNote.value = nextNote.value;
+    await nextTick();
+    leaveBox.value?.focus();
+    return false;
+  }
+  keepPlace();
   await saver?.leave();
 });
 onBeforeUnmount(() => {
@@ -200,7 +233,10 @@ onBeforeUnmount(() => {
 });
 
 function onHide() {
-  if (document.visibilityState === "hidden") void saver?.leave();
+  if (document.visibilityState === "hidden") {
+    keepPlace();
+    void saver?.leave();
+  }
 }
 function onUnload(e: BeforeUnloadEvent) {
   if (saver?.dirty) {
@@ -220,10 +256,19 @@ watch(typewriter, (on) => {
 
 // ---- the world in the editor: names coloured by kind, cards and quick fixes (docs/WORLD-MODEL.md §5) ----
 let matcher = cards.matcher();
+let matcherVersion = cards.version;
+/** The matcher for the world's names as they are now (rebuilt when the cards change). */
+function currentMatcher() {
+  if (matcherVersion !== cards.version) {
+    matcher = cards.matcher();
+    matcherVersion = cards.version;
+  }
+  return matcher;
+}
 watch(
   () => cards.version,
   () => {
-    matcher = cards.matcher();
+    currentMatcher();
     prose.value?.refreshNames();
   },
 );
@@ -258,7 +303,7 @@ function placesForChapter(): EntityRef[] {
 }
 
 const worldHooks: WorldHooks = {
-  matcher: () => matcher,
+  matcher: currentMatcher,
   // the card as it reads at this chapter
   card: (id) => cards.asOf(cards.byId.get(id), chapter.value?.id ?? null),
   names: () => cards.names,
@@ -272,6 +317,9 @@ const worldHooks: WorldHooks = {
       const { entity } = await getEntity(worldSlug.value, id);
       await updateEntity(worldSlug.value, entity, { exclusions: [...entity.exclusions, phrase] });
     }),
+  get companion() {
+    return companionHooks;
+  },
   isAt: (id) => ({
     here: () => presence.value.find((p) => p.entity_id === id)?.place ?? null,
     places: placesForChapter,
@@ -299,6 +347,258 @@ const worldHooks: WorldHooks = {
     },
   }),
 };
+// ---- the writing companion (docs/WORLD-MODEL.md §7) ----
+const mode = ref(prefs.mode);
+watch(mode, (m) => {
+  prefs.set("mode", m);
+  analyseNow();
+});
+const showPanel = ref(prefs.panel);
+watch(showPanel, (on) => {
+  prefs.set("panel", on);
+  if (on && mode.value === "drafting") analyseNow();
+});
+const findings = shallowRef<Finding[]>([]);
+let analysed: { since: Since; findings: Finding[] } | null = null;
+const stale = ref(false);
+const linked = ref(new Set<string>());
+const resolved = ref(new Set<string>());
+const chapterChecks = ref<Check[]>([]);
+const items = ref<{ id: string; title: string | null; body: string }[]>([]);
+const nextNote = ref("");
+const backIn = ref<{ context: string; note: string; cursor: number } | null>(null);
+let analyseTimer = 0;
+
+/** Work out the findings for the text as it is now (live while Revising; at breaks while Drafting). */
+function analyseNow() {
+  clearTimeout(analyseTimer);
+  const p = prose.value;
+  const ch = chapter.value;
+  if (!p || !ch || readOnly.value) return;
+  const text = p.view.state.doc.toString();
+  const since = p.since();
+  const started = performance.now();
+  const fs = analyse({
+    text,
+    matcher: currentMatcher(),
+    card: (id) => cards.byId.get(id),
+    linked: linked.value,
+    presence: presence.value,
+    resolved: resolved.value,
+    longSentence: prefs.longSentence,
+  }).filter((f) => prefs.editors[f.editor].on);
+  // visible in the browser's performance tools, and to the performance check (frontend/perf)
+  performance.measure("quarry:analyse", { start: started });
+  analysed = { since, findings: fs };
+  findings.value = fs;
+  stale.value = false;
+  p.setMarks();
+}
+function scheduleAnalysis() {
+  stale.value = true;
+  if (mode.value !== "revising") return;
+  clearTimeout(analyseTimer);
+  analyseTimer = window.setTimeout(analyseNow, 700);
+}
+/** A finding's place in the text as it is now (or null if that bit of text was changed since). */
+function placeOf(f: { from?: number; to?: number }): { from: number; to: number } | null {
+  if (!analysed || f.from === undefined || f.to === undefined) return null;
+  const from = analysed.since.map(f.from, 1);
+  const to = analysed.since.map(f.to, -1);
+  return to - from === f.to - f.from ? { from, to } : null;
+}
+function applyFix(f: Finding, at: { from: number } | null = placeOf(f)) {
+  const p = prose.value;
+  if (!p || !f.fix || f.from === undefined || !at) {
+    notice.value = "That bit of text has changed since; the companion will look again.";
+    analyseNow();
+    return;
+  }
+  const d = at.from - f.from;
+  p.view.dispatch({ changes: { from: f.fix.from + d, to: f.fix.to + d, insert: f.fix.insert } });
+  analyseNow();
+}
+
+async function loadCompanion(ch: Chapter) {
+  const w = worldSlug.value;
+  const [pairs, res, chk, its, note] = await Promise.allSettled([
+    linkedPairs(w),
+    resolutions(w),
+    loadChecksApi(w, ch.id),
+    chapterItems(w, ch.id),
+    sessionNote(w, ch.id),
+  ]);
+  if (chapter.value?.id !== ch.id) return;
+  if (pairs.status === "fulfilled") linked.value = pairs.value;
+  if (res.status === "fulfilled") resolved.value = new Set(res.value.map((r) => `${r.rule}|${r.key}`));
+  if (chk.status === "fulfilled") chapterChecks.value = chk.value;
+  if (its.status === "fulfilled") items.value = its.value;
+  if (note.status === "fulfilled") {
+    nextNote.value = note.value.note;
+    const body = prose.value?.view.state.doc.toString() ?? ch.body;
+    if (note.value.note || (note.value.cursor > 0 && note.value.cursor <= body.length)) {
+      const at = Math.min(note.value.cursor, body.length);
+      const start = body.lastIndexOf("\n", at - 1) + 1;
+      const context = body.slice(Math.max(start, at - 60), at).trim();
+      backIn.value = context || note.value.note ? { context, note: note.value.note, cursor: at } : null;
+    }
+  }
+  analyseNow();
+}
+const loadChecks = async () => {
+  if (chapter.value) chapterChecks.value = await loadChecksApi(worldSlug.value, chapter.value.id).catch(() => chapterChecks.value);
+};
+
+/** Where the writer is, and their note, kept for next time (best effort: offline it waits for the next visit). */
+function keepPlace() {
+  const ch = chapter.value;
+  const p = prose.value;
+  if (!ch || !p || readOnly.value) return;
+  void saveSessionNote(worldSlug.value, ch.id, nextNote.value, p.view.state.selection.main.head).catch(() => {});
+}
+
+// leaving a chapter you wrote in: a note for next time, skippably
+let wordsAtOpen = 0;
+let asked = false;
+const leaving = ref<RouteLocationRaw | null>(null);
+const leaveNote = ref("");
+const leaveBox = ref<HTMLInputElement | null>(null);
+async function finishLeave(save: boolean) {
+  if (save) nextNote.value = leaveNote.value.trim();
+  const target = leaving.value;
+  leaving.value = null;
+  if (target) await router.push(target);
+}
+
+// stash a thought: to the inbox, tied to this chapter, without leaving the sentence
+const outbox = useOutbox();
+const stashing = ref(false);
+const thought = ref("");
+const stashBox = ref<HTMLInputElement | null>(null);
+async function openStash() {
+  stashing.value = true;
+  thought.value = "";
+  await nextTick();
+  stashBox.value?.focus();
+}
+async function keepThought() {
+  const text = thought.value.trim();
+  const ch = chapter.value;
+  stashing.value = false;
+  prose.value?.view.focus();
+  if (!text || !ch) return;
+  const sent = await outbox.add({ world: worldSlug.value, body: text, kind: "spark", project: ch.project, source: "stash", chapterId: ch.id });
+  notice.value = sent ? "Stashed in the inbox." : "Stashed on this device; it goes to the inbox when you're back online.";
+  if (sent) items.value = await chapterItems(worldSlug.value, ch.id).catch(() => items.value);
+}
+
+// the panel's open tab: Continuity reloads its checks when opened, and after each save while it is open
+const panelTab = ref("chapter");
+function onTab(t: string) {
+  panelTab.value = t;
+  if (mode.value === "drafting") analyseNow();
+  if (t === "continuity") void loadChecks();
+}
+
+async function afterWorldChange() {
+  await loadChecks();
+  analyseNow();
+}
+
+const panelActions: PanelActions = {
+  jump(f) {
+    const at = placeOf(f);
+    const p = prose.value;
+    if (!p || !at) return;
+    p.view.dispatch({ selection: { anchor: at.from, head: at.to }, effects: EditorView.scrollIntoView(at.from, { y: "center" }) });
+    p.view.focus();
+  },
+  fix: (f) => applyFix(f),
+  async resolve(rule, key, outcome) {
+    try {
+      await resolveApi(worldSlug.value, rule, key, outcome);
+      resolved.value = new Set([...resolved.value, `${rule}|${key}`]);
+      await afterWorldChange();
+    } catch (e) {
+      error.value = (e as Error).message;
+    }
+  },
+  async link(a, b, typeId, forward) {
+    const [x, y] = forward ? [a, b] : [b, a];
+    await worldChange(() => addRelationship(worldSlug.value, { type_id: typeId, a_id: x.id, b_id: y.id, established_in_chapter_id: chapter.value?.id ?? null }));
+    linked.value = new Set([...linked.value, linkKey(a.id, b.id)]);
+    analyseNow();
+  },
+  async isAt(entity, place) {
+    const ch = chapter.value;
+    if (!ch) return;
+    try {
+      await setPresence(worldSlug.value, ch.id, entity.id, place.id);
+      await loadPresence(ch.id);
+      analyseNow();
+    } catch (e) {
+      error.value = (e as Error).message;
+    }
+  },
+  async create(word, kind) {
+    await worldChange(() => createEntity(worldSlug.value, { name: word, kind }));
+    analyseNow();
+  },
+  async notAName(word) {
+    await worldChange(() => fixes.notATypo(worldSlug.value, word));
+    analyseNow();
+  },
+  async addSpelling(entity, word) {
+    await worldChange(() => fixes.addSpelling(worldSlug.value, word, entity.id));
+    analyseNow();
+  },
+  async summary(entity, text) {
+    await worldChange(async () => {
+      const { entity: e } = await getEntity(worldSlug.value, entity.id);
+      await updateEntity(worldSlug.value, e, { summary: text });
+    });
+    analyseNow();
+  },
+  open: (entity) => void router.push({ name: "entity", params: { world: worldSlug.value, id: entity.id } }),
+  saveNote(text) {
+    nextNote.value = text.trim();
+    keepPlace();
+  },
+  stash: () => void openStash(),
+  update: analyseNow,
+  goBack() {
+    const p = prose.value;
+    const b = backIn.value;
+    if (!p || !b) return;
+    p.view.dispatch({ selection: { anchor: Math.min(b.cursor, p.view.state.doc.length) }, effects: EditorView.scrollIntoView(b.cursor, { y: "center" }) });
+    p.view.focus();
+    backIn.value = null;
+  },
+};
+const companionHooks: NonNullable<WorldHooks["companion"]> = {
+  revising: () => mode.value === "revising",
+  marked: () =>
+    (analysed?.findings ?? []).flatMap((f) => {
+      const at = placeOf(f);
+      return at ? [{ ...at, finding: f }] : [];
+    }),
+  drawn: (f) => prefs.editors[f.editor].inline && f.rule !== "near_miss",
+  findingActions: (m) => {
+    const f = m.finding;
+    return {
+      fix: f.fix ? { label: f.fix.label, run: () => applyFix(f, m) } : undefined,
+      create: f.rule === "new_name" ? (kind) => panelActions.create(f.word!, kind) : undefined,
+      notAName: f.rule === "new_name" ? () => panelActions.notAName(f.word!) : undefined,
+      addSpelling: f.rule === "other_name" && f.a ? { name: f.a.name, run: () => panelActions.addSpelling(f.a!, f.word!) } : undefined,
+      leave: ["echo", "long_sentence", "doubled"].includes(f.rule) ? () => panelActions.resolve(f.rule, f.key, "intentional") : undefined,
+    };
+  },
+  stash: () => void openStash(),
+  sceneBreak: () => {
+    if (mode.value === "drafting") analyseNow();
+  },
+};
+
 const editorStyle = computed(() => ({ "--prose-size": `${prefs.textSize}px`, "--prose-width": `${prefs.lineWidth}ch` }));
 watch(title, (t) => {
   if (chapter.value && t.trim() && t !== chapter.value.title) saver?.edit({ title: t });
@@ -422,8 +722,13 @@ const CLOSE_TEXT = {
         <div class="chapter-tools">
           <span class="muted small" data-testid="save-status" :class="`status-${status}`">{{ STATUS_TEXT[status] }}</span>
           <span class="muted small" data-testid="word-count">{{ words.toLocaleString() }} words</span>
+          <span v-if="!readOnly" class="mode-switch" role="group" aria-label="Mode" data-testid="mode">
+            <button type="button" :class="{ on: mode === 'drafting' }" :aria-pressed="mode === 'drafting'" title="Names coloured, nothing else marked; findings wait for a break" @click="mode = 'drafting'">Drafting</button>
+            <button type="button" :class="{ on: mode === 'revising' }" :aria-pressed="mode === 'revising'" title="Findings marked in the text as they're found" @click="mode = 'revising'">Revising</button>
+          </span>
           <label class="toggle"><input v-model="focusMode" type="checkbox" /> Focus</label>
           <label class="toggle desk-only"><input v-model="typewriter" type="checkbox" /> Typewriter</label>
+          <button type="button" class="btn btn-sm desk-only" :aria-pressed="showPanel" @click="showPanel = !showPanel">Panel</button>
           <button type="button" class="btn btn-sm" @click="showHistory = !showHistory">History</button>
         </div>
       </div>
@@ -473,24 +778,51 @@ const CLOSE_TEXT = {
         <button class="btn btn-sm btn-primary" type="submit">Keep</button>
       </form>
 
+      <form v-if="stashing" class="checkpoint-bar" @submit.prevent="keepThought">
+        <label for="stash-thought">A thought for later (to the inbox, tied to this chapter)</label>
+        <input id="stash-thought" ref="stashBox" v-model="thought" type="text" maxlength="2000" @keydown.esc="(stashing = false), prose?.view.focus()" />
+        <button class="btn btn-sm btn-primary" type="submit">Stash</button>
+      </form>
+      <form v-if="leaving" class="checkpoint-bar leave-bar" data-testid="leave-note" @submit.prevent="finishLeave(true)">
+        <label for="leave-note">Before you go: what's next here?</label>
+        <input id="leave-note" ref="leaveBox" v-model="leaveNote" type="text" maxlength="2000" placeholder="A note for next time" />
+        <button class="btn btn-sm btn-primary" type="submit">Save and go</button>
+        <button class="btn btn-sm" type="button" @click="finishLeave(false)">Skip</button>
+      </form>
+
       <div class="title-wrap">
         <input v-model="title" class="chapter-title" aria-label="Chapter title" maxlength="300" :readonly="readOnly" />
       </div>
       <div ref="host" class="editor-host" :class="{ focus: focusMode }" :style="editorStyle" data-testid="editor" />
     </div>
 
-    <ChapterSide
-      v-if="chapter && !showHistory"
+    <CompanionPanel
+      v-if="chapter && !showHistory && showPanel && !focusMode"
+      :findings="findings"
+      :checks="chapterChecks"
+      :items="items"
+      :note="nextNote"
+      :back-in="backIn"
+      :drafting="mode === 'drafting'"
+      :stale="stale"
+      :types="cards.types"
       :world="world.slug"
-      :chapter="chapter"
-      :names="names"
-      :read-only="readOnly"
-      :presence="presence"
-      @pov="setPov"
-      @checkpoint="checkpoint"
-      @experiment="experiment"
-      @retire="closing = 'retire'"
-    />
+      :actions="panelActions"
+      @dismiss-back="backIn = null"
+      @tab="onTab"
+    >
+      <ChapterSide
+        :world="world.slug"
+        :chapter="chapter"
+        :names="names"
+        :read-only="readOnly"
+        :presence="presence"
+        @pov="setPov"
+        @checkpoint="checkpoint"
+        @experiment="experiment"
+        @retire="closing = 'retire'"
+      />
+    </CompanionPanel>
 
     <HistoryPanel
       v-if="showHistory && chapter"

@@ -473,3 +473,38 @@ class Presence(Base):
     note: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
+
+
+RESOLUTION_OUTCOMES = ("intentional", "later", "not_connected")
+
+
+class Resolution(Base):
+    """How a companion finding was settled: intentional (never flagged again), later (kept on a list), or for an
+    unrecorded connection, not connected. `key` names the finding within its rule (entries, chapter …)."""
+
+    __tablename__ = "resolutions"
+    __table_args__ = (
+        UniqueConstraint("world_id", "rule", "key", name="uq_resolutions_world_rule_key"),
+        CheckConstraint(_in("outcome", RESOLUTION_OUTCOMES), name="ck_resolutions_outcome"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    rule: Mapped[str] = mapped_column(String(40), nullable=False)
+    key: Mapped[str] = mapped_column(String(300), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+
+class SessionNote(Base):
+    """Getting back into a chapter: where the writer stopped and the note they left for next time."""
+
+    __tablename__ = "session_notes"
+
+    chapter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chapters.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cursor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = _updated()

@@ -4,6 +4,7 @@
 import { defineStore } from "pinia";
 
 import type { EntityKind } from "./types";
+import type { EditorName } from "./world/findings";
 
 export interface WritingPrefs {
   /** colour names by kind in the editor and in texts */
@@ -23,6 +24,16 @@ export interface WritingPrefs {
   lineWidth: number;
   focusMode: boolean;
   typewriter: boolean;
+  /** the writing companion: Drafting keeps findings for natural breaks, Revising shows them as they're found */
+  mode: "drafting" | "revising";
+  /** each editor on or off, and whether its findings are marked in the text while Revising */
+  editors: Record<EditorName, { on: boolean; inline: boolean }>;
+  /** flag sentences longer than this many words (0: off) */
+  longSentence: number;
+  /** ask for a note for next time when leaving a chapter you wrote in */
+  askNote: boolean;
+  /** the companion panel beside the editor */
+  panel: boolean;
 }
 
 export const DEFAULT_PREFS: WritingPrefs = {
@@ -36,6 +47,17 @@ export const DEFAULT_PREFS: WritingPrefs = {
   lineWidth: 70,
   focusMode: false,
   typewriter: false,
+  mode: "drafting",
+  editors: {
+    proofreader: { on: true, inline: true },
+    continuity: { on: true, inline: false },
+    connections: { on: true, inline: false },
+    archivist: { on: true, inline: true },
+    looseEnds: { on: true, inline: false },
+  },
+  longSentence: 0,
+  askNote: true,
+  panel: true,
 };
 
 const KEY = "quarry.prefs";
@@ -43,9 +65,9 @@ const KEY = "quarry.prefs";
 function read(): WritingPrefs {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<WritingPrefs>;
-    return { ...DEFAULT_PREFS, ...raw };
+    return { ...DEFAULT_PREFS, ...raw, editors: { ...DEFAULT_PREFS.editors, ...(raw.editors ?? {}) } };
   } catch {
-    return { ...DEFAULT_PREFS };
+    return structuredClone(DEFAULT_PREFS);
   }
 }
 
@@ -61,7 +83,7 @@ export const usePrefs = defineStore("prefs", {
       }
     },
     reset() {
-      this.$patch({ ...DEFAULT_PREFS });
+      this.$patch(structuredClone(DEFAULT_PREFS));
       try {
         localStorage.removeItem(KEY);
       } catch {

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..mentions import refresh_source
-from ..models import Decision, Entity, Item, ItemLink, Mention, Project, User, World
+from ..models import Chapter, Decision, Entity, Item, ItemLink, Mention, Project, User, World
 from .deps import current_user
 from .worlds import member_world
 
@@ -81,6 +81,8 @@ class ItemIn(BaseModel):
     captured_at: datetime | None = None
     # bible entries to tag it with (unknown ones are skipped: the phone's list may be older)
     entities: list[uuid.UUID] = Field(default_factory=list, max_length=50)
+    # the chapter it was thought of in (a thought stashed while writing)
+    chapter_id: uuid.UUID | None = None
 
 
 class LinkIn(BaseModel):
@@ -249,6 +251,10 @@ def create_item(slug: str, body: ItemIn, user: User = Depends(current_user), db:
         known = set(db.scalars(select(Entity.id).where(Entity.world_id == world.id, Entity.id.in_(body.entities))))
         db.add_all(ItemLink(item_id=item.id, target_table="entity", target_id=e) for e in dict.fromkeys(body.entities)
                    if e in known)
+    if body.chapter_id is not None:
+        ch = db.get(Chapter, body.chapter_id)
+        if ch is not None and db.get(Project, ch.project_id).world_id == world.id:
+            db.add(ItemLink(item_id=item.id, target_table="chapter", target_id=ch.id))
     refresh_source(db, world.id, "item", item.id, item.body)
     db.commit()
     return one_out(db, world, item)

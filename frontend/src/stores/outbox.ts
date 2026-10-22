@@ -40,6 +40,7 @@ export const useOutbox = defineStore("outbox", {
         project: capture.project,
         source: capture.source,
         entities: capture.entities ?? [],
+        chapterId: capture.chapterId,
       };
       await localDb.outbox.put(row);
       await this.refresh();
@@ -62,6 +63,7 @@ export const useOutbox = defineStore("outbox", {
               source: p.source,
               captured_at: p.capturedAt,
               entities: p.entities ?? [],
+              chapter_id: p.chapterId ?? null,
             });
             await localDb.outbox.delete(p.id);
             this.online = true;

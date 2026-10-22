@@ -1,0 +1,70 @@
+// The writing companion's server side: the Checks, how findings were resolved, the note for next time, the items
+// tied to a chapter, and which entries are already linked (so the companion doesn't ask again).
+
+import { del, get, put } from "./api";
+import type { EntityKind, EntityRef } from "./types";
+import type { GraphData } from "./world/graph";
+import { linkKey, type Finding } from "./world/findings";
+
+const base = (world: string) => `/api/worlds/${encodeURIComponent(world)}`;
+
+export interface Check {
+  rule: string;
+  key: string;
+  message: string;
+  chapter: { id: string; title: string } | null;
+  entities: EntityRef[];
+  later: boolean;
+}
+
+export interface Resolution {
+  id: string;
+  rule: string;
+  key: string;
+  outcome: "intentional" | "later" | "not_connected";
+  note: string | null;
+}
+
+export const checks = (world: string, chapterId?: string) =>
+  get<Check[]>(`${base(world)}/checks${chapterId ? `?chapter=${encodeURIComponent(chapterId)}` : ""}`);
+export const resolutions = (world: string) => get<Resolution[]>(`${base(world)}/resolutions`);
+export const resolve = (world: string, rule: string, key: string, outcome: Resolution["outcome"], note: string | null = null) =>
+  put<Resolution>(`${base(world)}/resolutions`, { rule, key, outcome, note });
+export const unresolve = (world: string, id: string) => del(`${base(world)}/resolutions/${id}`);
+
+export interface SessionNote {
+  note: string;
+  cursor: number;
+  updated_at: string | null;
+}
+export const sessionNote = (world: string, chapterId: string) => get<SessionNote>(`${base(world)}/chapters/${chapterId}/session-note`);
+export const saveSessionNote = (world: string, chapterId: string, note: string, cursor: number) =>
+  put<SessionNote>(`${base(world)}/chapters/${chapterId}/session-note`, { note, cursor });
+
+export const chapterItems = (world: string, chapterId: string) =>
+  get<{ id: string; kind: string; title: string | null; body: string }[]>(`${base(world)}/chapters/${chapterId}/items`);
+
+/** Pairs of entries with any recorded relationship, either way round. */
+export async function linkedPairs(world: string): Promise<Set<string>> {
+  const g = await get<GraphData>(`${base(world)}/graph`);
+  return new Set(g.edges.map((e) => linkKey(e.a, e.b)));
+}
+
+/** What the companion panel can do, provided by the chapter page. */
+export interface PanelActions {
+  jump(f: { from?: number; to?: number }): void;
+  fix(f: Finding): void;
+  /** never flag again (intentional), or keep on the Later list */
+  resolve(rule: string, key: string, outcome: "intentional" | "later" | "not_connected"): void;
+  link(a: EntityRef, b: EntityRef, typeId: string, forward: boolean): void;
+  isAt(entity: EntityRef, place: EntityRef): void;
+  create(word: string, kind: EntityKind): void;
+  notAName(word: string): void;
+  addSpelling(entity: EntityRef, word: string): void;
+  summary(entity: EntityRef, text: string): void;
+  open(entity: EntityRef): void;
+  saveNote(text: string): void;
+  stash(): void;
+  update(): void;
+  goBack(): void;
+}

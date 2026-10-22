@@ -4,7 +4,7 @@ import { computed, ref } from "vue";
 import type { Chapter } from "../manuscript";
 import type { EntityRef, Presence } from "../types";
 
-// The chapter page's side panel: point of view, the names in the chapter, harvest notes and chapter actions. Its
+// The chapter tab of the companion panel: point of view, the names in the chapter, harvest notes and chapter actions. Its
 // own component so that typing (word count, save status) never re-renders it: it changes when the chapter is saved.
 const props = defineProps<{ world: string; chapter: Chapter; names: EntityRef[]; readOnly: boolean; presence: Presence[] }>();
 const placeOf = computed(() => new Map(props.presence.map((p) => [p.entity_id, p.place])));
@@ -26,7 +26,7 @@ const experimentFrom = ref<"copy" | "scratch">("copy");
 </script>
 
 <template>
-  <aside class="chapter-side">
+  <div class="side-chapter">
     <section>
       <h3 class="small muted">Point of view</h3>
       <select class="filter" aria-label="Point of view" :value="props.chapter.pov?.id ?? ''" :disabled="props.readOnly" @change="emit('pov', ($event.target as HTMLSelectElement).value)">
@@ -65,5 +65,5 @@ const experimentFrom = ref<"copy" | "scratch">("copy");
         <button type="button" class="btn btn-sm" @click="emit('retire')">Retire to Salvage</button>
       </template>
     </section>
-  </aside>
+  </div>
 </template>

@@ -582,3 +582,34 @@ svg.graph:active { cursor: grabbing; }
 .graph-hint { margin: 0; padding: 8px 12px 0; }
 .circle h3 + ul + h3 { margin-top: 12px; }
 @media (max-width: 600px) { svg.graph { height: 60vh; } .graph-head { gap: 6px; } }
+
+/* the writing companion */
+.side-chapter { display: flex; flex-direction: column; gap: 18px; }
+.chapter-side.companion { width: 300px; gap: 12px; }
+.companion-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.companion-tabs button { font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 12px;
+  padding: 2px 9px; cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
+.companion-tabs button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.companion-tabs .badge { font-size: 10.5px; margin-left: 0; background: var(--surface-2); color: inherit; min-width: 0; }
+.findings { display: flex; flex-direction: column; gap: 10px; }
+.finding { display: flex; flex-direction: column; gap: 5px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.finding:last-of-type { border-bottom: 0; }
+.finding .qrow { gap: 4px; }
+.finding.later { color: var(--muted); }
+.finding .strength { color: var(--accent); margin-right: 2px; }
+.finding.weak .strength, .finding.medium .strength { opacity: .7; }
+.finding .qinput { min-width: 0; width: 100%; font-size: 12.5px; }
+.back-in { position: relative; background: var(--accent-soft); border-radius: 8px; padding: 8px 26px 8px 10px; }
+.back-in .close { position: absolute; top: 2px; right: 2px; }
+.back-note { margin-top: 4px; font-weight: 600; }
+.drafting-note { background: var(--surface-2); border-radius: 6px; padding: 6px 8px; }
+.note-box { min-height: 0; font-size: 13px; }
+.stash-btn { align-self: flex-start; }
+.mode-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.mode-switch button { font: inherit; font-size: 12px; border: 0; background: var(--surface); color: var(--muted); padding: 3px 9px; cursor: pointer; }
+.mode-switch button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.leave-bar { border-color: var(--accent); }
+.kbd-strip .qchip:focus-visible, .kbd-strip .qchip:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+table.editor-prefs { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
+.editor-prefs th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 4px 8px 4px 0; }
+.editor-prefs td { padding: 6px 8px 6px 0; border-top: 1px solid var(--border); vertical-align: top; }
