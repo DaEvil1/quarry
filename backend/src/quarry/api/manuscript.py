@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import UTC, date, datetime
 from typing import Literal
 
@@ -246,7 +246,25 @@ def manuscript(slug: str, project_slug: str, user: User = Depends(current_user),
                                                                        Chapter.state == "retired"))
     return {"chapters": current, "experiments": experiments,
             "pov_tally": [{"name": n, "chapters": k} for n, k in tally.most_common()],
-            "words": sum(c.words for c in current), "retired": retired or 0}
+            "words": sum(c.words for c in current), "retired": retired or 0,
+            "cast": cast(db, world, [c.id for c in rows if c.state == "current"])}
+
+
+def cast(db: Session, world: World, chapter_ids: list[uuid.UUID], limit: int = 8) -> dict[str, list[dict]]:
+    """Per chapter, the characters and places named in it, most named first."""
+    if not chapter_ids:
+        return {}
+    rows = db.execute(
+        select(Mention.source_id, Entity.id, Entity.name, Entity.kind, func.count())
+        .join(Entity, Entity.id == Mention.entity_id)
+        .where(Mention.source_table == "chapter", Mention.source_id.in_(chapter_ids), Mention.kind != "near_miss",
+               Entity.kind.in_(("character", "place")))
+        .group_by(Mention.source_id, Entity.id, Entity.name, Entity.kind)
+    ).all()
+    out: dict[str, list[dict]] = defaultdict(list)
+    for source, eid, name, kind, n in rows:
+        out[str(source)].append({"id": str(eid), "name": name, "kind": kind, "count": n})
+    return {k: sorted(v, key=lambda x: (x["kind"] != "character", -x["count"], x["name"]))[:limit] for k, v in out.items()}
 
 
 @router.post("/projects/{project_slug}/chapters", status_code=201)

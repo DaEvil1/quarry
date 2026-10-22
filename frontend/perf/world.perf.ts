@@ -94,6 +94,20 @@ async function topFunctions(profile: { nodes: ProfileNode[]; samples: number[]; 
   return [...byName.entries()].filter(([k]) => !k.startsWith("(idle)") && !k.startsWith("(program)")).sort((a, b) => b[1] - a[1]).slice(0, 15);
 }
 
+/** With PERF_PROFILE=1: run `fn` under the CPU profiler and print where the time went. */
+async function profiled<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  if (process.env.PERF_PROFILE !== "1") return fn();
+  await cdp.send("Profiler.enable");
+  await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+  await cdp.send("Profiler.start");
+  const out = await fn();
+  const { profile } = await cdp.send("Profiler.stop");
+  console.log(`
+${label}: top functions by self time (ms)`);
+  for (const [k, ms] of await topFunctions(profile as never)) console.log(`  ${ms.toFixed(1).padStart(7)}  ${k}`);
+  return out;
+}
+
 async function typeAndMeasure(label: string, text: string) {
   await page.evaluate(() => (window as unknown as { __keys: Map<number, number> }).__keys.clear());
   const profiling = process.env.PERF_PROFILE === "1";
@@ -252,6 +266,18 @@ test("bible pages", async () => {
     await expect(page.getByTestId("where-grid")).toBeVisible();
   });
   results["where everyone is ms"] = Math.round(ms);
+  [, ms] = await timed(async () => {
+    await page.goto(`${W}/graph`);
+    await expect(page.getByTestId("graph").locator(".gnode").first()).toBeVisible();
+  });
+  results["graph, everyone ms"] = Math.round(ms);
+  [, ms] = await timed(() => profiled("graph with co-occurrence", async () => {
+    await page.getByTestId("co-min").selectOption("3");
+    await page.waitForResponse((r) => r.url().includes("/graph?co=true"));
+    await page.waitForTimeout(50);
+    await expect(page.getByTestId("graph").locator("line.co").first()).toBeAttached();
+  }));
+  results["graph with co-occurrence ms"] = Math.round(ms);
 });
 
 test("the editor with a long chapter", async () => {
@@ -318,6 +344,17 @@ test("screenshots", async () => {
     await page.goto(`${W}/where`);
     await expect(page.getByTestId("where-grid")).toBeVisible();
     await shot(`${tag}-where`);
+    await page.goto(`${W}/graph`);
+    await expect(page.getByTestId("graph").locator(".gnode").first()).toBeVisible();
+    await shot(`${tag}-graph`);
+    await page.getByLabel("Colour by").selectOption("cluster");
+    await shot(`${tag}-graph-clusters`);
+    await page.getByTestId("graph").locator(".gnode").first().click();
+    await expect(page.getByTestId("circle")).toBeVisible();
+    await shot(`${tag}-graph-centred`);
+    await page.goto(`${W}/graph?view=places`);
+    await expect(page.getByTestId("place-tree").locator("li").first()).toBeVisible();
+    await shot(`${tag}-places`);
     await page.goto("/settings");
     await page.getByTestId("writing-settings").scrollIntoViewIfNeeded();
     await shot(`${tag}-settings`);

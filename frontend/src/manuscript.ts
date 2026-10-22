@@ -1,7 +1,7 @@
 // Manuscript calls: chapters, their history, experiments, salvage, and export/restore of a world.
 
 import { ApiError, del, get, patch, post, put } from "./api";
-import type { Mention, World } from "./types";
+import type { EntityKind, Mention, World } from "./types";
 
 const base = (world: string) => `/api/worlds/${encodeURIComponent(world)}`;
 
@@ -40,6 +40,8 @@ export interface Manuscript {
   pov_tally: { name: string; chapters: number }[];
   words: number;
   retired: number;
+  /** per chapter: the characters and places named in it, most named first (missing in a copy kept offline) */
+  cast?: Record<string, { id: string; name: string; kind: EntityKind; count: number }[]>;
 }
 
 export interface RevisionInfo {
