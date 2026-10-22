@@ -613,3 +613,5 @@ svg.graph:active { cursor: grabbing; }
 table.editor-prefs { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
 .editor-prefs th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 4px 8px 4px 0; }
 .editor-prefs td { padding: 6px 8px 6px 0; border-top: 1px solid var(--border); vertical-align: top; }
+.card.danger { border-color: color-mix(in srgb, var(--err-fill) 40%, var(--border)); }
+.span-text, .span-form { margin-left: 8px; }

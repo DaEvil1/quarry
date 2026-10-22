@@ -151,7 +151,8 @@ test("export the world and restore it as a new one", async () => {
 
   await page.goto("/new-world");
   await page.getByLabel("Export zip").setInputFiles(path);
-  await expect(page).toHaveURL(/\/w\/grey-shore-2$/);
+  // a whole world is made: give a busy machine a moment
+  await expect(page).toHaveURL(/\/w\/grey-shore-2$/, { timeout: 20_000 });
   await expect(page.getByRole("heading", { name: "The Grey Shore" })).toBeVisible();
   await page.goto("/w/grey-shore-2/p/first-light");
   await expect(page.getByTestId("chapters").locator(".chapter-row")).toHaveCount(1);

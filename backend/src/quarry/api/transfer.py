@@ -271,7 +271,14 @@ async def restore_world(file: UploadFile = File(...), user: User = Depends(curre
     data = await file.read(MAX_UPLOAD + 1)
     if len(data) > MAX_UPLOAD:
         raise HTTPException(422, "That zip is too big to restore.")
-    files = _read_zip(data)
+    world = restore_files(db, user, _read_zip(data))
+    db.commit()
+    db.refresh(world)
+    return _world_out(world, "owner")
+
+
+def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
+    """Make a new world for `user` from the files of an export (path -> text). Flushed, not committed."""
     world_files = [p for p in files if p.endswith("/world.md") and p.count("/") == 1]
     if len(world_files) != 1:
         raise HTTPException(422, "This is not a Quarry export (no world.md at the top).")
@@ -322,7 +329,8 @@ async def restore_world(file: UploadFile = File(...), user: User = Depends(curre
                             set(project_ids))
             p = Project(world_id=world.id, name=str(meta.get("name") or folder), slug=pslug,
                         kind=meta.get("kind") if meta.get("kind") in ("novel", "novella", "short", "other") else "novel",
-                        position=int(meta.get("position") or len(project_ids)), created_by=user.id,
+                        position=int(meta["position"]) if meta.get("position") is not None else len(project_ids),
+                        created_by=user.id,
                         updated_by=user.id)
             db.add(p)
             db.flush()
@@ -462,6 +470,4 @@ async def restore_world(file: UploadFile = File(...), user: User = Depends(curre
 
     db.flush()
     refresh_world(db, world.id)
-    db.commit()
-    db.refresh(world)
-    return _world_out(world, "owner")
+    return world

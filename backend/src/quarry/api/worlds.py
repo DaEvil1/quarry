@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
@@ -258,3 +258,20 @@ def reorder_projects(slug: str, body: ProjectOrder, user: User = Depends(current
         by_id[pid].position = i
     db.commit()
     return [_project_out(by_id[pid]) for pid in body.ids]
+
+
+class DeleteWorldIn(BaseModel):
+    # the world's name, typed again: deleting can't be undone
+    name: str
+
+
+@router.delete("/worlds/{slug}", status_code=204)
+def delete_world(slug: str, body: DeleteWorldIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
+    """Delete a world and everything in it (the database cascades). Only its owner can, by typing its name."""
+    world, role = member_world(db, user, slug)
+    if role != "owner":
+        raise HTTPException(403, "Only the world's owner can delete it.")
+    if " ".join(body.name.split()) != world.name:
+        raise HTTPException(422, "Type the world's name exactly to delete it.")
+    db.execute(delete(World).where(World.id == world.id))
+    db.commit()
