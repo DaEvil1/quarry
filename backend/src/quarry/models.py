@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Boolean,
     Integer,
     LargeBinary,
     String,
@@ -31,7 +32,9 @@ CHALLENGE_PURPOSES = ("setup", "login", "add_passkey")
 # "experiment" items arrive with the editor (phase 4); the column accepts them already
 ITEM_KINDS = ("spark", "question", "task", "experiment")
 ITEM_STATUSES = ("open", "accepted", "rejected", "harvested", "deferred")
-ENTITY_KINDS = ("character", "place", "term", "faction", "object", "other")
+ENTITY_KINDS = ("character", "place", "faction", "culture", "event", "object", "term", "other")
+# canon: true in the book; planned: true in the author's head, not on the page yet; rumour: believed in the story
+STANDINGS = ("canon", "planned", "rumour")
 # texts that are scanned for mentions
 MENTION_SOURCES = ("item", "decision", "entity", "journal", "chapter")
 CHAPTER_STATES = ("current", "experiment", "retired")
@@ -229,6 +232,15 @@ class Entity(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     aliases: Mapped[list[str]] = mapped_column(ARRAY(String(200)), nullable=False, default=list)
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # the one line shown on hover wherever the name appears
+    summary: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
+    # off for names that are never ordinary words, so "isolde" counts too
+    match_case: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # a character called "Varren Hale" is also matched as "Varren", unless another entry claims that word
+    first_name_alias: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # "not in this sense": phrases where the name is an ordinary word ("rose garden")
+    exclusions: Mapped[list[str]] = mapped_column(ARRAY(String(200)), nullable=False, default=list,
+                                                  server_default="{}")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -366,3 +378,81 @@ class HarvestNote(Base):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
+
+
+class Fact(Base):
+    """A labelled value about an entry ("eye colour: grey"), optionally true only from/until a chapter, with the
+    passage that established it."""
+
+    __tablename__ = "facts"
+    __table_args__ = (CheckConstraint(_in("standing", STANDINGS), name="ck_facts_standing"),)
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=False,
+                                                 index=True)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    from_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
+    until_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
+    standing: Mapped[str] = mapped_column(String(20), nullable=False, default="canon")
+    established_in_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id",
+                                                                                  ondelete="SET NULL"))
+    evidence: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()
+
+
+class RelationType(Base):
+    """One kind of connection a world uses, between a kind on each side ("*" for any)."""
+
+    __tablename__ = "relation_types"
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    a_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    b_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    # how it reads from the B side; NULL means it reads the same both ways
+    reverse_label: Mapped[str | None] = mapped_column(String(100))
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class Relationship(Base):
+    """Two entries joined by a type: A <label> B, read back from B as B <reverse> A."""
+
+    __tablename__ = "relationships"
+    __table_args__ = (CheckConstraint(_in("standing", STANDINGS), name="ck_relationships_standing"),)
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    type_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("relation_types.id", ondelete="RESTRICT"), nullable=False)
+    a_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True)
+    b_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True)
+    from_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
+    until_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
+    standing: Mapped[str] = mapped_column(String(20), nullable=False, default="canon")
+    established_in_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id",
+                                                                                  ondelete="SET NULL"))
+    evidence: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()
+
+
+class DecisionLink(Base):
+    """A decision tagged with the bible entries it is about."""
+
+    __tablename__ = "decision_links"
+
+    decision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decisions.id", ondelete="CASCADE"), primary_key=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), primary_key=True,
+                                                 index=True)

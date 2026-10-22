@@ -7,17 +7,23 @@ from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..mentions import forget_source, refresh_source
-from ..models import Decision, Item, User, World
+from ..models import Decision, DecisionLink, Entity, Item, User, World
 from .deps import current_user
 from .items import WORLD_ONLY, project_by_slug
 from .worlds import member_world
 
 router = APIRouter(prefix="/api/worlds/{slug}")
+
+
+class EntityTag(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: str
 
 
 class DecisionOut(BaseModel):
@@ -27,6 +33,8 @@ class DecisionOut(BaseModel):
     project: str | None
     item_id: uuid.UUID | None
     created_at: datetime
+    # bible entries the decision is about
+    entities: list[EntityTag] = []
 
 
 class DecisionIn(BaseModel):
@@ -34,19 +42,37 @@ class DecisionIn(BaseModel):
     decided_on: date | None = None
     project: str | None = None
     item_id: uuid.UUID | None = None
+    entities: list[uuid.UUID] = Field(default_factory=list, max_length=50)
 
 
 class DecisionUpdate(BaseModel):
     text: str | None = Field(default=None, min_length=1, max_length=1000)
     decided_on: date | None = None
     project: str | None = None
+    entities: list[uuid.UUID] | None = Field(default=None, max_length=50)
 
 
-def _out(d: Decision, world: World) -> DecisionOut:
+def _out(d: Decision, world: World, tags: list[EntityTag] | None = None) -> DecisionOut:
     slugs = {p.id: p.slug for p in world.projects}
     return DecisionOut(id=d.id, decided_on=d.decided_on, text=d.text,
                        project=slugs.get(d.project_id) if d.project_id else None, item_id=d.item_id,
-                       created_at=d.created_at)
+                       created_at=d.created_at, entities=tags or [])
+
+
+def _tags(db: Session, ids: list[uuid.UUID]) -> dict[uuid.UUID, list[EntityTag]]:
+    out: dict[uuid.UUID, list[EntityTag]] = {i: [] for i in ids}
+    if ids:
+        for did, e in db.execute(select(DecisionLink.decision_id, Entity).join(Entity, Entity.id == DecisionLink.entity_id)
+                                 .where(DecisionLink.decision_id.in_(ids)).order_by(Entity.name)).all():
+            out[did].append(EntityTag(id=e.id, name=e.name, kind=e.kind))
+    return out
+
+
+def _set_tags(db: Session, world: World, d: Decision, entity_ids: list[uuid.UUID]) -> None:
+    db.execute(delete(DecisionLink).where(DecisionLink.decision_id == d.id))
+    if entity_ids:
+        known = set(db.scalars(select(Entity.id).where(Entity.world_id == world.id, Entity.id.in_(entity_ids))))
+        db.add_all(DecisionLink(decision_id=d.id, entity_id=e) for e in dict.fromkeys(entity_ids) if e in known)
 
 
 def _text(text: str) -> str:
@@ -75,7 +101,9 @@ def list_decisions(slug: str, project: str | None = None, limit: int = Query(500
         assert p is not None
         q = q.where(Decision.project_id == p.id)
     q = q.order_by(Decision.decided_on.desc(), Decision.created_at.desc()).limit(limit)
-    return [_out(d, world) for d in db.scalars(q)]
+    rows = list(db.scalars(q))
+    tags = _tags(db, [d.id for d in rows])
+    return [_out(d, world, tags[d.id]) for d in rows]
 
 
 @router.post("/decisions", status_code=201)
@@ -92,9 +120,10 @@ def create_decision(slug: str, body: DecisionIn, user: User = Depends(current_us
                  created_by=user.id, updated_by=user.id)
     db.add(d)
     db.flush()
+    _set_tags(db, world, d, body.entities)
     refresh_source(db, world.id, "decision", d.id, d.text)
     db.commit()
-    return _out(d, world)
+    return _out(d, world, _tags(db, [d.id])[d.id])
 
 
 @router.patch("/decisions/{decision_id}")
@@ -109,11 +138,13 @@ def update_decision(slug: str, decision_id: uuid.UUID, body: DecisionUpdate, use
     if "project" in body.model_fields_set:
         p = project_by_slug(world, body.project)
         d.project_id = p.id if p else None
+    if body.entities is not None:
+        _set_tags(db, world, d, body.entities)
     d.updated_by = user.id
     db.flush()
     refresh_source(db, world.id, "decision", d.id, d.text)
     db.commit()
-    return _out(d, world)
+    return _out(d, world, _tags(db, [d.id])[d.id])
 
 
 @router.delete("/decisions/{decision_id}", status_code=204)

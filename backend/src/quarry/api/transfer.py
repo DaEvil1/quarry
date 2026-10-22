@@ -38,25 +38,30 @@ from ..mentions import refresh_world
 from ..models import (
     Chapter,
     Decision,
+    DecisionLink,
     Entity,
+    Fact,
     HarvestNote,
     Item,
     ItemLink,
     JournalEntry,
     NameIgnore,
     Project,
+    RelationType,
+    Relationship,
     User,
     World,
     WorldMember,
 )
+from .world import seed_relation_types
 from .deps import current_user
 from .worlds import WorldOut, _unique, _world_out, member_world, slugify
 
 router = APIRouter(prefix="/api/worlds")
 
 FORMAT = 1
-KIND_FOLDERS = {"character": "Characters", "place": "Places", "term": "Terms", "faction": "Factions",
-                "object": "Objects", "other": "Other"}
+KIND_FOLDERS = {"character": "Characters", "place": "Places", "faction": "Factions", "culture": "Cultures",
+                "event": "Events", "object": "Objects", "term": "Terms", "other": "Other"}
 MAX_UPLOAD = 50 * 1024 * 1024
 MAX_UNPACKED = 200 * 1024 * 1024
 DECISION_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(?: · \[([^\]]*)\])? (.*?)\s*<!-- (.*?) -->\s*$")
@@ -125,12 +130,40 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
     names = {e.id: e.name for e in entities}
 
     ignored = list(db.scalars(select(NameIgnore.token).where(NameIgnore.world_id == world.id).order_by(NameIgnore.token)))
-    files[f"{root}/world.md"] = _doc({"quarry_export": FORMAT, "name": world.name, "slug": world.slug,
-                                      "exported_at": datetime.now(UTC).isoformat(), "ignored_words": ignored}, "")
+    types = list(db.scalars(select(RelationType).where(RelationType.world_id == world.id).order_by(RelationType.position)))
+    type_by_id = {t.id: t for t in types}
+    files[f"{root}/world.md"] = _doc({
+        "quarry_export": FORMAT, "name": world.name, "slug": world.slug,
+        "exported_at": datetime.now(UTC).isoformat(), "ignored_words": ignored,
+        "relation_types": [{"a": t.a_kind, "b": t.b_kind, "label": t.label, "reverse": t.reverse_label}
+                           for t in types]}, "")
+
+    facts: dict[uuid.UUID, list[dict]] = defaultdict(list)
+    for f in db.scalars(select(Fact).where(Fact.world_id == world.id).order_by(Fact.entity_id, Fact.position)):
+        facts[f.entity_id].append({"label": f.label, "value": f.value, "standing": f.standing,
+                                   "evidence": f.evidence, "note": f.note,
+                                   "established_in": str(f.established_in_chapter_id) if f.established_in_chapter_id else None,
+                                   "from": str(f.from_chapter_id) if f.from_chapter_id else None,
+                                   "until": str(f.until_chapter_id) if f.until_chapter_id else None})
+    rels: dict[uuid.UUID, list[dict]] = defaultdict(list)
+    for r in db.scalars(select(Relationship).where(Relationship.world_id == world.id).order_by(Relationship.created_at)):
+        t = type_by_id[r.type_id]
+        rels[r.a_id].append({"type": t.label, "type_kinds": [t.a_kind, t.b_kind], "to": str(r.b_id),
+                             "to_name": names.get(r.b_id), "standing": r.standing, "evidence": r.evidence,
+                             "note": r.note,
+                             "established_in": str(r.established_in_chapter_id) if r.established_in_chapter_id else None,
+                             "from": str(r.from_chapter_id) if r.from_chapter_id else None,
+                             "until": str(r.until_chapter_id) if r.until_chapter_id else None})
 
     for e in entities:
-        files[f"{root}/Bible/{KIND_FOLDERS[e.kind]}/{_safe(e.name)}.md"] = _doc(
-            {"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases)}, e.body)
+        meta = {"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases), "summary": e.summary,
+                "match_case": e.match_case, "first_name_alias": e.first_name_alias,
+                "exclusions": list(e.exclusions)}
+        if facts.get(e.id):
+            meta["facts"] = facts[e.id]
+        if rels.get(e.id):
+            meta["relationships"] = rels[e.id]
+        files[f"{root}/Bible/{KIND_FOLDERS[e.kind]}/{_safe(e.name)}.md"] = _doc(meta, e.body)
 
     for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id).order_by(JournalEntry.entry_date)):
         title = j.title or j.body.split("\n", 1)[0][:40]
@@ -139,10 +172,16 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
              "project": projects[j.project_id].slug if j.project_id else None}, j.body)
 
     lines = ["# Decisions", ""]
+    decision_tags: dict[uuid.UUID, list[str]] = defaultdict(list)
+    for did, eid in db.execute(select(DecisionLink.decision_id, DecisionLink.entity_id)
+                               .join(Decision, Decision.id == DecisionLink.decision_id)
+                               .where(Decision.world_id == world.id)).all():
+        decision_tags[did].append(str(eid))
     for d in db.scalars(select(Decision).where(Decision.world_id == world.id)
                         .order_by(Decision.decided_on, Decision.created_at)):
         proj = f" · [{projects[d.project_id].slug}]" if d.project_id else ""
-        ids = f"id={d.id}" + (f" item={d.item_id}" if d.item_id else "")
+        ids = f"id={d.id}" + (f" item={d.item_id}" if d.item_id else "") + (
+            f" entities={','.join(sorted(decision_tags[d.id]))}" if decision_tags.get(d.id) else "")
         lines.append(f"- {d.decided_on.isoformat()}{proj} {d.text} <!-- {ids} -->")
     files[f"{root}/Decisions.md"] = "\n".join(lines) + "\n"
 
@@ -249,6 +288,22 @@ async def restore_world(file: UploadFile = File(...), user: User = Depends(curre
     db.add(WorldMember(world_id=world.id, user_id=user.id, role="owner"))
 
     # projects, by their slug in the export
+    # the relationship vocabulary: the export's, or the starting one for exports made before phase 6
+    exported_types = wmeta.get("relation_types") or []
+    type_by_key: dict[tuple[str, str, str], uuid.UUID] = {}
+    if exported_types:
+        for i, t in enumerate(exported_types):
+            rt = RelationType(world_id=world.id, a_kind=str(t.get("a") or "*"), b_kind=str(t.get("b") or "*"),
+                              label=str(t.get("label") or "linked to"), reverse_label=t.get("reverse"), position=i)
+            db.add(rt)
+            db.flush()
+            type_by_key.setdefault((rt.a_kind, rt.b_kind, rt.label), rt.id)
+    else:
+        seed_relation_types(db, world.id)
+        db.flush()
+        for rt in db.scalars(select(RelationType).where(RelationType.world_id == world.id)):
+            type_by_key.setdefault((rt.a_kind, rt.b_kind, rt.label), rt.id)
+
     project_ids: dict[str, uuid.UUID] = {}
     project_dirs: dict[str, str] = {}
     for rel, meta, _ in under(f"{root}/Projects/"):
@@ -270,6 +325,8 @@ async def restore_world(file: UploadFile = File(...), user: User = Depends(curre
 
     # the bible
     entity_by_old: dict[str, uuid.UUID] = {}
+    # facts and relationships point at chapters, so they are restored after the chapters
+    world_model: list[tuple[Entity, dict]] = []
     entity_by_name: dict[str, uuid.UUID] = {}
     for rel, meta, body in under(f"{root}/Bible/"):
         kind = meta.get("kind") if meta.get("kind") in KIND_FOLDERS else "other"
@@ -277,12 +334,15 @@ async def restore_world(file: UploadFile = File(...), user: User = Depends(curre
         if ename.lower() in {n.lower() for n in entity_by_name}:
             continue
         e = Entity(world_id=world.id, kind=kind, name=ename, aliases=[str(a) for a in meta.get("aliases") or []],
-                   body=body, created_by=user.id, updated_by=user.id)
+                   body=body, summary=str(meta.get("summary") or ""), match_case=meta.get("match_case") is not False,
+                   first_name_alias=meta.get("first_name_alias") is not False,
+                   exclusions=[str(x) for x in meta.get("exclusions") or []], created_by=user.id, updated_by=user.id)
         db.add(e)
         db.flush()
         entity_by_name[ename] = e.id
         if meta.get("id"):
             entity_by_old[str(meta["id"])] = e.id
+        world_model.append((e, meta))
 
     # items: the world's own Planning/ and each project's
     item_by_old: dict[str, uuid.UUID] = {}
@@ -334,6 +394,32 @@ async def restore_world(file: UploadFile = File(...), user: User = Depends(curre
     for ch, old in pending_replaces:
         ch.replaces_id = chapter_by_old.get(old)
 
+    def chapter(old) -> uuid.UUID | None:  # type: ignore[no-untyped-def]
+        return chapter_by_old.get(str(old)) if old else None
+
+    standings = ("canon", "planned", "rumour")
+    for e, meta in world_model:
+        for i, f in enumerate(meta.get("facts") or []):
+            db.add(Fact(world_id=world.id, entity_id=e.id, label=str(f.get("label") or "note")[:100],
+                        value=str(f.get("value") or ""), position=i,
+                        standing=f.get("standing") if f.get("standing") in standings else "canon",
+                        evidence=f.get("evidence"), note=f.get("note"),
+                        established_in_chapter_id=chapter(f.get("established_in")),
+                        from_chapter_id=chapter(f.get("from")), until_chapter_id=chapter(f.get("until")),
+                        created_by=user.id, updated_by=user.id))
+        for r in meta.get("relationships") or []:
+            other = entity_by_old.get(str(r.get("to"))) or entity_by_name.get(str(r.get("to_name")))
+            kinds = r.get("type_kinds") or ["*", "*"]
+            type_id = type_by_key.get((str(kinds[0]), str(kinds[1]), str(r.get("type"))))
+            if other is None or type_id is None:
+                continue
+            db.add(Relationship(world_id=world.id, type_id=type_id, a_id=e.id, b_id=other,
+                                standing=r.get("standing") if r.get("standing") in standings else "canon",
+                                evidence=r.get("evidence"), note=r.get("note"),
+                                established_in_chapter_id=chapter(r.get("established_in")),
+                                from_chapter_id=chapter(r.get("from")), until_chapter_id=chapter(r.get("until")),
+                                created_by=user.id, updated_by=user.id))
+
     for _rel, meta, body in under(f"{root}/Journal/"):
         db.add(JournalEntry(world_id=world.id, project_id=project_of(meta.get("project")),
                             entry_date=_day(meta.get("date")) or date.today(), title=meta.get("title"), body=body,
@@ -345,9 +431,14 @@ async def restore_world(file: UploadFile = File(...), user: User = Depends(curre
         if not m:
             continue
         refs = dict(part.split("=", 1) for part in m.group(4).split() if "=" in part)
-        db.add(Decision(world_id=world.id, project_id=project_of(m.group(2)), decided_on=date.fromisoformat(m.group(1)),
-                        text=m.group(3), item_id=item_by_old.get(refs.get("item", "")), created_by=user.id,
-                        updated_by=user.id))
+        d = Decision(world_id=world.id, project_id=project_of(m.group(2)), decided_on=date.fromisoformat(m.group(1)),
+                     text=m.group(3), item_id=item_by_old.get(refs.get("item", "")), created_by=user.id,
+                     updated_by=user.id)
+        db.add(d)
+        db.flush()
+        for old in filter(None, refs.get("entities", "").split(",")):
+            if old in entity_by_old:
+                db.add(DecisionLink(decision_id=d.id, entity_id=entity_by_old[old]))
 
     for token in wmeta.get("ignored_words") or []:
         db.add(NameIgnore(world_id=world.id, token=str(token)))

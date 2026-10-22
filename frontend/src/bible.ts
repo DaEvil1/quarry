@@ -2,7 +2,18 @@
 
 import { ApiError, del, get, patch, post } from "./api";
 import { localDb } from "./localdb";
-import type { Entity, EntityDetail, EntityKind, EntityRef, NearMissGroup, SourceTable } from "./types";
+import type {
+  Entity,
+  EntityDetail,
+  EntityKind,
+  EntityRef,
+  Fact,
+  NearMissGroup,
+  RelationType,
+  Relationship,
+  SourceTable,
+  Standing,
+} from "./types";
 
 const base = (world: string) => `/api/worlds/${encodeURIComponent(world)}`;
 
@@ -27,7 +38,7 @@ export class EntityConflict extends Error {
 export async function updateEntity(
   world: string,
   entity: Pick<Entity, "id" | "version">,
-  changes: Partial<Pick<Entity, "name" | "kind" | "aliases" | "body">>,
+  changes: Partial<Pick<Entity, "name" | "kind" | "aliases" | "body" | "summary" | "match_case" | "first_name_alias" | "exclusions">>,
 ): Promise<Entity> {
   try {
     return await patch<Entity>(`${base(world)}/entities/${entity.id}`, { base_version: entity.version, ...changes });
@@ -99,4 +110,47 @@ export function sourceLink(world: string, table: SourceTable, id: string) {
     case "chapter":
       return { name: "chapter", params: { world, id } };
   }
+}
+
+// ---- the world model: facts, relationship types, relationships ----
+
+export const factSuggestions = (world: string) => get<Record<string, string[]>>(`${base(world)}/fact-suggestions`);
+export const addFact = (
+  world: string,
+  entityId: string,
+  body: { label: string; value: string; standing?: Standing; evidence?: string | null; established_in_chapter_id?: string | null },
+) => post<Fact>(`${base(world)}/entities/${entityId}/facts`, body);
+export const updateFact = (world: string, fact: Pick<Fact, "id" | "version">, changes: Partial<Omit<Fact, "id" | "version">>) =>
+  patch<Fact>(`${base(world)}/facts/${fact.id}`, { base_version: fact.version, ...changes });
+export const deleteFact = (world: string, id: string) => del(`${base(world)}/facts/${id}`);
+
+export const relationTypes = (world: string) => get<RelationType[]>(`${base(world)}/relation-types`);
+export const addRelationType = (world: string, body: { a_kind: string; b_kind: string; label: string; reverse_label: string | null }) =>
+  post<RelationType>(`${base(world)}/relation-types`, body);
+export const updateRelationType = (world: string, id: string, changes: { label?: string; reverse_label?: string | null }) =>
+  patch<RelationType>(`${base(world)}/relation-types/${id}`, changes);
+export const deleteRelationType = (world: string, id: string) => del(`${base(world)}/relation-types/${id}`);
+
+export const addRelationship = (
+  world: string,
+  body: { type_id: string; a_id: string; b_id: string; standing?: Standing; note?: string | null; established_in_chapter_id?: string | null; evidence?: string | null },
+) => post<Relationship>(`${base(world)}/relationships`, body);
+export const updateRelationship = (world: string, r: Pick<Relationship, "id" | "version">, changes: { standing?: Standing; note?: string | null; type_id?: string }) =>
+  patch<Relationship>(`${base(world)}/relationships/${r.id}`, { base_version: r.version, ...changes });
+export const deleteRelationship = (world: string, id: string) => del(`${base(world)}/relationships/${id}`);
+
+/** The ways two kinds can be related, read from the first one's side: types that fit forward (it is A) or
+ * backward (it is B, read with the reverse label). Symmetric types appear once. */
+export function typeOptions(types: RelationType[], from: string, to: string): { type: RelationType; reads: string; forward: boolean }[] {
+  const fits = (kind: string, side: string) => side === "*" || side === kind;
+  const out: { type: RelationType; reads: string; forward: boolean }[] = [];
+  for (const t of types) {
+    const forward = fits(from, t.a_kind) && fits(to, t.b_kind);
+    const backward = fits(to, t.a_kind) && fits(from, t.b_kind);
+    if (forward) out.push({ type: t, reads: t.label, forward: true });
+    // both ways round for a type with a reverse (parent of / child of); once for one that reads the same both ways
+    if (backward && (!forward || t.reverse_label)) out.push({ type: t, reads: t.reverse_label ?? t.label, forward: false });
+  }
+  // the specific ones first, "linked to" last
+  return out.sort((a, b) => Number(a.type.a_kind === "*" && a.type.b_kind === "*") - Number(b.type.a_kind === "*" && b.type.b_kind === "*"));
 }

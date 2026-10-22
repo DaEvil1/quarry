@@ -2,29 +2,39 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { deleteEntity, EntityConflict, fixes, getEntity, linkItem, sourceLink, updateEntity } from "../bible";
+import {
+  deleteEntity,
+  EntityConflict,
+  factSuggestions,
+  fixes,
+  getEntity,
+  linkItem,
+  relationTypes,
+  sourceLink,
+  updateEntity,
+} from "../bible";
+import FactsPanel from "../components/FactsPanel.vue";
+import InlineText from "../components/InlineText.vue";
+import RelationsPanel from "../components/RelationsPanel.vue";
 import { useSession } from "../stores/session";
-import { ENTITY_KINDS, type EntityDetail, type EntityKind, type SourceRef } from "../types";
+import { ENTITY_KINDS, type Entity, type EntityDetail, type EntityKind, type RelationType, type SourceRef } from "../types";
+import { useCards } from "../world/cards";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
 const router = useRouter();
 const session = useSession();
+const cards = useCards();
 
 const worldSlug = computed(() => String(route.params.world));
 const world = computed(() => session.world(worldSlug.value));
 const id = computed(() => String(route.params.id));
 const detail = ref<EntityDetail | null>(null);
+const types = ref<RelationType[]>([]);
+const suggestions = ref<Record<string, string[]>>({});
 const missing = ref(false);
 const error = ref("");
 const notice = ref("");
-
-const editing = ref(false);
-const name = ref("");
-const kind = ref<EntityKind>("character");
-const body = ref("");
-const aliases = ref<string[]>([]);
-const newAlias = ref("");
 
 const SOURCE_LABEL: Record<string, string> = {
   item: "Item",
@@ -35,6 +45,7 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 const projectName = (slug: string | null) =>
   slug ? (world.value?.projects.find((p) => p.slug === slug)?.name ?? slug) : "Whole world";
+const kindLabel = (k: string) => ENTITY_KINDS.find((x) => x.value === k)?.label ?? k;
 
 async function load() {
   error.value = "";
@@ -47,6 +58,71 @@ async function load() {
   }
 }
 watch([worldSlug, id], load, { immediate: true });
+watch(
+  worldSlug,
+  async (w) => {
+    void cards.load(w);
+    [types.value, suggestions.value] = await Promise.all([relationTypes(w), factSuggestions(w)]).catch(() => [[], {}] as [RelationType[], Record<string, string[]>]);
+  },
+  { immediate: true },
+);
+
+/** After any change: this page, and the cards the editor colours names from. */
+async function changed() {
+  await load();
+  void cards.refresh(worldSlug.value);
+  void session.refreshNearMisses(worldSlug.value);
+}
+
+async function save(changes: Partial<Pick<Entity, "name" | "kind" | "aliases" | "body" | "summary" | "match_case" | "first_name_alias" | "exclusions">>) {
+  const e = detail.value?.entity;
+  if (!e) return;
+  error.value = "";
+  try {
+    await updateEntity(worldSlug.value, e, changes);
+    await changed();
+  } catch (err) {
+    if (err instanceof EntityConflict) await load();
+    error.value = (err as Error).message;
+  }
+}
+
+// other names and "not in this sense" phrases: chips with an add field
+const newAlias = ref("");
+const newExclusion = ref("");
+function addTo(field: "aliases" | "exclusions") {
+  const input = field === "aliases" ? newAlias : newExclusion;
+  const e = detail.value?.entity;
+  const v = input.value.trim();
+  input.value = "";
+  if (e && v && !e[field].includes(v)) void save({ [field]: [...e[field], v] });
+}
+function removeFrom(field: "aliases" | "exclusions", v: string) {
+  const e = detail.value?.entity;
+  if (e) void save({ [field]: e[field].filter((x) => x !== v) });
+}
+
+const editingNotes = ref(false);
+const notes = ref("");
+
+async function remove() {
+  const e = detail.value?.entity;
+  if (!e || !confirm(`Remove "${e.name}" from the bible? Its facts, relationships and tags go too; the texts stay as they are.`)) return;
+  await deleteEntity(worldSlug.value, e.id);
+  void cards.refresh(worldSlug.value);
+  await router.push({ name: "bible-kind", params: { world: worldSlug.value, kind: e.kind } });
+}
+
+async function act(fn: () => Promise<unknown>, done: string) {
+  error.value = "";
+  try {
+    await fn();
+    notice.value = done;
+    await changed();
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
 
 const groups = computed(() => {
   const out = new Map<string, NonNullable<typeof detail.value>["mentions"]>();
@@ -57,57 +133,9 @@ const groups = computed(() => {
   return [...out.entries()];
 });
 
-function startEdit() {
-  const e = detail.value?.entity;
-  if (!e) return;
-  name.value = e.name;
-  kind.value = e.kind;
-  body.value = e.body;
-  aliases.value = [...e.aliases];
-  editing.value = true;
-}
-
-function addAlias() {
-  const a = newAlias.value.trim();
-  if (a && !aliases.value.includes(a)) aliases.value.push(a);
-  newAlias.value = "";
-}
-
-async function save() {
-  const e = detail.value?.entity;
-  if (!e) return;
-  error.value = "";
-  try {
-    await updateEntity(worldSlug.value, e, { name: name.value, kind: kind.value, body: body.value, aliases: aliases.value });
-    editing.value = false;
-    await load();
-  } catch (err) {
-    if (err instanceof EntityConflict) await load();
-    error.value = (err as Error).message;
-  }
-}
-
-async function remove() {
-  const e = detail.value?.entity;
-  if (!e || !confirm(`Remove "${e.name}" from the bible? Its tags on items go too; the texts stay as they are.`)) return;
-  await deleteEntity(worldSlug.value, e.id);
-  await router.push({ name: "bible", params: { world: worldSlug.value } });
-}
-
-async function act(fn: () => Promise<unknown>, done: string) {
-  error.value = "";
-  try {
-    await fn();
-    notice.value = done;
-    await load();
-  } catch (e) {
-    error.value = (e as Error).message;
-  }
-}
-
 // the three fixes, as plain functions for the template
 const fixReplace = fixes.replace;
-const fixSpelling = (world: string, token: string, entityId: string) => fixes.addSpelling(world, token, entityId);
+const fixSpelling = (w: string, token: string, entityId: string) => fixes.addSpelling(w, token, entityId);
 const fixIgnore = fixes.notATypo;
 
 const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, id.value), "Tagged.");
@@ -116,17 +144,29 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
 <template>
   <NotFoundView v-if="!world || missing" what="entry" />
   <template v-else-if="detail">
-    <div class="page-head">
-      <div>
+    <div class="page-head entry-head" :class="`k-${detail.entity.kind}`">
+      <div class="grow">
         <div class="crumbs">
-          <RouterLink :to="{ name: 'bible', params: { world: world.slug } }">Bible</RouterLink>
-          · {{ ENTITY_KINDS.find((k) => k.value === detail!.entity.kind)?.label }}
+          <RouterLink :to="{ name: 'bible-kind', params: { world: world.slug, kind: detail.entity.kind } }">
+            {{ ENTITY_KINDS.find((k) => k.value === detail!.entity.kind)?.plural }}
+          </RouterLink>
         </div>
-        <h1>{{ detail.entity.name }}</h1>
-        <p v-if="detail.entity.aliases.length" class="muted">Also: {{ detail.entity.aliases.join(", ") }}</p>
+        <h1 class="kname"><InlineText :value="detail.entity.name" label="Name" :maxlength="200" @save="(v) => v && save({ name: v })" /></h1>
+        <p class="entry-summary">
+          <InlineText :value="detail.entity.summary" label="One line" placeholder="Add a one-line summary, shown when hovering the name" @save="(v) => save({ summary: v })" />
+        </p>
+        <div class="chips aliases" data-testid="aliases">
+          <span class="muted small">Also:</span>
+          <span v-for="a in detail.entity.aliases" :key="a" class="chip static">
+            {{ a }}<button type="button" class="chip-x" :aria-label="`Remove ${a}`" @click="removeFrom('aliases', a)">×</button>
+          </span>
+          <input v-model="newAlias" class="chip-input" placeholder="+ other name" aria-label="Add another name" maxlength="200" @keydown.enter.prevent="addTo('aliases')" @blur="addTo('aliases')" />
+        </div>
       </div>
       <div class="actions">
-        <button v-if="!editing" type="button" class="btn btn-sm" @click="startEdit">Edit</button>
+        <select class="filter" :value="detail.entity.kind" aria-label="Kind" @change="save({ kind: ($event.target as HTMLSelectElement).value as EntityKind })">
+          <option v-for="k in ENTITY_KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
+        </select>
         <button type="button" class="btn btn-sm" @click="remove">Remove</button>
       </div>
     </div>
@@ -134,44 +174,65 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
     <div v-if="notice" class="notice ok" role="status">{{ notice }}</div>
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
 
-    <form v-if="editing" class="card form wide" @submit.prevent="save">
-      <div class="actions">
-        <div class="field grow">
-          <label for="e-name">Name</label>
-          <input id="e-name" v-model="name" type="text" maxlength="200" required />
-        </div>
-        <div class="field">
-          <label for="e-kind">Kind</label>
-          <select id="e-kind" v-model="kind">
-            <option v-for="k in ENTITY_KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
-          </select>
-        </div>
+    <details class="card matching">
+      <summary>Matching in the text</summary>
+      <label class="check"><input type="checkbox" :checked="!detail.entity.match_case" @change="save({ match_case: !($event.target as HTMLInputElement).checked })" /> Match whatever the capitals (for names that are never ordinary words)</label>
+      <label v-if="detail.entity.kind === 'character'" class="check"><input type="checkbox" :checked="detail.entity.first_name_alias" @change="save({ first_name_alias: ($event.target as HTMLInputElement).checked })" /> Match the first name on its own, when nobody else uses it</label>
+      <div class="chips">
+        <span class="muted small">Not a name in:</span>
+        <span v-for="x in detail.entity.exclusions" :key="x" class="chip static">
+          {{ x }}<button type="button" class="chip-x" :aria-label="`Remove ${x}`" @click="removeFrom('exclusions', x)">×</button>
+        </span>
+        <input v-model="newExclusion" class="chip-input" placeholder="+ phrase, e.g. rose garden" aria-label="Add a phrase where it isn't a name" maxlength="200" @keydown.enter.prevent="addTo('exclusions')" />
       </div>
-      <div class="field">
-        <label for="e-alias">Other spellings and names</label>
-        <div class="chips">
-          <span v-for="a in aliases" :key="a" class="chip static">
-            {{ a }}
-            <button type="button" class="chip-x" :aria-label="`Remove ${a}`" @click="aliases = aliases.filter((x) => x !== a)">×</button>
-          </span>
-        </div>
+    </details>
+
+    <FactsPanel
+      :world="world.slug"
+      :entity="detail.entity"
+      :facts="detail.facts"
+      :suggestions="suggestions[detail.entity.kind] ?? []"
+      :chapter-titles="detail.chapter_titles"
+      @changed="changed"
+      @error="(m) => (error = m)"
+    />
+
+    <RelationsPanel
+      :world="world.slug"
+      :entity="detail.entity"
+      :relationships="detail.relationships"
+      :types="types"
+      :names="cards.names"
+      @changed="changed"
+      @error="(m) => (error = m)"
+    />
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Notes</h2>
+        <button v-if="!editingNotes" type="button" class="btn btn-sm" @click="(notes = detail!.entity.body), (editingNotes = true)">Edit</button>
+      </div>
+      <form v-if="editingNotes" class="form wide" @submit.prevent="(editingNotes = false), save({ body: notes })">
+        <label for="e-body" class="visually-hidden">Notes</label>
+        <textarea id="e-body" v-model="notes" class="capture-box" rows="10" />
         <div class="actions">
-          <input id="e-alias" v-model="newAlias" type="text" maxlength="200" @keydown.enter.prevent="addAlias" />
-          <button type="button" class="btn btn-sm" @click="addAlias">Add</button>
+          <button class="btn btn-primary btn-sm" type="submit">Save</button>
+          <button class="btn btn-sm" type="button" @click="editingNotes = false">Cancel</button>
         </div>
-        <div class="hint">Mentions under these count for this entry, and they're never flagged as typos.</div>
-      </div>
-      <div class="field">
-        <label for="e-body">Notes</label>
-        <textarea id="e-body" v-model="body" class="capture-box" rows="10" />
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary" type="submit">Save</button>
-        <button class="btn" type="button" @click="editing = false">Cancel</button>
-      </div>
-    </form>
-    <section v-else-if="detail.entity.body" class="card">
-      <p class="prose item-text">{{ detail.entity.body }}</p>
+      </form>
+      <p v-else-if="detail.entity.body" class="prose item-text">{{ detail.entity.body }}</p>
+      <p v-else class="empty">No notes.</p>
+    </section>
+
+    <section v-if="detail.decisions.length" class="card">
+      <div class="card-head"><h2>Decisions</h2></div>
+      <ul class="rows" data-testid="entity-decisions">
+        <li v-for="d in detail.decisions" :key="d.id">
+          <span class="muted small">{{ d.decided_on }}</span>
+          <span class="grow">{{ d.text }}</span>
+          <span v-if="!d.tagged" class="muted small" title="Names it without being tagged">mentions</span>
+        </li>
+      </ul>
     </section>
 
     <section v-if="detail.near_misses.length" class="card" data-testid="entity-near-misses">
@@ -183,15 +244,9 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
             <RouterLink class="small" :to="sourceLink(world.slug, m.source_table, m.source_id)">{{ SOURCE_LABEL[m.source_table] }}: {{ m.title }}</RouterLink>
           </div>
           <div class="actions">
-            <button type="button" class="btn btn-sm" @click="act(() => fixReplace(world!.slug, m.token, detail!.entity.id, { table: m.source_table, id: m.source_id }), 'Replaced.')">
-              Replace
-            </button>
-            <button type="button" class="btn btn-sm" @click="act(() => fixSpelling(world!.slug, m.token, detail!.entity.id), 'Spelling added.')">
-              Another spelling
-            </button>
-            <button type="button" class="btn btn-sm" @click="act(() => fixIgnore(world!.slug, m.token), 'Marked as not a typo.')">
-              Not a typo
-            </button>
+            <button type="button" class="btn btn-sm" @click="act(() => fixReplace(world!.slug, m.token, detail!.entity.id, { table: m.source_table, id: m.source_id }), 'Replaced.')">Replace</button>
+            <button type="button" class="btn btn-sm" @click="act(() => fixSpelling(world!.slug, m.token, detail!.entity.id), 'Spelling added.')">Another spelling</button>
+            <button type="button" class="btn btn-sm" @click="act(() => fixIgnore(world!.slug, m.token), 'Marked as not a typo.')">Not a typo</button>
           </div>
         </li>
       </ul>
@@ -233,7 +288,6 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
         <ul class="rows" data-testid="mentions">
           <li v-for="m in list" :key="`${m.source_table}-${m.source_id}`">
             <div class="grow">
-              <!-- an item or decision is its own snippet; journal entries and bible pages have a title of their own -->
               <template v-if="m.source_table === 'journal' || m.source_table === 'entity' || m.source_table === 'chapter'">
                 <RouterLink :to="sourceLink(world.slug, m.source_table, m.source_id)">{{ m.title }}</RouterLink>
                 <div class="snippet muted">{{ m.snippet.before }}<mark>{{ m.snippet.match }}</mark>{{ m.snippet.after }}</div>
@@ -259,5 +313,6 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
         </li>
       </ul>
     </section>
+    <span class="visually-hidden">{{ kindLabel(detail.entity.kind) }}</span>
   </template>
 </template>

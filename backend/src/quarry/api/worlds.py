@@ -182,6 +182,9 @@ def create_world(body: WorldIn, user: User = Depends(current_user), db: Session 
     db.add(w)
     db.flush()
     db.add(WorldMember(world_id=w.id, user_id=user.id, role="owner"))
+    from .world import seed_relation_types
+
+    seed_relation_types(db, w.id)
     db.commit()
     return _world_out(w, "owner")
 

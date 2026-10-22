@@ -166,11 +166,11 @@ def chapter_out(db: Session, world: World, ch: Chapter, names: dict[uuid.UUID, s
 def chapter_detail(db: Session, world: World, ch: Chapter) -> ChapterDetail:
     base = chapter_out(db, world, ch)
     found = db.execute(
-        select(Mention, Entity.name).join(Entity, Entity.id == Mention.entity_id)
+        select(Mention, Entity.name, Entity.kind).join(Entity, Entity.id == Mention.entity_id)
         .where(Mention.source_table == "chapter", Mention.source_id == ch.id).order_by(Mention.start)
     ).all()
-    mentions = [{"entity_id": str(m.entity_id), "entity_name": name, "start": m.start, "end": m.end,
-                 "matched_text": m.matched_text, "kind": m.kind} for m, name in found]
+    mentions = [{"entity_id": str(m.entity_id), "entity_name": name, "entity_kind": ekind, "start": m.start,
+                 "end": m.end, "matched_text": m.matched_text, "kind": m.kind} for m, name, ekind in found]
     notes = [NoteOut(id=n.id, body=n.body, created_at=n.created_at) for n in
              db.scalars(select(HarvestNote).where(HarvestNote.chapter_id == ch.id).order_by(HarvestNote.created_at))]
     replaced = db.get(Chapter, ch.replaces_id) if ch.replaces_id else None

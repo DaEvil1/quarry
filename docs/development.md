@@ -73,6 +73,24 @@ npm run e2e
 docker compose up -d --build       # http://localhost:8766, setup token local-setup-token
 ```
 
+## Performance
+
+`frontend/perf/` seeds a large made-up world into a Quarry with an empty database (400 bible entries with other
+names, facts and relationships, and a 10,000-word chapter full of their names) and measures what a writer feels:
+opening the chapter, each keystroke from press to paint (Chrome's Event Timing, the basis of the INP metric) at
+desk speed and with the CPU slowed 4× like a phone, scrolling, saving, and the bible pages. It prints a table and
+writes `perf-results.json`.
+
+```bash
+docker compose up -d --build                       # or the e2e server above, with PERF_BASE_URL and PERF_SETUP_TOKEN
+cd frontend
+npx playwright test -c playwright.perf.config.ts
+```
+
+Options: `PERF_ENTRIES` and `PERF_WORDS` (the size), `PERF_PROFILE=1` (the functions that took the time while
+typing; build with `npx vite build --minify false` first for readable names), `PERF_SHOTS=<folder>` (screenshots
+of the main pages at desk and phone width). Empty the database before each run.
+
 ## Story content stays out
 
 This repository is public. Never commit manuscripts, bible text, exports or real names from a story; tests and

@@ -3,13 +3,16 @@ import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import { del, get, patch, post } from "../api";
+import EntityPicker from "../components/EntityPicker.vue";
 import ProjectFilter from "../components/ProjectFilter.vue";
 import { useSession } from "../stores/session";
-import { WORLD_ONLY, localToday, type Decision } from "../types";
+import { WORLD_ONLY, localToday, type Decision, type EntityRef } from "../types";
+import { useCards } from "../world/cards";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
 const session = useSession();
+const cards = useCards();
 
 const worldSlug = computed(() => String(route.params.world));
 const world = computed(() => session.world(worldSlug.value));
@@ -72,6 +75,19 @@ async function saveEdit(d: Decision) {
   }
 }
 
+// tagging a decision with the bible entries it settles something about
+const tagging = ref<string | null>(null);
+async function setTags(d: Decision, entities: EntityRef[]) {
+  error.value = "";
+  tagging.value = null;
+  try {
+    await patch(`${base.value}/${d.id}`, { entities: entities.map((e) => e.id) });
+    await load();
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+
 async function remove(d: Decision) {
   if (!confirm(`Remove this decision?\n\n${d.text}`)) return;
   await del(`${base.value}/${d.id}`);
@@ -122,6 +138,20 @@ async function remove(d: Decision) {
           </form>
           <template v-else>
             <span class="grow">{{ d.text }}</span>
+            <span v-for="e in d.entities" :key="e.id" class="chip static tag" :class="`k-${e.kind}`">
+              <RouterLink class="kname" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink>
+              <button type="button" class="chip-x" :aria-label="`Untag ${e.name}`" @click="setTags(d, d.entities.filter((x) => x.id !== e.id))">×</button>
+            </span>
+            <EntityPicker
+              v-if="tagging === d.id"
+              :entities="cards.names"
+              :exclude="d.entities.map((e) => e.id)"
+              placeholder="Tag with…"
+              autofocus
+              @pick="(e) => setTags(d, [...d.entities, e])"
+              @cancel="tagging = null"
+            />
+            <button v-else type="button" class="icon-btn small" @click="tagging = d.id">Tag</button>
             <span v-if="d.project" class="pill">{{ projectName(d.project) }}</span>
             <span v-if="d.item_id" class="pill accent" title="Logged while closing an item">from triage</span>
             <button type="button" class="icon-btn small" @click="(editing = d.id), (editText = d.text)">Edit</button>

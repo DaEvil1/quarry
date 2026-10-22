@@ -45,6 +45,7 @@ class EntityRef(BaseModel):
 class MentionOut(BaseModel):
     entity_id: uuid.UUID
     entity_name: str
+    entity_kind: str = "other"
     start: int
     end: int
     matched_text: str
@@ -139,12 +140,13 @@ def items_out(db: Session, world: World, items: list[Item]) -> list[ItemOut]:
             .where(ItemLink.item_id.in_(ids), ItemLink.target_table == "entity").order_by(Entity.name)
         ).all():
             tags[item_id].append(EntityRef(id=e.id, name=e.name, kind=e.kind))
-        for m, name in db.execute(
-            select(Mention, Entity.name).join(Entity, Entity.id == Mention.entity_id)
+        for m, name, ekind in db.execute(
+            select(Mention, Entity.name, Entity.kind).join(Entity, Entity.id == Mention.entity_id)
             .where(Mention.source_table == "item", Mention.source_id.in_(ids)).order_by(Mention.start)
         ).all():
-            found[m.source_id].append(MentionOut(entity_id=m.entity_id, entity_name=name, start=m.start, end=m.end,
-                                                 matched_text=m.matched_text, kind=m.kind))
+            found[m.source_id].append(MentionOut(entity_id=m.entity_id, entity_name=name, entity_kind=ekind,
+                                                 start=m.start, end=m.end, matched_text=m.matched_text,
+                                                 kind=m.kind))
     return [item_out(i, world, tags[i.id], found[i.id]) for i in items]
 
 

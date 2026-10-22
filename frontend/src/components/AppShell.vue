@@ -4,6 +4,8 @@ import { useRoute, useRouter } from "vue-router";
 
 import { readLastUsed, writeLastUsed } from "../lastUsed";
 import { syncWorld } from "../offline";
+import { ENTITY_KINDS } from "../types";
+import { useCards } from "../world/cards";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import Icon from "./Icon.vue";
@@ -11,6 +13,14 @@ import UpdateBar from "./UpdateBar.vue";
 import WorldSwitcher from "./WorldSwitcher.vue";
 
 const session = useSession();
+const cards = useCards();
+// the kinds of things this world has, for the nav (characters and places always, the rest once they exist)
+const kinds = computed(() =>
+  ENTITY_KINDS.filter((k) => k.value === "character" || k.value === "place" || cards.counts[k.value]).map((k) => ({
+    ...k,
+    count: cards.counts[k.value] ?? 0,
+  })),
+);
 const outbox = useOutbox();
 const route = useRoute();
 const router = useRouter();
@@ -40,6 +50,7 @@ watch(
     void session.refreshCounts(w.slug);
     void session.refreshNearMisses(w.slug);
     void syncWorld(w.slug).catch(() => undefined);
+    void cards.load(w.slug);
   },
   { immediate: true },
 );
@@ -101,8 +112,18 @@ async function signOut() {
             <Icon name="journal" /><span>Journal</span>
           </RouterLink>
           <div class="nav-title">World</div>
+          <RouterLink
+            v-for="k in kinds"
+            :key="k.value"
+            :to="world ? { name: 'bible-kind', params: { world: world.slug, kind: k.value } } : { name: 'home' }"
+            :class="`k-${k.value}`"
+            :data-testid="`nav-kind-${k.value}`"
+          >
+            <span class="kdot nav-kdot" /><span>{{ k.plural }}</span>
+            <span v-if="k.count" class="badge dim">{{ k.count }}</span>
+          </RouterLink>
           <RouterLink :to="to('bible')">
-            <Icon name="bible" /><span>Bible</span>
+            <Icon name="bible" /><span>All entries</span>
           </RouterLink>
           <RouterLink :to="to('names')" data-testid="nav-names">
             <Icon name="names" /><span>Name check</span>

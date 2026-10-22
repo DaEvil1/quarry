@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { del, get, patch, post } from "../api";
 import RecoveryCodes from "../components/RecoveryCodes.vue";
+import WritingSettings from "../components/WritingSettings.vue";
 import { deviceLabel, passkeysSupported, promptError, runAddPasskey } from "../passkey";
 import { readLastUsed } from "../lastUsed";
 import { clearOfflineCopy, lastSynced, localSummary, persistStorage, storageInfo, syncWorld } from "../offline";
@@ -166,6 +167,8 @@ onMounted(() => Promise.all([loadKeys(), loadCodes(), loadOffline()]));
       <span v-if="profileMsg" class="muted small">{{ profileMsg }}</span>
     </div>
   </form>
+
+  <WritingSettings />
 
   <section class="card">
     <div class="card-head">

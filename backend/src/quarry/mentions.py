@@ -41,53 +41,128 @@ class Found:
     kind: str  # exact | alias | near_miss
 
 
+# a name starting with an article has no first name ("The Grey Keeper")
+ARTICLES = {"the", "a", "an"}
+# titles are skipped: "Lord Mordoch" is also matched as "Mordoch"
+TITLES = {
+    "lord", "lady", "sir", "dame", "king", "queen", "prince", "princess", "captain", "master", "mistress", "mister",
+    "mr", "mrs", "ms", "miss", "dr", "saint", "st", "father", "mother", "brother", "sister", "uncle", "aunt",
+    "general", "high", "old", "young",
+}
+
+
+def first_name_aliases(entities: Iterable[Entity]) -> dict[uuid.UUID, str]:
+    """For characters with a multi-word name: their first word, when no other entry uses or claims it."""
+    taken = {f.strip().lower() for e in entities for f in [e.name, *e.aliases] if f.strip()}
+    claims: dict[str, list[tuple[uuid.UUID, str]]] = {}
+    for e in entities:
+        words = [w.strip(",.") for w in e.name.split()]
+        if e.kind != "character" or not e.first_name_alias or len(words) < 2 or words[0].lower() in ARTICLES:
+            continue
+        while len(words) > 1 and words[0].lower() in TITLES:
+            words = words[1:]
+        first = words[0]
+        if len(first) < 3 or first.lower() in TITLES or first == e.name:
+            continue
+        claims.setdefault(first.lower(), []).append((e.id, first))
+    return {owners[0][0]: owners[0][1] for key, owners in claims.items() if len(owners) == 1 and key not in taken}
+
+
 class Matcher:
     """Everything needed to scan the texts of one world."""
 
     def __init__(self, entities: Iterable[Entity], ignored: Iterable[str] = ()) -> None:
-        forms: list[tuple[str, uuid.UUID, str]] = []
+        entities = list(entities)
+        firsts = first_name_aliases(entities)
+        exact: dict[str, tuple[uuid.UUID, str]] = {}
+        loose: dict[str, tuple[uuid.UUID, str]] = {}  # matched whatever the capitals (lowercase key)
+        self.exclusions: dict[uuid.UUID, list[str]] = {}
         for e in entities:
-            forms.append((e.name, e.id, "exact"))
-            forms += [(a, e.id, "alias") for a in e.aliases if a.strip()]
-        forms = [(f.strip(), eid, k) for f, eid, k in forms if f.strip()]
-        # longest first, so "Old Harbour" wins over "Harbour"
-        forms.sort(key=lambda f: len(f[0]), reverse=True)
-        self.by_form = {}
-        for f, eid, k in forms:
-            self.by_form.setdefault(f, (eid, k))
-        self.exact_re = (
-            re.compile(r"(?<![\w'’-])(" + "|".join(re.escape(f) for f in self.by_form) + r")" + SUFFIX + r"(?![\w])")
-            if self.by_form else None
-        )
+            forms = [(e.name, "exact")] + [(a, "alias") for a in e.aliases] + (
+                [(firsts[e.id], "alias")] if e.id in firsts else [])
+            for f, kind in forms:
+                f = f.strip()
+                if not f:
+                    continue
+                if e.match_case:
+                    exact.setdefault(f, (e.id, kind))
+                else:
+                    loose.setdefault(f.lower(), (e.id, kind))
+            if e.exclusions:
+                self.exclusions[e.id] = [x.lower() for x in e.exclusions if x.strip()]
+        self.exact, self.loose = exact, loose
+
+        def alternation(forms: Iterable[str], flags: int = 0) -> re.Pattern[str] | None:
+            # longest first, so "Old Harbour" wins over "Harbour"
+            ordered = sorted(forms, key=len, reverse=True)
+            if not ordered:
+                return None
+            return re.compile(r"(?<![\w'’-])(" + "|".join(re.escape(f) for f in ordered) + r")" + SUFFIX + r"(?![\w])",
+                              flags)
+
+        self.exact_re = alternation(exact)
+        self.loose_re = alternation(loose, re.IGNORECASE)
         # single words of every name, for near misses; a word that is part of any name is never a typo
         self.known_words: set[str] = set()
+        self.known_lower: set[str] = set()
         self.word_owner: dict[str, uuid.UUID] = {}
-        for f, (eid, _) in self.by_form.items():
+        for f, (eid, _) in [*exact.items(), *loose.items()]:
             for w in WORD_RE.findall(f):
                 self.known_words.add(w)
+                self.known_lower.add(w.lower())
                 if len(w) >= NEAR_MIN:
-                    self.word_owner.setdefault(w, eid)
+                    self.word_owner.setdefault(w if f in exact else w.capitalize(), eid)
         self.candidates = list(self.word_owner)
         self.ignored = set(ignored)
 
+    def _excluded(self, text_lower: str, eid: uuid.UUID, start: int, end: int,
+                  cache: dict[uuid.UUID, list[tuple[int, int]]]) -> bool:
+        phrases = self.exclusions.get(eid)
+        if not phrases:
+            return False
+        if eid not in cache:
+            spans = []
+            for ph in phrases:
+                i = text_lower.find(ph)
+                while i >= 0:
+                    spans.append((i, i + len(ph)))
+                    i = text_lower.find(ph, i + 1)
+            cache[eid] = spans
+        return any(s <= start and end <= e for s, e in cache[eid])
+
     def scan(self, text: str, skip_entity: uuid.UUID | None = None) -> list[Found]:
-        found: list[Found] = []
-        taken: list[tuple[int, int]] = []
+        hits: list[tuple[int, int, uuid.UUID, str, str]] = []
         if self.exact_re is not None:
             for m in self.exact_re.finditer(text):
-                eid, kind = self.by_form[m.group(1)]
-                taken.append((m.start(), m.end()))
-                if eid != skip_entity:
-                    found.append(Found(eid, m.start(), m.end(), m.group(0), kind))
+                eid, kind = self.exact[m.group(1)]
+                hits.append((m.start(), m.end(), eid, m.group(0), kind))
+        if self.loose_re is not None:
+            for m in self.loose_re.finditer(text):
+                eid, kind = self.loose[m.group(1).lower()]
+                hits.append((m.start(), m.end(), eid, m.group(0), kind))
+        # overlapping matches from the two lists: the longer one wins
+        hits.sort(key=lambda h: (h[0], -(h[1] - h[0])))
+        found: list[Found] = []
+        taken: list[tuple[int, int]] = []
+        lower = text.lower()
+        cache: dict[uuid.UUID, list[tuple[int, int]]] = {}
+        for start, end, eid, matched, kind in hits:
+            if taken and start < taken[-1][1]:
+                continue
+            if self._excluded(lower, eid, start, end, cache):
+                continue
+            taken.append((start, end))
+            if eid != skip_entity:
+                found.append(Found(eid, start, end, matched, kind))
         if self.candidates:
             for m in WORD_RE.finditer(text):
                 word = m.group(0)
                 if not word[0].isupper() or any(s <= m.start() < e for s, e in taken):
                     continue
                 base = POSSESSIVE_RE.sub("", word)
-                if len(base) < NEAR_MIN or base in self.known_words or base in self.ignored or word in self.ignored:
+                if len(base) < NEAR_MIN or base in self.ignored or word in self.ignored:
                     continue
-                if base.lower() in {w.lower() for w in self.known_words}:
+                if base.lower() in self.known_lower:
                     continue
                 limit = 1 if len(base) <= 6 else 2
                 best = process.extractOne(base, self.candidates, scorer=OSA.distance, score_cutoff=limit)

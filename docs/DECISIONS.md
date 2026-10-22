@@ -30,3 +30,7 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-22: New kinds Event and Culture; lore stays in Term.
 - 2026-10-22: Research (docs/research/) adds to the world model: evidence on facts and relationships, knows/has met, resolved findings (intentional/later), Drafting vs Revising, getting back in, spell-check skipping names, per-entry "not in this sense". A cuts bin, revision passes, a thread grid, scenes and a corkboard wait for later.
 - 2026-10-22: The companion's findings are grouped into five editors (Proofreader, Continuity, Connections, Archivist, Loose ends): tabs that can be switched off, all rule-based, all silent while Drafting.
+- 2026-10-22: Phase 6: names are matched in the browser by a port of the server's matcher, from cards kept on the device; the server stays the source for mentions and counts.
+- 2026-10-22: Writing preferences are per device (localStorage), not per user: a phone and a desk want different text sizes and card timings.
+- 2026-10-22: Selecting a known name shows its card; on Android a long-press selects the word, so that is the phone's long-press without custom touch handling.
+- 2026-10-22: Performance budget for typing: press-to-paint within two frames for a 10,000-word chapter and 400 entries, also at 4× slower CPU. Met after remembering each word's misspelling verdict and each paragraph's names, updating the word count when typing pauses, and keeping the chapter sidebar out of per-keystroke re-renders.

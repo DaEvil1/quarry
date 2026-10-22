@@ -68,14 +68,16 @@ export const STATUS_LABELS: Record<ItemStatus, string> = {
   deferred: "Deferred",
 };
 
-export type EntityKind = "character" | "place" | "term" | "faction" | "object" | "other";
+export type EntityKind = "character" | "place" | "faction" | "culture" | "event" | "object" | "term" | "other";
 
 export const ENTITY_KINDS: { value: EntityKind; label: string; plural: string }[] = [
   { value: "character", label: "Character", plural: "Characters" },
   { value: "place", label: "Place", plural: "Places" },
-  { value: "term", label: "Term", plural: "Terms" },
   { value: "faction", label: "Faction", plural: "Factions" },
+  { value: "culture", label: "Culture", plural: "Cultures" },
+  { value: "event", label: "Event", plural: "Events" },
   { value: "object", label: "Object", plural: "Objects" },
+  { value: "term", label: "Term", plural: "Terms" },
   { value: "other", label: "Other", plural: "Other" },
 ];
 
@@ -88,14 +90,66 @@ export interface EntityRef {
 export interface Entity extends EntityRef {
   aliases: string[];
   body: string;
+  summary: string;
+  match_case: boolean;
+  first_name_alias: boolean;
+  exclusions: string[];
   version: number;
   updated_at: string;
   mention_count: number;
 }
 
+export type Standing = "canon" | "planned" | "rumour";
+
+export interface Fact {
+  id: string;
+  entity_id: string;
+  label: string;
+  value: string;
+  position: number;
+  standing: Standing;
+  evidence: string | null;
+  note: string | null;
+  established_in_chapter_id: string | null;
+  from_chapter_id: string | null;
+  until_chapter_id: string | null;
+  version: number;
+}
+
+export interface RelationType {
+  id: string;
+  a_kind: EntityKind | "*";
+  b_kind: EntityKind | "*";
+  label: string;
+  reverse_label: string | null;
+  position: number;
+  used: number;
+}
+
+export interface Relationship {
+  id: string;
+  type_id: string;
+  a: EntityRef;
+  b: EntityRef;
+  label: string;
+  reverse_label: string | null;
+  standing: Standing;
+  evidence: string | null;
+  note: string | null;
+  established_in_chapter_id: string | null;
+  from_chapter_id: string | null;
+  until_chapter_id: string | null;
+  version: number;
+  /** on an entry's page: how it reads from this entry, the entry on the other side, and which side this is */
+  reads?: string;
+  other?: EntityRef;
+  side?: "a" | "b";
+}
+
 export interface Mention {
   entity_id: string;
   entity_name: string;
+  entity_kind?: EntityKind;
   start: number;
   end: number;
   matched_text: string;
@@ -125,6 +179,10 @@ export interface EntityDetail {
   linked_items: { id: string; title: string; status: ItemStatus; project: string | null }[];
   near_misses: (SourceRef & { token: string })[];
   first_appearance: { project: string; chapter_id: string; title: string; position: number }[];
+  decisions: { id: string; decided_on: string; text: string; project: string | null; tagged: boolean }[];
+  facts: Fact[];
+  relationships: Relationship[];
+  chapter_titles: Record<string, string>;
 }
 
 export interface NearMissGroup {
@@ -175,6 +233,7 @@ export interface Decision {
   project: string | null;
   item_id: string | null;
   created_at: string;
+  entities: EntityRef[];
 }
 
 /** "?project=-" on the API: items that belong to the whole world rather than one project. */
