@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { get, patch, post, put } from "../api";
+import { del, get, patch, post, put } from "../api";
 import { exportUrl } from "../manuscript";
 import { useSession } from "../stores/session";
 import { PROJECT_KINDS, kindLabel, type Project, type ProjectKind, type World } from "../types";
@@ -11,6 +11,23 @@ import NotFoundView from "./NotFoundView.vue";
 const route = useRoute();
 const router = useRouter();
 const session = useSession();
+
+// deleting the whole world: only its owner, and only by typing its name
+const deleting = ref(false);
+const deleteName = ref("");
+const deleteError = ref("");
+async function deleteWorld() {
+  const w = world.value;
+  if (!w) return;
+  deleteError.value = "";
+  try {
+    await del(`/api/worlds/${encodeURIComponent(w.slug)}`, { name: deleteName.value });
+    session.dropWorld(w.slug);
+    await router.push({ name: "home" });
+  } catch (e) {
+    deleteError.value = (e as Error).message;
+  }
+}
 
 const world = computed(() => session.world(String(route.params.world)));
 
@@ -162,5 +179,24 @@ async function move(index: number, by: -1 | 1) {
         <button class="btn btn-primary" type="submit" :disabled="busy">Add project</button>
       </div>
     </form>
+
+    <section v-if="world.role === 'owner'" class="card danger" data-testid="delete-world">
+      <button v-if="!deleting" type="button" class="linkish small" @click="deleting = true">Delete this world…</button>
+      <form v-else class="form" @submit.prevent="deleteWorld">
+        <p class="small">
+          This deletes <strong>{{ world.name }}</strong> with all its projects, chapters, history, bible and planning.
+          It can't be undone. <a :href="exportUrl(world.slug)" download>Export it first</a> if you might want it back.
+        </p>
+        <div class="field">
+          <label for="delete-name">Type the world's name to delete it</label>
+          <input id="delete-name" v-model="deleteName" type="text" autocomplete="off" />
+        </div>
+        <div v-if="deleteError" class="notice error" role="alert">{{ deleteError }}</div>
+        <div class="actions">
+          <button class="btn btn-danger" type="submit" :disabled="deleteName.trim() !== world.name">Delete forever</button>
+          <button class="btn" type="button" @click="(deleting = false), (deleteName = '')">Cancel</button>
+        </div>
+      </form>
+    </section>
   </template>
 </template>

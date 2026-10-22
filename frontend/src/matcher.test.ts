@@ -69,6 +69,14 @@ describe("Matcher (same rules as the server)", () => {
     ]);
   });
 
+  it("a leading article matches either way, as on the server", () => {
+    const wardens = card("The River Wardens", { aliases: ["the Warden"], kind: "faction" });
+    expect(hits(new Matcher([wardens]), "The flag of the River Wardens. The Warden spoke. the river wardens")).toEqual([
+      ["the River Wardens", "exact", "The River Wardens"],
+      ["The Warden", "alias", "The River Wardens"],
+    ]);
+  });
+
   it("an offset shifts positions (scanning part of a document)", () => {
     expect(m.scan("x Varren", 100)[0].start).toBe(102);
   });

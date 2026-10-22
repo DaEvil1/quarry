@@ -45,6 +45,13 @@ def test_word_boundaries_and_case():
     assert kinds("Varrenholm is far. varren is lowercase.") == []
 
 
+def test_a_leading_article_matches_either_way():
+    wardens = entity("The River Wardens", "the Warden", kind="faction")
+    m = Matcher([wardens])
+    assert [f.matched for f in m.scan("The flag of the River Wardens. The Warden spoke. the river wardens")] == [
+        "the River Wardens", "The Warden"]
+
+
 def test_near_misses():
     # a wrong letter, a swapped pair, a missing letter
     assert kinds("Isolda wrote to Modroch and Varen.") == [

@@ -69,6 +69,15 @@ def first_name_aliases(entities: Iterable[Entity]) -> dict[uuid.UUID, str]:
     return {owners[0][0]: owners[0][1] for key, owners in claims.items() if len(owners) == 1 and key not in taken}
 
 
+def article_forms(name: str) -> list[str]:
+    """A name that starts with "The" also matches with "the" (mid-sentence), and the other way round: "The River
+    Wardens" is "the River Wardens" in "the flag of the River Wardens"."""
+    for a, b in (("The ", "the "), ("the ", "The ")):
+        if name.startswith(a) and len(name) > len(a):
+            return [name, b + name[len(a):]]
+    return [name]
+
+
 class Matcher:
     """Everything needed to scan the texts of one world."""
 
@@ -86,7 +95,8 @@ class Matcher:
                 if not f:
                     continue
                 if e.match_case:
-                    exact.setdefault(f, (e.id, kind))
+                    for v in article_forms(f):
+                        exact.setdefault(v, (e.id, kind))
                 else:
                     loose.setdefault(f.lower(), (e.id, kind))
             if e.exclusions:

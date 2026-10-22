@@ -1,0 +1,66 @@
+"""The demo world loads, and everything it is meant to show is there."""
+
+from __future__ import annotations
+
+from .conftest import Client
+
+
+def test_demo_world(signed_in: Client):
+    r = signed_in.post("/api/worlds/demo")
+    assert r.status_code == 201, r.text
+    world = r.json()
+    W = f"/api/worlds/{world['slug']}"
+    assert world["name"] == "The Ninefold Delta (demo)"
+    assert [p["name"] for p in world["projects"]] == ["The Ferryman's Daughter", "Ash Season"]
+
+    entities = {e["name"]: e for e in signed_in.get(f"{W}/entities").json()}
+    assert {e["kind"] for e in entities.values()} == {"character", "place", "faction", "culture", "event", "object", "term"}
+    # names are found in the text: the first name, an alias, a term in any case, and not "moss" the plant
+    assert entities["Tamsin Vey"]["mention_count"] > 5
+    assert entities["Tidecall"]["mention_count"] >= 2
+    moss = signed_in.get(f"{W}/entities/{entities['Moss']['id']}").json()
+    assert all("grew" not in m["snippet"]["after"][:6] for m in moss["mentions"])
+
+    book = signed_in.get(f"{W}/projects/the-ferrymans-daughter/chapters").json()
+    assert [c["title"] for c in book["chapters"]] == ["The Crossing", "Lanterns on the Water", "What the River Kept", "The Locks"]
+    assert [c["title"] for c in book["experiments"]] == ["Lanterns on the Water (from the water)"]
+    assert book["retired"] == 1
+    assert {x["name"] for x in book["cast"][book["chapters"][0]["id"]]} >= {"Tamsin Vey", "Oskar Vey", "Ilse Marrow"}
+
+    # the continuity checks it is planted with
+    rules = {(c["rule"], c["chapter"]["title"] if c["chapter"] else None) for c in signed_in.get(f"{W}/checks").json()}
+    assert ("dead_mentioned", "Ash Season") in rules
+    assert ("before_start", "The Locks") in rules
+    assert ("pov_absent", "The Locks") in rules
+    assert any(r == "fact_conflict" for r, _ in rules)
+
+    # relationships read both ways, story time, presence, the graph's co-occurrence
+    tamsin = signed_in.get(f"{W}/entities/{entities['Tamsin Vey']['id']}").json()
+    assert {r["reads"] for r in tamsin["relationships"]} >= {"child of", "friend of", "lives in", "owns", "student of"}
+    where = signed_in.get(f"{W}/where").json()
+    rows = {r["entity"]["name"]: r["cells"] for r in where["rows"]}
+    assert any(c["recorded"] and c["recorded"]["name"] == "Saltreach Abbey" for c in rows["Tamsin Vey"].values())
+    assert signed_in.get(f"{W}/graph?co=true").json()["cooccurrence"]
+
+    # planning, and what an export doesn't carry
+    assert len(signed_in.get(f"{W}/items?status=all").json()) == 7
+    tagged = {e["name"] for d in signed_in.get(f"{W}/decisions").json() for e in d["entities"]}
+    assert tagged == {"Oskar Vey", "The Brass Compass", "Tamsin Vey", "Hesper Quill"}
+    assert len(signed_in.get(f"{W}/journal").json()) == 2
+    third = book["chapters"][2]["id"]
+    assert [i["body"] for i in signed_in.get(f"{W}/chapters/{third}/items").json()] == [
+        "How many lanterns does the abbey set out for its own dead?"]
+    assert signed_in.get(f"{W}/chapters/{third}/session-note").json()["note"].startswith("Tamsin opens the compass")
+
+    # a second copy gets its own address
+    again = signed_in.post("/api/worlds/demo").json()
+    assert again["slug"] != world["slug"]
+
+
+def test_delete_a_world(signed_in: Client):
+    world = signed_in.post("/api/worlds/demo").json()
+    W = f"/api/worlds/{world['slug']}"
+    assert signed_in.request("DELETE", W, json={"name": "the ninefold delta"}).status_code == 422
+    assert signed_in.request("DELETE", W, json={"name": world["name"]}).status_code == 204
+    assert signed_in.get(W).status_code == 404
+    assert world["slug"] not in [w["slug"] for w in signed_in.get("/api/me").json()["worlds"]]

@@ -51,6 +51,14 @@ export function osa(a: string, b: string, limit = 99): number {
 /** How many lines' results a matcher remembers (a long chapter has a few hundred paragraphs). */
 const LINE_CACHE = 4000;
 
+/** A name that starts with "The" also matches with "the" (mid-sentence), and the other way round, as on the server. */
+export function articleForms(name: string): string[] {
+  for (const [a, b] of [["The ", "the "], ["the ", "The "]] as const) {
+    if (name.startsWith(a) && name.length > a.length) return [name, b + name.slice(a.length)];
+  }
+  return [name];
+}
+
 export class Matcher {
   private exact = new Map<string, [string, Hit["kind"]]>();
   private loose = new Map<string, [string, Hit["kind"]]>();
@@ -79,7 +87,7 @@ export class Matcher {
         const f = raw.trim();
         if (!f) continue;
         if (c.match_case) {
-          if (!this.exact.has(f)) this.exact.set(f, [c.id, kind]);
+          for (const v of articleForms(f)) if (!this.exact.has(v)) this.exact.set(v, [c.id, kind]);
         } else if (!this.loose.has(f.toLowerCase())) this.loose.set(f.toLowerCase(), [c.id, kind]);
       }
       const ex = c.exclusions.map((x) => x.toLowerCase()).filter(Boolean);

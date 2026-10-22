@@ -66,6 +66,11 @@ export const useSession = defineStore("session", {
       this.me.worlds = [...rest, world].sort((a, b) => a.name.localeCompare(b.name));
       void saveMeSnapshot(this.me);
     },
+    dropWorld(slug: string): void {
+      if (!this.me) return;
+      this.me.worlds = this.me.worlds.filter((w) => w.slug !== slug);
+      void saveMeSnapshot(this.me);
+    },
     async refreshNearMisses(world: string): Promise<void> {
       try {
         const c = await get<{ words: number }>(`/api/worlds/${encodeURIComponent(world)}/near-misses/count`);

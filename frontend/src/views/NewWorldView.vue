@@ -35,6 +35,22 @@ async function restore(e: Event) {
   }
 }
 
+// or: the demo world, a made-up story that uses every part of Quarry
+const loadingDemo = ref(false);
+async function demo() {
+  error.value = "";
+  loadingDemo.value = true;
+  try {
+    const world = await post<World>("/api/worlds/demo");
+    session.putWorld(world);
+    await router.push({ name: "world", params: { world: world.slug } });
+  } catch (e) {
+    error.value = (e as Error).message;
+  } finally {
+    loadingDemo.value = false;
+  }
+}
+
 async function create() {
   error.value = "";
   busy.value = true;
@@ -89,6 +105,18 @@ async function create() {
       <button class="btn btn-primary" type="submit" :disabled="busy">Create world</button>
     </div>
   </form>
+
+  <section class="card form" data-testid="demo-world">
+    <h2>Or look around a demo world</h2>
+    <p class="muted small">
+      <em>The Ninefold Delta</em>: a short made-up story in two books, with a bible, relationships, places, an inbox, a
+      journal and decisions, and a few planted slips for the writing companion to find. It is a world of its own; delete
+      it whenever you like.
+    </p>
+    <div class="actions">
+      <button class="btn" type="button" :disabled="loadingDemo" @click="demo">{{ loadingDemo ? "Loading…" : "Load the demo world" }}</button>
+    </div>
+  </section>
 
   <section class="card form">
     <h2>Or restore a world</h2>
