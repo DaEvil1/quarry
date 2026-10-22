@@ -249,3 +249,37 @@ export function localToday(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+/** A chapter in story order: projects in their order, then chapters in theirs (docs/WORLD-MODEL.md §4). */
+export interface StoryChapter {
+  id: string;
+  title: string;
+  project: string;
+  project_name: string;
+  index: number;
+}
+
+/** When a fact or relationship holds: from and/or until a chapter; neither means throughout. */
+export interface Span {
+  from_chapter_id: string | null;
+  until_chapter_id: string | null;
+}
+
+export interface Presence {
+  entity_id: string;
+  place: EntityRef;
+  note: string | null;
+}
+
+export interface WhereCell {
+  recorded: EntityRef | null;
+  note: string | null;
+  derived: EntityRef | null;
+  present: boolean;
+}
+
+export interface WhereGrid {
+  chapters: { id: string; title: string; project: string; project_name: string }[];
+  rows: { entity: EntityRef; cells: Record<string, WhereCell> }[];
+  events: Record<string, EntityRef[]>;
+}

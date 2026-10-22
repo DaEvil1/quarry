@@ -46,6 +46,8 @@ def build_world(c: Client) -> None:
     c.post(f"{W}/relationships", json={"type_id": types["lives in"], "a_id": isolde["id"], "b_id": harbour["id"],
                                        "standing": "rumour"})
     c.patch(f"{W}/relation-types/{types['knows']}", json={"label": "is acquainted with"})
+    c.put(f"{W}/chapters/{one['id']}/presence/{v['id']}", json={"place_id": harbour["id"], "note": "on the pier"})
+    c.post(f"{W}/entities/{v['id']}/facts", json={"label": "status", "value": "dead", "from_chapter_id": one["id"]})
     c.post(f"{W}/decisions", json={"text": "Isolde stays", "decided_on": "2026-10-17", "entities": [isolde["id"]]})
 
 
@@ -63,7 +65,8 @@ def snapshot(c: Client, slug: str) -> dict:
     for e in c.get(f"{base}/entities").json():
         d = c.get(f"{base}/entities/{e['id']}").json()
         out[f"facts:{e['name']}"] = [(f["label"], f["value"], f["standing"], f["evidence"],
-                                      chapter_titles.get(f["established_in_chapter_id"])) for f in d["facts"]]
+                                      chapter_titles.get(f["established_in_chapter_id"]),
+                                      chapter_titles.get(f["from_chapter_id"])) for f in d["facts"]]
         out[f"rels:{e['name']}"] = sorted((r["reads"], r["other"]["name"], r["standing"], r["note"],
                                            chapter_titles.get(r["established_in_chapter_id"])) for r in d["relationships"])
     out["types"] = [(t["a_kind"], t["b_kind"], t["label"], t["reverse_label"]) for t in c.get(f"{base}/relation-types").json()]
@@ -82,6 +85,8 @@ def snapshot(c: Client, slug: str) -> dict:
     out["decisions"] = [(d["decided_on"], d["text"], d["project"], d["item_id"] is not None,
                          [e["name"] for e in d["entities"]]) for d in c.get(f"{base}/decisions").json()]
     out["ignored"] = c.get(f"{base}/name-ignores").json()
+    out["where"] = sorted((r["entity"]["name"], chapter_titles[cid], (cell["recorded"] or {}).get("name"), cell["note"])
+                          for r in c.get(f"{base}/where").json()["rows"] for cid, cell in r["cells"].items())
     return out
 
 

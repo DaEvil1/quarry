@@ -34,3 +34,6 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-22: Writing preferences are per device (localStorage), not per user: a phone and a desk want different text sizes and card timings.
 - 2026-10-22: Selecting a known name shows its card; on Android a long-press selects the word, so that is the phone's long-press without custom touch handling.
 - 2026-10-22: Performance budget for typing: press-to-paint within two frames for a 10,000-word chapter and 400 entries, also at 4× slower CPU. Met after remembering each word's misspelling verdict and each paragraph's names, updating the word count when typing pauses, and keeping the chapter sidebar out of per-keystroke re-renders.
+- 2026-10-22: Phase 7: a fact with a "from" chapter takes over from earlier facts with the same label, so "status: dead from chapter 9" needs no end date on "alive". Spans are inclusive and must run forwards.
+- 2026-10-22: "Is at" is one place per character per chapter; moving within a chapter is a note, not a second row. Derived places (named in the same paragraph) are computed when the grid is read, never stored.
+- 2026-10-22: Story order is project order, then chapter order; experiments and retired chapters are outside it, and a span bounded by one simply ignores that bound.

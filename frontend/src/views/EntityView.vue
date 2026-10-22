@@ -33,6 +33,22 @@ const detail = ref<EntityDetail | null>(null);
 const types = ref<RelationType[]>([]);
 const suggestions = ref<Record<string, string[]>>({});
 const missing = ref(false);
+
+// "as of chapter …": what is true at that point in the story (kept in the address, so it survives a reload)
+const asOfId = computed(() => (typeof route.query.asof === "string" ? route.query.asof : ""));
+const asOf = computed(() => cards.indexOf(asOfId.value || null) ?? null);
+const asOfProjects = computed(() => {
+  const out: { name: string; chapters: typeof cards.timeline }[] = [];
+  for (const c of cards.timeline) {
+    const last = out[out.length - 1];
+    if (last?.name === c.project_name) last.chapters.push(c);
+    else out.push({ name: c.project_name, chapters: [c] });
+  }
+  return out;
+});
+function setAsOf(id: string) {
+  void router.replace({ query: { ...route.query, asof: id || undefined } });
+}
 const error = ref("");
 const notice = ref("");
 
@@ -58,10 +74,11 @@ async function load() {
   }
 }
 watch([worldSlug, id], load, { immediate: true });
+// the timeline may have changed (chapters added or moved) since the cards were loaded
+watch(worldSlug, (w) => void cards.load(w, true), { immediate: true });
 watch(
   worldSlug,
   async (w) => {
-    void cards.load(w);
     [types.value, suggestions.value] = await Promise.all([relationTypes(w), factSuggestions(w)]).catch(() => [[], {}] as [RelationType[], Record<string, string[]>]);
   },
   { immediate: true },
@@ -174,6 +191,16 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
     <div v-if="notice" class="notice ok" role="status">{{ notice }}</div>
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
 
+    <div v-if="cards.timeline.length" class="as-of">
+      <label for="as-of" class="small muted">As of</label>
+      <select id="as-of" class="filter" :value="asOfId" data-testid="as-of" @change="setAsOf(($event.target as HTMLSelectElement).value)">
+        <option value="">the whole story</option>
+        <optgroup v-for="p in asOfProjects" :key="p.name" :label="p.name">
+          <option v-for="c in p.chapters" :key="c.id" :value="c.id">{{ c.title }}</option>
+        </optgroup>
+      </select>
+    </div>
+
     <details class="card matching">
       <summary>Matching in the text</summary>
       <label class="check"><input type="checkbox" :checked="!detail.entity.match_case" @change="save({ match_case: !($event.target as HTMLInputElement).checked })" /> Match whatever the capitals (for names that are never ordinary words)</label>
@@ -193,6 +220,9 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
       :facts="detail.facts"
       :suggestions="suggestions[detail.entity.kind] ?? []"
       :chapter-titles="detail.chapter_titles"
+      :timeline="cards.timeline"
+      :as-of="asOf"
+      :index-of="cards.indexOf"
       @changed="changed"
       @error="(m) => (error = m)"
     />
@@ -203,6 +233,9 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
       :relationships="detail.relationships"
       :types="types"
       :names="cards.names"
+      :timeline="cards.timeline"
+      :as-of="asOf"
+      :index-of="cards.indexOf"
       @changed="changed"
       @error="(m) => (error = m)"
     />

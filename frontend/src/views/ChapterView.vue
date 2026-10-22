@@ -4,6 +4,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 
 import { addRelationship, createEntity, fixes, getEntity, typeOptions, updateEntity } from "../bible";
 import ChapterSide from "../components/ChapterSide.vue";
+import { chapterPresence, setPresence } from "../storytime";
 import HistoryPanel from "../components/HistoryPanel.vue";
 import { createProse, countWords, type Prose, type WorldHooks } from "../editor/prose";
 import { ChapterSaver, type SaveStatus } from "../editor/saver";
@@ -22,7 +23,7 @@ import { ApiError } from "../api";
 import { cacheChapter, dropDraft, getDraft, localChapter, queueRevision, saveDraft } from "../offline";
 import { usePrefs } from "../prefs";
 import { useSession } from "../stores/session";
-import { localToday } from "../types";
+import { localToday, type EntityRef, type Presence } from "../types";
 import { useCards } from "../world/cards";
 import NotFoundView from "./NotFoundView.vue";
 
@@ -145,6 +146,7 @@ async function load() {
     return;
   }
   chapter.value = ch;
+  void loadPresence(ch.id);
   await nextTick();
   mount(ch);
   await recoverDraft(ch);
@@ -239,9 +241,26 @@ async function worldChange(fn: () => Promise<unknown>) {
   }
 }
 
+// where characters are in this chapter ("is at"), for their cards
+const presence = ref<Presence[]>([]);
+async function loadPresence(chapterId: string) {
+  try {
+    presence.value = await chapterPresence(worldSlug.value, chapterId);
+  } catch {
+    presence.value = [];
+  }
+}
+/** places for "is at…": the ones named in this chapter first, then the rest */
+function placesForChapter(): EntityRef[] {
+  const named = new Set((chapter.value?.mentions ?? []).filter((m) => m.entity_kind === "place").map((m) => m.entity_id));
+  const places = cards.names.filter((n) => n.kind === "place");
+  return [...places.filter((p) => named.has(p.id)), ...places.filter((p) => !named.has(p.id))];
+}
+
 const worldHooks: WorldHooks = {
   matcher: () => matcher,
-  card: (id) => cards.byId.get(id),
+  // the card as it reads at this chapter
+  card: (id) => cards.asOf(cards.byId.get(id), chapter.value?.id ?? null),
   names: () => cards.names,
   prefs: () => prefs.$state,
   open: (id) => void router.push({ name: "entity", params: { world: worldSlug.value, id } }),
@@ -253,6 +272,20 @@ const worldHooks: WorldHooks = {
       const { entity } = await getEntity(worldSlug.value, id);
       await updateEntity(worldSlug.value, entity, { exclusions: [...entity.exclusions, phrase] });
     }),
+  isAt: (id) => ({
+    here: () => presence.value.find((p) => p.entity_id === id)?.place ?? null,
+    places: placesForChapter,
+    set: async (place) => {
+      const ch = chapter.value;
+      if (!ch) return;
+      try {
+        await setPresence(worldSlug.value, ch.id, id, place.id);
+        await loadPresence(ch.id);
+      } catch (e) {
+        error.value = (e as Error).message;
+      }
+    },
+  }),
   link: (id) => ({
     names: () => cards.names,
     options: (other) => {
@@ -452,6 +485,7 @@ const CLOSE_TEXT = {
       :chapter="chapter"
       :names="names"
       :read-only="readOnly"
+      :presence="presence"
       @pov="setPov"
       @checkpoint="checkpoint"
       @experiment="experiment"

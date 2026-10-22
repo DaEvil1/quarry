@@ -1,0 +1,209 @@
+"""Story time: the order of chapters across a world's projects (the clock that facts and relationships are dated by),
+"is at" presence, and the Where-everyone-is grid (docs/WORLD-MODEL.md §4)."""
+
+from __future__ import annotations
+
+import uuid
+import bisect
+from collections import Counter, defaultdict
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..db import get_db
+from ..models import Chapter, Entity, Mention, Presence, Project, User, World
+from .deps import current_user
+from .worlds import member_world
+
+router = APIRouter(prefix="/api/worlds/{slug}")
+
+
+def story_order(db: Session, world: World) -> list[tuple[Chapter, Project]]:
+    """The book's chapters in story order: projects in their order, then chapters in theirs. Experiments and retired
+    chapters are not part of the story."""
+    rows = db.execute(
+        select(Chapter, Project).join(Project, Project.id == Chapter.project_id)
+        .where(Project.world_id == world.id, Chapter.state == "current")
+        .order_by(Project.position, Project.created_at, Chapter.position, Chapter.created_at)
+    ).all()
+    return [(c, p) for c, p in rows]
+
+
+def story_index(db: Session, world: World) -> dict[uuid.UUID, int]:
+    return {c.id: i for i, (c, _) in enumerate(story_order(db, world))}
+
+
+def check_span(db: Session, world: World, from_id: uuid.UUID | None, until_id: uuid.UUID | None) -> None:
+    """A span must run forwards: its first chapter no later than its last."""
+    if from_id and until_id:
+        index = story_index(db, world)
+        if from_id in index and until_id in index and index[from_id] > index[until_id]:
+            raise HTTPException(422, "“From” must come before “until” in the story.")
+
+
+@router.get("/timeline")
+def timeline(slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
+    world, _ = member_world(db, user, slug)
+    return [{"id": str(c.id), "title": c.title, "project": p.slug, "project_name": p.name, "index": i}
+            for i, (c, p) in enumerate(story_order(db, world))]
+
+
+# presence -------------------------------------------------------------------------------------------------------
+
+
+class PresenceIn(BaseModel):
+    place_id: uuid.UUID
+    note: str | None = Field(default=None, max_length=2000)
+
+
+def _ref(e: Entity) -> dict:
+    return {"id": str(e.id), "name": e.name, "kind": e.kind}
+
+
+def _world_entity(db: Session, world: World, entity_id: uuid.UUID) -> Entity:
+    e = db.get(Entity, entity_id)
+    if e is None or e.world_id != world.id:
+        raise HTTPException(404, "No such entry.")
+    return e
+
+
+def _world_chapter(db: Session, world: World, chapter_id: uuid.UUID) -> Chapter:
+    ch = db.get(Chapter, chapter_id)
+    if ch is None or db.get(Project, ch.project_id).world_id != world.id:
+        raise HTTPException(404, "No such chapter.")
+    return ch
+
+
+@router.get("/chapters/{chapter_id}/presence")
+def chapter_presence(slug: str, chapter_id: uuid.UUID, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)) -> list[dict]:
+    world, _ = member_world(db, user, slug)
+    _world_chapter(db, world, chapter_id)
+    rows = db.scalars(select(Presence).where(Presence.chapter_id == chapter_id))
+    return [{"entity_id": str(p.entity_id), "place": _ref(db.get(Entity, p.place_id)), "note": p.note} for p in rows]
+
+
+@router.put("/chapters/{chapter_id}/presence/{entity_id}")
+def set_presence(slug: str, chapter_id: uuid.UUID, entity_id: uuid.UUID, body: PresenceIn,
+                 user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    """Record that an entry is at a place in this chapter (replacing where it was recorded before)."""
+    world, _ = member_world(db, user, slug)
+    _world_chapter(db, world, chapter_id)
+    e = _world_entity(db, world, entity_id)
+    place = _world_entity(db, world, body.place_id)
+    if place.kind != "place":
+        raise HTTPException(422, "Only a place can be where someone is.")
+    if place.id == e.id:
+        raise HTTPException(422, "A place can't be inside itself here.")
+    p = db.scalar(select(Presence).where(Presence.entity_id == e.id, Presence.chapter_id == chapter_id))
+    if p is None:
+        p = Presence(world_id=world.id, entity_id=e.id, chapter_id=chapter_id, place_id=place.id, created_by=user.id)
+        db.add(p)
+    p.place_id = place.id
+    p.note = (body.note or "").strip() or None
+    db.commit()
+    return {"entity_id": str(e.id), "place": _ref(place), "note": p.note}
+
+
+@router.delete("/chapters/{chapter_id}/presence/{entity_id}", status_code=204)
+def clear_presence(slug: str, chapter_id: uuid.UUID, entity_id: uuid.UUID, user: User = Depends(current_user),
+                   db: Session = Depends(get_db)) -> None:
+    world, _ = member_world(db, user, slug)
+    _world_chapter(db, world, chapter_id)
+    p = db.scalar(select(Presence).where(Presence.entity_id == entity_id, Presence.chapter_id == chapter_id,
+                                         Presence.world_id == world.id))
+    if p is not None:
+        db.delete(p)
+        db.commit()
+
+
+# where everyone is ----------------------------------------------------------------------------------------------
+
+
+def _paragraph_bounds(text: str) -> list[int]:
+    """Where each paragraph starts (a paragraph is a line of the chapter)."""
+    starts = [0]
+    i = text.find("\n")
+    while i >= 0:
+        starts.append(i + 1)
+        i = text.find("\n", i + 1)
+    return starts
+
+
+def derived_places(body: str, mentions: list[tuple[int, uuid.UUID, str]]) -> dict[uuid.UUID, uuid.UUID]:
+    """For each character in a chapter, the place most often named in the same paragraph as them, if any.
+    `mentions` are (start, entity id, entity kind)."""
+    starts = _paragraph_bounds(body)
+    paragraphs: dict[int, tuple[set[uuid.UUID], list[uuid.UUID]]] = defaultdict(lambda: (set(), []))
+    for start, eid, kind in mentions:
+        para = bisect.bisect_right(starts, start) - 1
+        chars, places = paragraphs[para]
+        if kind == "character":
+            chars.add(eid)
+        elif kind == "place":
+            places.append(eid)
+    counts: dict[uuid.UUID, Counter] = defaultdict(Counter)
+    for chars, places in paragraphs.values():
+        for c in chars:
+            counts[c].update(places)
+    return {c: cnt.most_common(1)[0][0] for c, cnt in counts.items() if cnt}
+
+
+@router.get("/where")
+def where_everyone_is(slug: str, project: str | None = Query(default=None), user: User = Depends(current_user),
+                      db: Session = Depends(get_db)) -> dict:
+    """Characters down, chapters across. Each cell: the place recorded with "is at", else the place derived from the
+    text (named in the same paragraph), and whether the character is in the chapter at all."""
+    world, _ = member_world(db, user, slug)
+    order = [(c, p) for c, p in story_order(db, world) if project is None or p.slug == project]
+    chapter_ids = [c.id for c, _ in order]
+    entities = {e.id: e for e in db.scalars(select(Entity).where(Entity.world_id == world.id))}
+    mentions: dict[uuid.UUID, list[tuple[int, uuid.UUID, str]]] = defaultdict(list)
+    if chapter_ids:
+        for m in db.scalars(select(Mention).where(Mention.source_table == "chapter", Mention.source_id.in_(chapter_ids),
+                                                  Mention.kind != "near_miss").order_by(Mention.start)):
+            e = entities.get(m.entity_id)
+            if e is not None:
+                mentions[m.source_id].append((m.start, e.id, e.kind))
+    recorded: dict[tuple[uuid.UUID, uuid.UUID], Presence] = {}
+    if chapter_ids:
+        for p in db.scalars(select(Presence).where(Presence.chapter_id.in_(chapter_ids))):
+            recorded[(p.entity_id, p.chapter_id)] = p
+
+    first_seen: dict[uuid.UUID, tuple[int, int]] = {}
+    cells: dict[uuid.UUID, dict[str, dict]] = defaultdict(dict)
+    events: dict[str, list[dict]] = {}
+    for i, (ch, _) in enumerate(order):
+        found = mentions.get(ch.id, [])
+        derived = derived_places(ch.body, found)
+        present = {eid for _, eid, kind in found if kind == "character"}
+        present |= {eid for (eid, cid) in recorded if cid == ch.id}
+        first_at = {}
+        for start, eid, _ in found:
+            first_at.setdefault(eid, start)
+        for eid in present:
+            first_seen.setdefault(eid, (i, first_at.get(eid, len(ch.body))))
+            rec = recorded.get((eid, ch.id))
+            der = derived.get(eid)
+            cells[eid][str(ch.id)] = {
+                "recorded": _ref(entities[rec.place_id]) if rec else None,
+                "note": rec.note if rec else None,
+                "derived": _ref(entities[der]) if der and not rec else None,
+                "present": eid in {x for _, x, _ in found},
+            }
+        evs = []
+        for _, eid, kind in found:
+            if kind == "event" and all(x["id"] != str(eid) for x in evs):
+                evs.append(_ref(entities[eid]))
+        if evs:
+            events[str(ch.id)] = evs
+    rows = [{"entity": _ref(entities[eid]), "cells": cells[eid]}
+            for eid in sorted(first_seen, key=lambda x: (*first_seen[x], entities[x].name.lower()))
+            if entities[eid].kind == "character"]
+    return {
+        "chapters": [{"id": str(c.id), "title": c.title, "project": p.slug, "project_name": p.name} for c, p in order],
+        "rows": rows,
+        "events": events,
+    }

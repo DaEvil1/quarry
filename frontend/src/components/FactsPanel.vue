@@ -2,8 +2,10 @@
 import { computed, ref } from "vue";
 
 import { addFact, deleteFact, updateFact } from "../bible";
-import type { Entity, Fact, Standing } from "../types";
+import type { Entity, Fact, Span, Standing, StoryChapter } from "../types";
+import { factsAsOf, type IndexOf } from "../world/time";
 import InlineText from "./InlineText.vue";
+import SpanPicker from "./SpanPicker.vue";
 
 // An entry's facts: labelled values, added in one line, edited in place.
 const props = defineProps<{
@@ -12,6 +14,10 @@ const props = defineProps<{
   facts: Fact[];
   suggestions: string[];
   chapterTitles: Record<string, string>;
+  timeline: StoryChapter[];
+  /** "as of" a chapter's place in the story: facts that don't hold then are dimmed */
+  asOf: number | null;
+  indexOf: IndexOf;
 }>();
 const emit = defineEmits<{ changed: []; error: [message: string] }>();
 
@@ -37,6 +43,8 @@ function add() {
 }
 
 const set = (f: Fact, changes: Partial<Fact>) => run(() => updateFact(props.world, f, changes));
+const setSpan = (f: Fact, span: Span) => set(f, span);
+const now = computed(() => (props.asOf === null ? null : new Set(factsAsOf(props.facts, props.asOf, props.indexOf).map((f) => f.id))));
 </script>
 
 <template>
@@ -47,10 +55,11 @@ const set = (f: Fact, changes: Partial<Fact>) => run(() => updateFact(props.worl
     </div>
     <table v-if="props.facts.length" class="facts">
       <tbody>
-        <tr v-for="f in props.facts" :key="f.id">
+        <tr v-for="f in props.facts" :key="f.id" :class="{ off: now && !now.has(f.id) }" :title="now && !now.has(f.id) ? 'Not true at this point in the story' : ''">
           <th><InlineText :value="f.label" label="Label" :maxlength="100" @save="(v) => v && set(f, { label: v })" /></th>
           <td class="grow">
             <InlineText :value="f.value" label="Value" placeholder="—" :maxlength="5000" @save="(v) => set(f, { value: v })" />
+            <SpanPicker :span="f" :timeline="props.timeline" @save="(sp) => setSpan(f, sp)" />
             <div class="evidence small muted">
               <InlineText
                 :value="f.evidence ?? ''"

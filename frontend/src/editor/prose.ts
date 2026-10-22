@@ -29,7 +29,7 @@ import type { WritingPrefs } from "../prefs";
 import type { EntityKind, EntityRef } from "../types";
 import type { Card } from "../world/cards";
 import type { Hit, Matcher } from "../world/matcher";
-import { cardDom, selectionStripDom, nearMissStripDom, type LinkActions } from "./strips";
+import { cardDom, selectionStripDom, nearMissStripDom, type IsAtActions, type LinkActions } from "./strips";
 
 export { countWords } from "../words";
 
@@ -49,6 +49,8 @@ export interface WorldHooks {
   exclude(entityId: string, phrase: string): Promise<void>;
   /** recording a relationship from a name's card */
   link(entityId: string): LinkActions;
+  /** where a character is in this chapter */
+  isAt(entityId: string): IsAtActions;
 }
 
 // ---- names: coloured by kind, recomputed for what is on screen --------------------------------------------------
@@ -157,6 +159,7 @@ function hitDom(v: EditorView, hooks: WorldHooks, h: Hit): HTMLElement {
     open: () => hooks.open(h.entityId),
     notHere: () => hooks.exclude(h.entityId, phraseAround(v, h)),
     link: hooks.link(h.entityId),
+    isAt: hooks.isAt(h.entityId),
   });
 }
 
