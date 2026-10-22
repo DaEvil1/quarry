@@ -39,7 +39,18 @@ export interface LinkActions {
   add: (other: EntityRef, key: string) => Promise<unknown>;
 }
 
-export function cardDom(card: Card | undefined, actions: { open: () => void; notHere?: () => unknown; link?: LinkActions }): HTMLElement {
+/** Where a character is in this chapter ("is at"). */
+export interface IsAtActions {
+  here: () => EntityRef | null;
+  /** places to offer, the ones named in this chapter first */
+  places: () => EntityRef[];
+  set: (place: EntityRef) => Promise<unknown>;
+}
+
+export function cardDom(
+  card: Card | undefined,
+  actions: { open: () => void; notHere?: () => unknown; link?: LinkActions; isAt?: IsAtActions },
+): HTMLElement {
   const root = el("div", "qcard");
   root.setAttribute("role", "tooltip");
   root.dataset.testid = "name-card";
@@ -68,12 +79,53 @@ export function cardDom(card: Card | undefined, actions: { open: () => void; not
     root.append(ul);
   }
   const row = el("div", "qrow");
+  const isAt = card.kind === "character" ? actions.isAt : undefined;
+  const here = isAt?.here();
+  if (here) {
+    const line = el("div", "qcard-here");
+    line.append("Here: ", el("span", `qname k-${here.kind}`, here.name));
+    root.append(line);
+  }
   row.append(chip("Open", actions.open));
+  if (isAt) row.append(chip(here ? "Moved…" : "Is at…", () => isAtFlow(row, card, isAt)));
   const link = actions.link;
   if (link) row.append(chip("Link to…", () => linkFlow(row, card, link)));
   if (actions.notHere) row.append(chip("Not a name here", actions.notHere, "quiet"));
   root.append(row);
   return root;
+}
+
+/** In place of the card's buttons: the place this character is at in this chapter. */
+function isAtFlow(row: HTMLElement, card: Card, isAt: IsAtActions) {
+  const box = el("input", "qinput");
+  box.placeholder = `${card.name} is at…`;
+  box.setAttribute("aria-label", "Is at");
+  const list = el("div", "qlist");
+  const render = () => {
+    const q = box.value.trim().toLowerCase();
+    list.replaceChildren(
+      ...isAt
+        .places()
+        .filter((p) => !q || p.name.toLowerCase().includes(q))
+        .slice(0, 6)
+        .map((p) =>
+          chip(p.name, async () => {
+            await isAt.set(p);
+            row.replaceChildren(el("span", "qcard-also", `${card.name} is at ${p.name} in this chapter.`));
+          }, `k-${p.kind}`),
+        ),
+    );
+  };
+  box.addEventListener("input", render);
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      (list.firstElementChild as HTMLButtonElement | null)?.click();
+    }
+  });
+  render();
+  row.replaceChildren(box, list);
+  setTimeout(() => box.focus());
 }
 
 /** In place of the card's buttons: a name to link to, then the relationship as chips. */

@@ -18,6 +18,7 @@ from ..mentions import first_name_aliases
 from ..models import Chapter, Entity, Fact, Project, RelationType, Relationship, User, World
 from ..vocabulary import STARTING_TYPES, SUGGESTED_FACTS
 from .deps import current_user
+from .storytime import check_span
 from .worlds import member_world
 
 router = APIRouter(prefix="/api/worlds/{slug}")
@@ -164,6 +165,10 @@ def _chapter_in_world(db: Session, world: World, chapter_id: uuid.UUID | None) -
     return ch.id
 
 
+def _sid(x: uuid.UUID | None) -> str | None:
+    return str(x) if x else None
+
+
 def _clean(text: str | None) -> str | None:
     return (text or "").strip() or None
 
@@ -226,6 +231,7 @@ def add_fact(slug: str, entity_id: uuid.UUID, body: FactIn, user: User = Depends
              from_chapter_id=_chapter_in_world(db, world, body.from_chapter_id),
              until_chapter_id=_chapter_in_world(db, world, body.until_chapter_id),
              created_by=user.id, updated_by=user.id)
+    check_span(db, world, f.from_chapter_id, f.until_chapter_id)
     db.add(f)
     db.commit()
     return fact_out(f)
@@ -259,6 +265,7 @@ def update_fact(slug: str, fact_id: uuid.UUID, body: FactUpdate, user: User = De
     for field in ("established_in_chapter_id", "from_chapter_id", "until_chapter_id"):
         if field in sent:
             setattr(f, field, _chapter_in_world(db, world, getattr(body, field)))
+    check_span(db, world, f.from_chapter_id, f.until_chapter_id)
     f.version += 1
     f.updated_by = user.id
     db.commit()
@@ -379,6 +386,7 @@ def add_relationship(slug: str, body: RelationshipIn, user: User = Depends(curre
                      from_chapter_id=_chapter_in_world(db, world, body.from_chapter_id),
                      until_chapter_id=_chapter_in_world(db, world, body.until_chapter_id),
                      created_by=user.id, updated_by=user.id)
+    check_span(db, world, r.from_chapter_id, r.until_chapter_id)
     db.add(r)
     db.commit()
     return relationship_out(r, t, a, b)
@@ -417,6 +425,7 @@ def update_relationship(slug: str, rel_id: uuid.UUID, body: RelationshipUpdate, 
     for field in ("established_in_chapter_id", "from_chapter_id", "until_chapter_id"):
         if field in sent:
             setattr(r, field, _chapter_in_world(db, world, getattr(body, field)))
+    check_span(db, world, r.from_chapter_id, r.until_chapter_id)
     r.version += 1
     r.updated_by = user.id
     db.commit()
@@ -446,16 +455,18 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
     facts: dict[uuid.UUID, list[dict]] = {}
     for f in db.scalars(select(Fact).where(Fact.world_id == world.id, Fact.standing == "canon")
                         .order_by(Fact.entity_id, Fact.position)):
-        facts.setdefault(f.entity_id, []).append({"label": f.label, "value": f.value})
+        facts.setdefault(f.entity_id, []).append({"label": f.label, "value": f.value,
+                                                  "from": _sid(f.from_chapter_id), "until": _sid(f.until_chapter_id)})
     relations: dict[uuid.UUID, list[dict]] = {}
     for r in relationships_of(db, world):
+        span = {"from": _sid(r.from_chapter_id), "until": _sid(r.until_chapter_id)}
         relations.setdefault(r.a.id, []).append({"label": r.label, "other": r.b.model_dump(mode="json"),
-                                                 "standing": r.standing})
+                                                 "standing": r.standing, **span})
         relations.setdefault(r.b.id, []).append({"label": r.reverse_label or r.label,
-                                                 "other": r.a.model_dump(mode="json"), "standing": r.standing})
+                                                 "other": r.a.model_dump(mode="json"), "standing": r.standing, **span})
     return [{"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases),
              "first_name": firsts.get(e.id), "match_case": e.match_case, "exclusions": list(e.exclusions),
-             "summary": e.summary, "facts": facts.get(e.id, [])[:6], "relations": relations.get(e.id, [])[:8]}
+             "summary": e.summary, "facts": facts.get(e.id, [])[:12], "relations": relations.get(e.id, [])[:16]}
             for e in entities]
 
 

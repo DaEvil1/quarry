@@ -46,6 +46,7 @@ from ..models import (
     ItemLink,
     JournalEntry,
     NameIgnore,
+    Presence,
     Project,
     RelationType,
     Relationship,
@@ -155,6 +156,11 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                              "from": str(r.from_chapter_id) if r.from_chapter_id else None,
                              "until": str(r.until_chapter_id) if r.until_chapter_id else None})
 
+    presence: dict[uuid.UUID, list[dict]] = defaultdict(list)
+    for p in db.scalars(select(Presence).where(Presence.world_id == world.id).order_by(Presence.created_at)):
+        presence[p.entity_id].append({"chapter": str(p.chapter_id), "place": str(p.place_id),
+                                      "place_name": names.get(p.place_id), "note": p.note})
+
     for e in entities:
         meta = {"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases), "summary": e.summary,
                 "match_case": e.match_case, "first_name_alias": e.first_name_alias,
@@ -163,6 +169,8 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             meta["facts"] = facts[e.id]
         if rels.get(e.id):
             meta["relationships"] = rels[e.id]
+        if presence.get(e.id):
+            meta["is_at"] = presence[e.id]
         files[f"{root}/Bible/{KIND_FOLDERS[e.kind]}/{_safe(e.name)}.md"] = _doc(meta, e.body)
 
     for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id).order_by(JournalEntry.entry_date)):
@@ -419,6 +427,14 @@ async def restore_world(file: UploadFile = File(...), user: User = Depends(curre
                                 established_in_chapter_id=chapter(r.get("established_in")),
                                 from_chapter_id=chapter(r.get("from")), until_chapter_id=chapter(r.get("until")),
                                 created_by=user.id, updated_by=user.id))
+
+    for e, meta in world_model:
+        for p in meta.get("is_at") or []:
+            place = entity_by_old.get(str(p.get("place"))) or entity_by_name.get(str(p.get("place_name")))
+            ch = chapter(p.get("chapter"))
+            if place is not None and ch is not None:
+                db.add(Presence(world_id=world.id, entity_id=e.id, place_id=place, chapter_id=ch,
+                                note=p.get("note"), created_by=user.id))
 
     for _rel, meta, body in under(f"{root}/Journal/"):
         db.add(JournalEntry(world_id=world.id, project_id=project_of(meta.get("project")),

@@ -516,3 +516,35 @@ table.facts { max-width: 780px; }
 .evidence .inline-text.empty { opacity: 0; font-style: normal; }
 tr:hover .evidence .inline-text.empty, .evidence .inline-text.empty:focus-visible { opacity: 1; }
 @media (hover: none) { .evidence .inline-text.empty { opacity: .7; } }
+
+/* story time */
+.span-text .linkish { color: var(--muted); }
+.span-text:not(.always) .linkish { color: var(--accent); }
+.span-text.always { opacity: 0; }
+tr:hover .span-text.always, .rel:hover .span-text.always, .span-text.always:focus-within { opacity: 1; }
+@media (hover: none) { .span-text.always { opacity: .7; } }
+.span-form { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+.span-form label { display: inline-flex; gap: 4px; align-items: center; }
+tr.off > *, .rel.off { opacity: .4; }
+tr.off .kname, .rel.off .kname { text-decoration: line-through; }
+.as-of { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; }
+.qcard-here { font-size: 12.5px; color: var(--muted); }
+.chapter-side .at { color: var(--muted); }
+
+/* where everyone is */
+table.where-grid { border-collapse: collapse; font-size: 13px; }
+.where-grid th, .where-grid td { border-bottom: 1px solid var(--border); padding: 0; text-align: left; vertical-align: middle; }
+.where-grid tbody th, .where-grid .events-row th { position: sticky; left: 0; background: var(--surface); padding: 6px 12px; white-space: nowrap; z-index: 1; }
+.where-grid .chapter-head { padding: 8px 6px; font-weight: 500; min-width: 92px; max-width: 140px; }
+.where-grid .chapter-head a { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.where-grid .num-label { color: var(--text); font-weight: 600; }
+.where-grid .project-head { padding: 8px 6px 0; color: var(--muted); font-size: 12px; border-bottom: 0; }
+.where-grid .events-row td { padding: 4px 6px; }
+.where-grid .events-row td a { display: block; }
+.where-grid .cell { border-left: 1px solid var(--border); }
+.cell-btn { font: inherit; background: none; border: 0; width: 100%; min-height: 32px; padding: 4px 6px; text-align: left; cursor: pointer; color: inherit; }
+.cell-btn:hover { background: var(--surface-2); }
+.cell.recorded .kname { font-weight: 600; }
+.cell.derived .kname { opacity: .6; font-style: italic; }
+.cell .dot { color: var(--muted); }
+.where-grid .cell select { width: 100%; }

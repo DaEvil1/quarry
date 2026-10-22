@@ -125,6 +125,9 @@ async function signOut() {
           <RouterLink :to="to('bible')">
             <Icon name="bible" /><span>All entries</span>
           </RouterLink>
+          <RouterLink :to="to('where')" data-testid="nav-where">
+            <Icon name="where" /><span>Where everyone is</span>
+          </RouterLink>
           <RouterLink :to="to('names')" data-testid="nav-names">
             <Icon name="names" /><span>Name check</span>
             <span v-if="nearMissCount" class="badge warn">{{ nearMissCount }}</span>

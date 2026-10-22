@@ -144,7 +144,7 @@ def test_cards(world: Client):
     vc = cards["Varren Hale"]
     assert (vc["kind"], vc["first_name"], vc["summary"], vc["aliases"]) == (
         "character", "Varren", "Lighthouse keeper", ["the Grey Keeper"])
-    assert vc["facts"] == [{"label": "status", "value": "alive"}]
+    assert vc["facts"] == [{"label": "status", "value": "alive", "from": None, "until": None}]
     assert [(r["label"], r["other"]["name"]) for r in vc["relations"]] == [("parent of", "Isolde")]
     assert [(r["label"], r["other"]["name"]) for r in cards["Isolde"]["relations"]] == [("child of", "Varren Hale")]
     assert cards["Lord Mordoch"]["first_name"] == "Mordoch"

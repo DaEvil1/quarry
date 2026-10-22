@@ -135,7 +135,11 @@ export const addRelationship = (
   world: string,
   body: { type_id: string; a_id: string; b_id: string; standing?: Standing; note?: string | null; established_in_chapter_id?: string | null; evidence?: string | null },
 ) => post<Relationship>(`${base(world)}/relationships`, body);
-export const updateRelationship = (world: string, r: Pick<Relationship, "id" | "version">, changes: { standing?: Standing; note?: string | null; type_id?: string }) =>
+export const updateRelationship = (
+  world: string,
+  r: Pick<Relationship, "id" | "version">,
+  changes: { standing?: Standing; note?: string | null; type_id?: string; from_chapter_id?: string | null; until_chapter_id?: string | null },
+) =>
   patch<Relationship>(`${base(world)}/relationships/${r.id}`, { base_version: r.version, ...changes });
 export const deleteRelationship = (world: string, id: string) => del(`${base(world)}/relationships/${id}`);
 

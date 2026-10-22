@@ -2,11 +2,12 @@
 import { computed, ref } from "vue";
 
 import type { Chapter } from "../manuscript";
-import type { EntityRef } from "../types";
+import type { EntityRef, Presence } from "../types";
 
 // The chapter page's side panel: point of view, the names in the chapter, harvest notes and chapter actions. Its
 // own component so that typing (word count, save status) never re-renders it: it changes when the chapter is saved.
-const props = defineProps<{ world: string; chapter: Chapter; names: EntityRef[]; readOnly: boolean }>();
+const props = defineProps<{ world: string; chapter: Chapter; names: EntityRef[]; readOnly: boolean; presence: Presence[] }>();
+const placeOf = computed(() => new Map(props.presence.map((p) => [p.entity_id, p.place])));
 const emit = defineEmits<{ pov: [id: string]; checkpoint: []; experiment: [from: "copy" | "scratch"]; retire: [] }>();
 
 const inChapter = computed(() => {
@@ -38,6 +39,7 @@ const experimentFrom = ref<"copy" | "scratch">("copy");
       <ul class="plain-list">
         <li v-for="e in inChapter" :key="e.id" :class="e.kind ? `k-${e.kind}` : ''">
           <RouterLink class="kname" :to="{ name: 'entity', params: { world: props.world, id: e.id } }">{{ e.name }}</RouterLink>
+          <span v-if="placeOf.get(e.id)" class="small at" :class="`k-${placeOf.get(e.id)!.kind}`">at <span class="kname">{{ placeOf.get(e.id)!.name }}</span></span>
           <span class="muted small">×{{ e.count }}</span>
         </li>
         <li v-if="!inChapter.length" class="muted small">No names from the bible yet.</li>

@@ -2,8 +2,10 @@
 import { computed, ref } from "vue";
 
 import { addRelationship, deleteRelationship, typeOptions, updateRelationship } from "../bible";
-import type { Entity, EntityRef, RelationType, Relationship, Standing } from "../types";
+import type { Entity, EntityRef, RelationType, Relationship, Span, Standing, StoryChapter } from "../types";
+import { holds, type IndexOf } from "../world/time";
 import EntityPicker from "./EntityPicker.vue";
+import SpanPicker from "./SpanPicker.vue";
 
 // An entry's relationships, grouped by how they read from this entry, and adding one: pick who or what, then how.
 const props = defineProps<{
@@ -12,7 +14,12 @@ const props = defineProps<{
   relationships: Relationship[];
   types: RelationType[];
   names: EntityRef[];
+  timeline: StoryChapter[];
+  asOf: number | null;
+  indexOf: IndexOf;
 }>();
+const off = (r: Relationship) => props.asOf !== null && !holds(r, props.asOf, props.indexOf);
+const setSpan = (r: Relationship, span: Span) => run(() => updateRelationship(props.world, r, span));
 const emit = defineEmits<{ changed: []; error: [message: string] }>();
 
 const groups = computed(() => {
@@ -70,11 +77,12 @@ function add() {
       <template v-for="[reads, list] in groups" :key="reads">
         <dt>{{ reads }}</dt>
         <dd>
-          <span v-for="r in list" :key="r.id" class="rel" :class="`k-${r.other?.kind}`">
+          <span v-for="r in list" :key="r.id" class="rel" :class="[`k-${r.other?.kind}`, { off: off(r) }]" :title="off(r) ? 'Not true at this point in the story' : ''">
             <RouterLink class="kname" :to="{ name: 'entity', params: { world: props.world, id: r.other?.id } }">{{ r.other?.name }}</RouterLink>
             <select class="standing" :class="r.standing" :value="r.standing" aria-label="Standing" @change="run(() => updateRelationship(props.world, r, { standing: ($event.target as HTMLSelectElement).value as Standing }))">
               <option v-for="s in STANDINGS" :key="s" :value="s">{{ s }}</option>
             </select>
+            <SpanPicker :span="r" :timeline="props.timeline" @save="(sp) => setSpan(r, sp)" />
             <span v-if="r.note" class="muted small">— {{ r.note }}</span>
             <button type="button" class="icon-btn small" :aria-label="`Remove ${reads} ${r.other?.name}`" @click="run(() => deleteRelationship(props.world, r.id))">×</button>
           </span>

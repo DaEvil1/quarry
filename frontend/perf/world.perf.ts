@@ -220,6 +220,9 @@ test("set up and seed a large world", async () => {
   expect(res.ok()).toBeTruthy();
   results["save 10k chapter ms"] = Math.round(saveMs);
   results["chapter id"] = ch.id;
+  for (const title of ["The second", "The third"]) {
+    await postJson(r, `${api}/projects/long-book/chapters`, { title, body: paras.slice(0, 40).reverse().join("\n\n") });
+  }
 
   const [cardsRes, cardsMs] = await timed(() => r.get(`${api}/cards`));
   results["cards ms"] = Math.round(cardsMs);
@@ -244,6 +247,11 @@ test("bible pages", async () => {
     await expect(page.getByTestId("mentions")).toBeVisible();
   });
   results["entry page ms"] = Math.round(ms);
+  [, ms] = await timed(async () => {
+    await page.goto(`${W}/where`);
+    await expect(page.getByTestId("where-grid")).toBeVisible();
+  });
+  results["where everyone is ms"] = Math.round(ms);
 });
 
 test("the editor with a long chapter", async () => {
@@ -307,6 +315,9 @@ test("screenshots", async () => {
     await page.goto(`${W}/bible/types`);
     await expect(page.getByTestId("relation-types").first()).toBeVisible();
     await shot(`${tag}-types`);
+    await page.goto(`${W}/where`);
+    await expect(page.getByTestId("where-grid")).toBeVisible();
+    await shot(`${tag}-where`);
     await page.goto("/settings");
     await page.getByTestId("writing-settings").scrollIntoViewIfNeeded();
     await shot(`${tag}-settings`);
@@ -321,7 +332,7 @@ test("screenshots", async () => {
     await page.getByTestId("editor").locator(".cm-line").first().click();
     await page.keyboard.press("Home");
     await page.keyboard.press("Control+Shift+ArrowRight");
-    await expect(page.getByTestId("selection-strip")).toBeVisible();
+    await expect(page.getByTestId("selection-strip").or(page.getByTestId("name-card"))).toBeVisible();
     await shot(`${tag}-selection`);
   }
 });
