@@ -313,6 +313,17 @@ test("the editor with a long chapter", async () => {
   results["scroll long tasks"] = longs.length;
   results["scroll longest task ms"] = longs.length ? Math.round(Math.max(...longs)) : 0;
 
+  // Revising: the companion marks the text, working the whole chapter out again after each pause
+  await page.getByTestId("mode").getByRole("button", { name: "Revising" }).click();
+  await editor.click();
+  await page.keyboard.press("Control+End");
+  await page.evaluate(() => performance.clearMeasures("quarry:analyse"));
+  await typeAndMeasure("revising: type", " The door opened and the wind came in over the stones.");
+  await page.waitForTimeout(1200);
+  const runs = await page.evaluate(() => performance.getEntriesByName("quarry:analyse").map((e) => e.duration));
+  results["companion analysis ms"] = runs.length ? Math.round(Math.max(...runs)) : "not run";
+  await page.getByTestId("mode").getByRole("button", { name: "Drafting" }).click();
+
   // the same at phone speed
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
   await editor.click();
@@ -362,6 +373,19 @@ test("screenshots", async () => {
     const name = page.getByTestId("editor").locator(".cm-name").first();
     await expect(name).toBeVisible();
     await shot(`${tag}-chapter`);
+    if (tag === "desk") {
+      await page.getByTestId("mode").getByRole("button", { name: "Revising" }).click();
+      for (const t of ["connections", "proofreader", "archivist", "continuity", "looseEnds"]) {
+        await page.getByTestId(`tab-${t}`).click();
+        await page.waitForTimeout(300);
+        await shot(`${tag}-companion-${t}`);
+      }
+      await page.getByTestId("mode").getByRole("button", { name: "Drafting" }).click();
+      await page.goto(`${W}/checks`);
+      await shot(`${tag}-checks`);
+      await page.goto(`${W}/chapters/${results["chapter id"]}`);
+      await expect(page.getByTestId("editor").locator(".cm-name").first()).toBeVisible();
+    }
     await name.hover();
     await expect(page.getByTestId("name-card")).toBeVisible();
     await shot(`${tag}-card`);

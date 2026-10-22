@@ -236,3 +236,40 @@ export function selectionStripDom(
   root.append(main);
   return root;
 }
+
+/** What a finding mark offers: its fix, adding a new name, another spelling, or leaving it be. */
+export interface FindingActions {
+  fix?: { label: string; run: () => unknown };
+  /** a possible new name: make it an entry of a kind, or say it isn't a name */
+  create?: (kind: EntityKind) => unknown;
+  notAName?: () => unknown;
+  /** a spelling worth adding to an entry */
+  addSpelling?: { name: string; run: () => unknown };
+  /** never flag this again */
+  leave?: () => unknown;
+}
+
+export function findingStripDom(message: string, actions: FindingActions): HTMLElement {
+  const root = el("div", "qstrip");
+  root.dataset.testid = "finding-strip";
+  root.append(el("span", "qstrip-q", message));
+  const row = el("div", "qrow");
+  if (actions.fix) row.append(chip(actions.fix.label, actions.fix.run, "primary"));
+  if (actions.create) {
+    const create = actions.create;
+    for (const k of ["character", "place", "faction", "object"] as EntityKind[]) row.append(chip(`+ ${kindLabel(k)}`, () => create(k), `k-${k}`));
+    const more = chip("More…", () => {
+      more.remove();
+      for (const k of ENTITY_KINDS.map((x) => x.value).filter((k) => !["character", "place", "faction", "object"].includes(k))) {
+        row.insertBefore(chip(`+ ${kindLabel(k)}`, () => create(k), `k-${k}`), notName ?? null);
+      }
+    }, "quiet");
+    row.append(more);
+  }
+  const notName = actions.notAName ? chip("Not a name", actions.notAName, "quiet") : null;
+  if (notName) row.append(notName);
+  if (actions.addSpelling) row.append(chip(`Another spelling of ${actions.addSpelling.name}`, actions.addSpelling.run));
+  if (actions.leave) row.append(chip("Leave it", actions.leave, "quiet"));
+  root.append(row);
+  return root;
+}

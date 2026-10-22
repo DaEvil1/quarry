@@ -23,6 +23,7 @@ from rapidfuzz.distance import OSA
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from .margin import story_text
 from .models import Chapter, Decision, Entity, Item, JournalEntry, Mention, NameIgnore, Project
 
 SUFFIX = r"(?:'s|’s|s)?"
@@ -191,6 +192,8 @@ def refresh_source(db: Session, world_id: uuid.UUID, table: str, source_id: uuid
                    matcher: Matcher | None = None) -> None:
     """Rescan one text after it was saved."""
     m = matcher or matcher_for(db, world_id)
+    if table == "chapter":
+        text = story_text(text)
     _store(db, world_id, table, source_id, m.scan(text, skip_entity=source_id if table == "entity" else None))
 
 
@@ -213,4 +216,4 @@ def refresh_world(db: Session, world_id: uuid.UUID) -> None:
         _store(db, world_id, "entity", e.id, m.scan(e.body, skip_entity=e.id))
     for c in db.scalars(select(Chapter).join(Project, Project.id == Chapter.project_id)
                         .where(Project.world_id == world_id)):
-        _store(db, world_id, "chapter", c.id, m.scan(c.body))
+        _store(db, world_id, "chapter", c.id, m.scan(story_text(c.body)))

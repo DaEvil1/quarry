@@ -113,11 +113,15 @@ test("writing: names coloured by kind as they're typed, a card when resting, non
   await page.waitForTimeout(700);
   await expect(page.getByTestId("name-card")).toHaveCount(0);
 
-  // once the writer has paused, it does
+  // once the writer has paused, it does (resting again if the pointer first arrived inside the quiet moment,
+  // which a slow machine can stretch)
   await page.waitForTimeout(600);
-  await ed.locator(".cm-k-character").first().hover({ position: { x: 4, y: 4 } });
   const card = page.getByTestId("name-card");
-  await expect(card).toBeVisible();
+  await expect(async () => {
+    await page.mouse.move(0, 0);
+    await ed.locator(".cm-k-character").first().hover({ position: { x: 4, y: 4 } });
+    await expect(card).toBeVisible({ timeout: 1500 });
+  }).toPass({ timeout: 15_000 });
   await expect(card).toContainText("Keeps the light at Old Harbour");
   await expect(card).toContainText("grey");
   await expect(card).toContainText("Isolde");

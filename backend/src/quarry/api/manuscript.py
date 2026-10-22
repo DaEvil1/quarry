@@ -20,6 +20,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..margin import story_text
 from ..mentions import refresh_source
 from ..models import Chapter, Decision, Entity, HarvestNote, Item, Mention, Project, Revision, User, World
 from .deps import current_user
@@ -32,7 +33,8 @@ BODY_MAX = 2_000_000
 
 
 def words(text: str) -> int:
-    return len(WORD_RE.findall(text))
+    """Words in the story: margin notes (%% lines) don't count."""
+    return len(WORD_RE.findall(story_text(text)))
 
 
 # shapes --------------------------------------------------------------------------------------------------------

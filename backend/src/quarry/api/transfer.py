@@ -54,6 +54,7 @@ from ..models import (
     World,
     WorldMember,
 )
+from ..margin import without_margin_notes
 from .world import seed_relation_types
 from .deps import current_user
 from .worlds import WorldOut, _unique, _world_out, member_world, slugify
@@ -223,7 +224,7 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             if ch.state == "current":
                 n += 1
                 path = f"{d}/Manuscript/{n:02d} {_safe(ch.title, 60)}.md"
-                compiled += [f"## {ch.title}", "", ch.body.rstrip(), ""]
+                compiled += [f"## {ch.title}", "", without_margin_notes(ch.body).rstrip(), ""]
             elif ch.state == "experiment":
                 meta |= {"replaces": str(ch.replaces_id) if ch.replaces_id else None,
                          "item": str(ch.experiment_item_id) if ch.experiment_item_id else None}

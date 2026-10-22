@@ -32,6 +32,8 @@ async function newChapter(title: string) {
 
 test("write a chapter: autosave, word count, a misspelled name fixed in the editor", async () => {
   await newChapter("Arrival");
+  // likely misspellings are underlined while Revising (Drafting, the default, leaves the text unmarked)
+  await page.getByTestId("mode").getByRole("button", { name: "Revising" }).click();
   await editor().click();
   await page.keyboard.type("Varen walks down to Old Harbour.");
   await expect(page.getByTestId("word-count")).toHaveText("6 words");
