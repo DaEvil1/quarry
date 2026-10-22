@@ -37,3 +37,6 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-22: Phase 7: a fact with a "from" chapter takes over from earlier facts with the same label, so "status: dead from chapter 9" needs no end date on "alive". Spans are inclusive and must run forwards.
 - 2026-10-22: "Is at" is one place per character per chapter; moving within a chapter is a note, not a second row. Derived places (named in the same paragraph) are computed when the grid is read, never stored.
 - 2026-10-22: Story order is project order, then chapter order; experiments and retired chapters are outside it, and a span bounded by one simply ignores that bound.
+- 2026-10-22: Phase 8: the graph is drawn with d3-force (laid out to rest before drawing, so nothing jiggles) in plain SVG; no graph library. Clusters are Louvain modularity on the links shown, worked out in the browser only when colouring by cluster.
+- 2026-10-22: Co-occurrence (named in the same paragraph) is computed from the stored mentions when the graph asks for it (about 50 ms for 400 entries and 10,000 words), not stored per chapter as the spec first planned.
+- 2026-10-22: The place tree nests places by a place–place type read as "inside"/"in"/"part of"/"within" (or with the reverse "contains"), so a renamed type still nests if it reads that way.

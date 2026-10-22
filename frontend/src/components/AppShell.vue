@@ -125,6 +125,9 @@ async function signOut() {
           <RouterLink :to="to('bible')">
             <Icon name="bible" /><span>All entries</span>
           </RouterLink>
+          <RouterLink :to="to('graph')" data-testid="nav-graph">
+            <Icon name="graph" /><span>Graph</span>
+          </RouterLink>
           <RouterLink :to="to('where')" data-testid="nav-where">
             <Icon name="where" /><span>Where everyone is</span>
           </RouterLink>

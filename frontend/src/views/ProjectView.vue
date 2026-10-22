@@ -202,7 +202,12 @@ async function save() {
           >
             <span class="drag" aria-hidden="true">⋮⋮</span>
             <span class="muted small chapter-no">{{ i + 1 }}</span>
-            <RouterLink class="grow" :to="{ name: 'chapter', params: { world: world.slug, id: c.id } }">{{ c.title }}</RouterLink>
+            <span class="grow chapter-name">
+              <RouterLink :to="{ name: 'chapter', params: { world: world.slug, id: c.id } }">{{ c.title }}</RouterLink>
+              <span v-if="manuscript?.cast?.[c.id]?.length" class="cast small" data-testid="cast">
+                <span v-for="x in manuscript.cast[c.id]" :key="x.id" class="kname" :class="`k-${x.kind}`" :title="`${x.name}: named ${x.count}×`">{{ x.name }}</span>
+              </span>
+            </span>
             <span v-if="c.pov" class="pill">{{ c.pov.name }}</span>
             <span class="muted small chapter-words">{{ c.words.toLocaleString() }} w</span>
             <button type="button" class="icon-btn" :disabled="i === 0" :aria-label="`Move ${c.title} up`" @click="move(i, -1)">
