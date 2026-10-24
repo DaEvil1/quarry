@@ -10,5 +10,13 @@ export const setPresence = (world: string, chapterId: string, entityId: string, 
   put<Presence>(`${base(world)}/chapters/${chapterId}/presence/${entityId}`, { place_id: placeId, note });
 export const clearPresence = (world: string, chapterId: string, entityId: string) =>
   del(`${base(world)}/chapters/${chapterId}/presence/${entityId}`);
-export const whereGrid = (world: string, project?: string) =>
-  get<WhereGrid>(`${base(world)}/where${project ? `?project=${encodeURIComponent(project)}` : ""}`);
+/** The grid of entries across chapters: every entry of `kinds` named in the chapters shown (characters when not given),
+ * plus `entities` picked by hand, limited to a project or not. */
+export function whereGrid(world: string, opts: { project?: string; kinds?: string[]; entities?: string[] } = {}) {
+  const q = new URLSearchParams();
+  if (opts.project) q.set("project", opts.project);
+  if (opts.kinds) q.set("kinds", opts.kinds.join(","));
+  if (opts.entities?.length) q.set("entities", opts.entities.join(","));
+  const qs = q.toString();
+  return get<WhereGrid>(`${base(world)}/where${qs ? `?${qs}` : ""}`);
+}

@@ -37,6 +37,7 @@ from .worlds import member_world
 router = APIRouter(prefix="/api/worlds/{slug}")
 
 Kind = Literal["character", "place", "faction", "culture", "event", "object", "term", "other"]
+Gender = Literal["female", "male", "nonbinary"]
 SOURCES = {"item": Item, "decision": Decision, "journal": JournalEntry, "entity": Entity, "chapter": Chapter}
 
 
@@ -79,6 +80,9 @@ class EntityIn(BaseModel):
     match_case: bool = True
     first_name_alias: bool = True
     exclusions: list[str] = Field(default_factory=list, max_length=50)
+    # the level: a project's slug (an entry made from one of its chapters), or none for the world
+    project: str | None = None
+    gender: Gender | None = None
 
 
 class EntityUpdate(BaseModel):
@@ -93,6 +97,9 @@ class EntityUpdate(BaseModel):
     exclusions: list[str] | None = Field(default=None, max_length=50)
     # a rename keeps the old name as another name, so the texts that still say it stay linked
     keep_old_name: bool = True
+    # the level (a project's slug, or null for the world) and a character's gender (null is not set); only when sent
+    project: str | None = None
+    gender: Gender | None = None
 
 
 class EntityOut(BaseModel):
@@ -110,6 +117,11 @@ class EntityOut(BaseModel):
     mention_count: int = 0
     # after a rename: the old name, if it was kept as another name
     kept_alias: str | None = None
+    # the project whose part of the bible it is in (its slug), or None for the world
+    project: str | None = None
+    gender: str | None = None
+    # in the bible's list: the projects whose current chapters name it
+    named_in: list[str] = Field(default_factory=list)
 
 
 def _clean_aliases(name: str, aliases: list[str]) -> list[str]:
@@ -128,10 +140,42 @@ def _entity(db: Session, world: World, entity_id: uuid.UUID) -> Entity:
     return e
 
 
-def _out(e: Entity, count: int = 0) -> EntityOut:
+def _out(e: Entity, count: int = 0, projects: dict[uuid.UUID, str] | None = None,
+         named_in: list[str] | None = None) -> EntityOut:
     return EntityOut(id=e.id, kind=e.kind, name=e.name, aliases=list(e.aliases), body=e.body, summary=e.summary,
                      match_case=e.match_case, first_name_alias=e.first_name_alias, exclusions=list(e.exclusions),
-                     version=e.version, updated_at=e.updated_at, mention_count=count)
+                     version=e.version, updated_at=e.updated_at, mention_count=count,
+                     project=(projects or {}).get(e.project_id) if e.project_id else None, gender=e.gender,
+                     named_in=named_in or [])
+
+
+def _slugs(world: World) -> dict[uuid.UUID, str]:
+    return {p.id: p.slug for p in world.projects}
+
+
+def _level(world: World, slug: str | None) -> uuid.UUID | None:
+    """The project an entry lives in, by its slug; None for the world. A world with one project keeps everything in
+    the world (docs/SPEC.md §12.4)."""
+    if not slug:
+        return None
+    for p in world.projects:
+        if p.slug == slug:
+            return p.id if len(world.projects) > 1 else None
+    raise HTTPException(422, "No such project in this world.")
+
+
+def named_in_projects(db: Session, world: World) -> dict[uuid.UUID, list[str]]:
+    """For each entry, the projects whose current chapters name it (from the stored mentions), in project order."""
+    order = {p.id: (p.position, p.created_at) for p in world.projects}
+    slugs = _slugs(world)
+    rows = db.execute(
+        select(Mention.entity_id, Chapter.project_id).join(Chapter, Chapter.id == Mention.source_id)
+        .where(Mention.world_id == world.id, Mention.source_table == "chapter", Mention.kind != "near_miss",
+               Chapter.state == "current").distinct()).all()
+    out: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
+    for eid, pid in rows:
+        out[eid].append(pid)
+    return {eid: [slugs[p] for p in sorted(ps, key=lambda p: order[p])] for eid, ps in out.items()}
 
 
 def _name_taken(db: Session, world: World, name: str, other_than: uuid.UUID | None = None) -> bool:
@@ -154,7 +198,9 @@ def list_entities(slug: str, kind: Kind | None = None, user: User = Depends(curr
     counts = dict(db.execute(
         select(Mention.entity_id, func.count()).where(Mention.world_id == world.id, Mention.kind != "near_miss")
         .group_by(Mention.entity_id)).all())
-    return [_out(e, counts.get(e.id, 0)) for e in db.scalars(q.order_by(func.lower(Entity.name)))]
+    slugs = _slugs(world)
+    named = named_in_projects(db, world)
+    return [_out(e, counts.get(e.id, 0), slugs, named.get(e.id)) for e in db.scalars(q.order_by(func.lower(Entity.name)))]
 
 
 @router.post("/entities", status_code=201)
@@ -169,12 +215,12 @@ def create_entity(slug: str, body: EntityIn, user: User = Depends(current_user),
     e = Entity(world_id=world.id, kind=body.kind, name=name, aliases=_clean_aliases(name, body.aliases),
                body=body.body, summary=" ".join(body.summary.split()), match_case=body.match_case,
                first_name_alias=body.first_name_alias, exclusions=_clean_aliases("", body.exclusions),
-               created_by=user.id, updated_by=user.id)
+               project_id=_level(world, body.project), gender=body.gender, created_by=user.id, updated_by=user.id)
     db.add(e)
     db.flush()
     refresh_world(db, world.id)
     db.commit()
-    return _out(e)
+    return _out(e, 0, _slugs(world))
 
 
 @router.get("/entities/{entity_id}")
@@ -238,7 +284,7 @@ def get_entity(slug: str, entity_id: uuid.UUID, user: User = Depends(current_use
                   "project": projects.get(d.project_id), "tagged": d.id in tagged}
                  for d in db.scalars(select(Decision).where(Decision.id.in_(tagged | named))
                                      .order_by(Decision.decided_on.desc()))] if tagged | named else []
-    return {"entity": _out(e, sum(m["count"] for m in mentions)), "mentions": mentions, "unlinked": unlinked,
+    return {"entity": _out(e, sum(m["count"] for m in mentions), projects), "mentions": mentions, "unlinked": unlinked,
             "linked_items": linked_items, "near_misses": near, "first_appearance": list(first.values()),
             "decisions": decisions, **entity_world_detail(db, world, e)}
 
@@ -251,7 +297,7 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
     if e.version != body.base_version:
         return JSONResponse(status_code=409, content={
             "detail": "This entry changed on another device. Here is the newer version.",
-            "entity": _out(e).model_dump(mode="json")})
+            "entity": _out(e, 0, _slugs(world)).model_dump(mode="json")})
     names_changed = False
     old_name = e.name
     aliases = _clean_aliases(old_name, body.aliases) if body.aliases is not None else list(e.aliases)
@@ -280,6 +326,10 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
         e.kind = body.kind
     if body.body is not None:
         e.body = body.body
+    if "project" in body.model_fields_set:
+        e.project_id = _level(world, body.project)
+    if "gender" in body.model_fields_set:
+        e.gender = body.gender
     if body.summary is not None:
         e.summary = " ".join(body.summary.split())
     for flag in ("match_case", "first_name_alias"):
@@ -299,7 +349,7 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
     else:
         refresh_source(db, world.id, "entity", e.id, e.body)
     db.commit()
-    out = _out(e)
+    out = _out(e, 0, _slugs(world))
     out.kept_alias = kept
     return out
 

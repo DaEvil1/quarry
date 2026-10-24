@@ -57,6 +57,8 @@ export interface WorldHooks {
   companion?: Omit<CompanionHooks, "stripAt" | "nextMiss">;
   /** cut the selection to the project's bin (Ctrl+Shift+X, or "Cut to bin" on the selection strip) */
   cut?(from: number, to: number): void;
+  /** does a label hold several values at once for a kind (its values show as chips on the card)? */
+  several?(kind: string, label: string): boolean;
 }
 
 /** A phone or tablet: long selections get a strip with "Cut to bin" (there is no Ctrl+Shift+X there). */
@@ -172,6 +174,7 @@ function hitDom(v: EditorView, hooks: WorldHooks, h: Hit): HTMLElement {
     notHere: () => hooks.exclude(h.entityId, phraseAround(v, h)),
     link: hooks.link(h.entityId),
     isAt: hooks.isAt(h.entityId),
+    several: hooks.several,
   });
 }
 

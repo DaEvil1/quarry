@@ -41,6 +41,21 @@ DEAD_RE = re.compile(r"\b(dead|deceased|died|killed|slain|murdered)\b", re.I)
 # facts whose "from" chapter is when someone comes into the story: being named before it is a finding
 START_LABELS = ("born", "introduced", "arrives", "first appears")
 INSIDE_RE = re.compile(r"^(inside|in|part of|within)$", re.I)
+# character–character types read as parenthood, the way the place tree reads "inside" (docs/SPEC.md §12.2): A is
+# B's parent when the label ends in "parent of" / "father of" / "mother of" or the reverse in "child of" / "son of" /
+# "daughter of"; the mirror image (a label "son of", a reverse "father of") makes B the parent
+PARENT_RE = re.compile(r"(^|\s)(parent|father|mother) of$", re.I)
+CHILD_RE = re.compile(r"(^|\s)(child|son|daughter) of$", re.I)
+
+
+def parent_direction(label: str, reverse: str | None) -> int:
+    """1 when a type reads "A parent of B", -1 when it reads "B parent of A", 0 when it isn't parenthood."""
+    label, reverse = label.strip(), (reverse or "").strip()
+    if PARENT_RE.search(label) or CHILD_RE.search(reverse):
+        return 1
+    if CHILD_RE.search(label) or PARENT_RE.search(reverse):
+        return -1
+    return 0
 
 
 def _ref(e: Entity) -> dict:
@@ -53,6 +68,9 @@ def _q(title: str) -> str:
 
 def checks(db: Session, world: World) -> list[dict]:
     """Every finding of the continuity rules, in story order."""
+    from .labels import several_labels
+
+    several = several_labels(db, world)
     order = story_order(db, world)
     index = {c.id: i for i, (c, _) in enumerate(order)}
     chapter = {c.id: c for c, _ in order}
@@ -66,11 +84,11 @@ def checks(db: Session, world: World) -> list[dict]:
     facts = list(db.scalars(select(Fact).where(Fact.world_id == world.id, Fact.standing == "canon")))
     out: list[dict] = []
 
-    def add(rule: str, key: str, message: str, chapter_id: uuid.UUID | None, *who: Entity) -> None:
+    def add(rule: str, key: str, message: str, chapter_id: uuid.UUID | None, *who: Entity, **extra) -> None:  # type: ignore[no-untyped-def]
         ch = chapter.get(chapter_id) if chapter_id else None
         out.append({"rule": rule, "key": key, "message": message,
                     "chapter": {"id": str(ch.id), "title": ch.title} if ch else None,
-                    "entities": [_ref(e) for e in who], "_at": index.get(chapter_id, -1) if chapter_id else -1})
+                    "entities": [_ref(e) for e in who], "_at": index.get(chapter_id, -1) if chapter_id else -1, **extra})
 
     for f in facts:
         e = entities.get(f.entity_id)
@@ -141,14 +159,46 @@ def checks(db: Session, world: World) -> list[dict]:
                 add("place_cycle", ":".join(sorted(str(x) for x in ring)), f"Places inside each other in a circle: "
                     f"{names}.", None, *(entities[x] for x in ring))
 
+    # someone recorded as their own ancestor (parenthood in a circle), like a place inside itself
+    parents: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+    for r in rels:
+        t = types[r.type_id]
+        a, b = entities.get(r.a_id), entities.get(r.b_id)
+        way = parent_direction(t.label, t.reverse_label)
+        if a and b and a.kind == b.kind == "character" and r.standing == "canon" and way:
+            child, parent_id = (b.id, a.id) if way > 0 else (a.id, b.id)
+            parents[child].add(parent_id)
+    looped: set[frozenset] = set()
+    for start in sorted(parents, key=lambda x: entities[x].name.lower()):
+        # a path up through the parents that comes back to where it started
+        stack: list[tuple[uuid.UUID, list[uuid.UUID]]] = [(start, [start])]
+        seen: set[uuid.UUID] = set()
+        while stack:
+            node, path = stack.pop()
+            for up in sorted(parents.get(node, ()), key=str):
+                if up == start:
+                    ring = frozenset(path)
+                    if ring not in looped:
+                        looped.add(ring)
+                        names = " → ".join(entities[x].name for x in [start, *reversed(path[1:]), start])
+                        add("own_ancestor", ":".join(sorted(str(x) for x in ring)),
+                            f"{entities[start].name} is recorded as their own ancestor: {names}.", None,
+                            *(entities[x] for x in path))
+                elif up not in seen:
+                    seen.add(up)
+                    stack.append((up, [*path, up]))
+
     # two values of the same fact at once: same start, or an explicit end that runs past the next one's start
-    # (a later fact with an open-ended earlier one simply takes over: that's how "dead from chapter 9" works)
+    # (a later fact with an open-ended earlier one simply takes over: that's how "dead from chapter 9" works). Not for
+    # a label that holds several values for the entry's kind: those values hold together.
     by_label: dict[tuple[uuid.UUID, str], list[Fact]] = defaultdict(list)
     for f in facts:
-        by_label[(f.entity_id, f.label.strip().lower())].append(f)
+        by_label[(f.entity_id, " ".join(f.label.split()).lower())].append(f)
     last = len(order) - 1
-    for (eid, _), group in by_label.items():
+    for (eid, label_key), group in by_label.items():
         e = entities.get(eid)
+        if e is not None and (e.kind, label_key) in several:
+            continue
         for i, f1 in enumerate(group):
             for f2 in group[i + 1:]:
                 if e is None or f1.value.strip().lower() == f2.value.strip().lower():
@@ -165,7 +215,8 @@ def checks(db: Session, world: World) -> list[dict]:
                 if clash is not None and 0 <= clash <= last:
                     ch = order[clash][0]
                     add("fact_conflict", ":".join(sorted([str(f1.id), str(f2.id)])),
-                        f"{e.name}: “{f1.label}” is both “{f1.value}” and “{f2.value}” in {_q(ch.title)}.", ch.id, e)
+                        f"{e.name}: “{f1.label}” is both “{f1.value}” and “{f2.value}” in {_q(ch.title)}.", ch.id, e,
+                        label=f1.label, kind=e.kind)
 
     out.sort(key=lambda x: (x["_at"], x["rule"], x["message"]))
     for x in out:

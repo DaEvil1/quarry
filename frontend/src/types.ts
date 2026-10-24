@@ -13,6 +13,8 @@ export interface Project {
   slug: string;
   kind: ProjectKind;
   position: number;
+  /** chapters without an entry, between two that name it, that make a gap on its mentions strip */
+  gap_chapters: number;
 }
 
 export interface World {
@@ -81,6 +83,16 @@ export const ENTITY_KINDS: { value: EntityKind; label: string; plural: string }[
   { value: "other", label: "Other", plural: "Other" },
 ];
 
+/** A character's gender, read by the family tree for its words; null is "not set" (docs/SPEC.md §12.5). */
+export type Gender = "female" | "male" | "nonbinary";
+
+export const GENDERS: { value: Gender | null; label: string }[] = [
+  { value: null, label: "not set" },
+  { value: "female", label: "female" },
+  { value: "male", label: "male" },
+  { value: "nonbinary", label: "nonbinary" },
+];
+
 export interface EntityRef {
   id: string;
   name: string;
@@ -99,6 +111,11 @@ export interface Entity extends EntityRef {
   mention_count: number;
   /** after a rename: the old name, kept as another name (docs/SPEC.md §11.1) */
   kept_alias?: string | null;
+  /** its level: the project whose part of the bible it is in, or null for the world (docs/SPEC.md §12.4) */
+  project: string | null;
+  gender: Gender | null;
+  /** in the bible's list: the projects whose current chapters name it */
+  named_in: string[];
 }
 
 export type Standing = "canon" | "planned" | "rumour";
@@ -116,6 +133,8 @@ export interface Fact {
   from_chapter_id: string | null;
   until_chapter_id: string | null;
   version: number;
+  /** after adding: the one-time "expect it on every …?" question (docs/SPEC.md §12.6.5) */
+  prompt?: { kind: EntityKind; label: string; count: number } | null;
 }
 
 export interface RelationType {
@@ -259,6 +278,10 @@ export interface StoryChapter {
   project: string;
   project_name: string;
   index: number;
+  /** the chapter's point-of-view entry */
+  pov?: string | null;
+  /** its project's gap length */
+  gap_chapters?: number;
 }
 
 /** When a fact or relationship holds: from and/or until a chapter; neither means throughout. */
@@ -274,14 +297,25 @@ export interface Presence {
 }
 
 export interface WhereCell {
+  /** how often the chapter names it */
+  count: number;
   recorded: EntityRef | null;
   note: string | null;
   derived: EntityRef | null;
   present: boolean;
+  /** for a place: who is recorded "is at" there */
+  people: EntityRef[];
+}
+
+export interface WhereRow {
+  entity: EntityRef;
+  /** picked by hand rather than through a kind */
+  added: boolean;
+  cells: Record<string, WhereCell>;
 }
 
 export interface WhereGrid {
-  chapters: { id: string; title: string; project: string; project_name: string }[];
-  rows: { entity: EntityRef; cells: Record<string, WhereCell> }[];
+  chapters: { id: string; title: string; project: string; project_name: string; pov: EntityRef | null }[];
+  rows: WhereRow[];
   events: Record<string, EntityRef[]>;
 }

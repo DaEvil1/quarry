@@ -92,6 +92,7 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
         <div class="small">{{ c.message }}</div>
         <div class="qrow">
           <button v-for="e in c.entities" :key="e.id" type="button" class="qchip" :class="`k-${e.kind}`" @click="props.actions.open(e)">{{ e.name }}</button>
+          <button v-if="c.rule === 'fact_conflict' && c.label && c.kind" type="button" class="qchip" title="The label holds several values at once for this kind" @click="props.actions.several(c.kind, c.label)">Both are true (several values)</button>
           <button type="button" class="qchip quiet" title="Planted on purpose: never flag it again" @click="props.actions.resolve(c.rule, c.key, 'intentional')">Intentional</button>
           <button type="button" class="qchip quiet" @click="props.actions.resolve(c.rule, c.key, 'later')">Later</button>
         </div>
@@ -154,6 +155,16 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
           <template v-if="f.rule === 'near_miss' || f.rule === 'other_name'">
             <button type="button" class="qchip" @click="props.actions.addSpelling(f.a!, f.word!)">Another spelling</button>
             <button type="button" class="qchip quiet" @click="props.actions.notAName(f.word!)">Not a typo</button>
+          </template>
+
+          <template v-if="f.rule === 'crossover'">
+            <button type="button" class="qchip primary" @click="props.actions.share(f.a!)">Share with the world</button>
+            <button type="button" class="qchip quiet" title="Leave it in its book's bible; not flagged again for this book" @click="props.actions.resolve(f.rule, f.key, 'intentional')">Intentional</button>
+          </template>
+
+          <template v-if="f.rule === 'missing_label'">
+            <button type="button" class="qchip primary" @click="props.actions.addLabel(f.a!, f.label!)">Add it</button>
+            <button type="button" class="qchip quiet" @click="props.actions.resolve(f.rule, f.key, 'intentional')">Not for this one</button>
           </template>
 
           <template v-if="f.rule === 'no_summary'">

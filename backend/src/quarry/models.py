@@ -46,6 +46,8 @@ REVISION_REASONS = ("autosnap", "checkpoint", "state", "restore", "conflict", "s
 STARTING_STATUSES = ("raw", "rewritten", "polished")
 REVISION_DOCS = ("chapter",)
 MENTION_KINDS = ("exact", "alias", "near_miss")
+# a character's gender, read by the family tree for its words; NULL is "not set"
+GENDERS = ("female", "male", "nonbinary")
 
 
 class Base(DeclarativeBase):
@@ -117,6 +119,8 @@ class Project(Base):
     slug: Mapped[str] = mapped_column(String(80), nullable=False)
     kind: Mapped[str] = mapped_column(String(20), nullable=False, default="novel")
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # how many chapters without an entry, between two that name it, make a gap on its mentions strip
+    gap_chapters: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
@@ -227,10 +231,13 @@ class Entity(Base):
     __tablename__ = "entities"
     __table_args__ = (
         CheckConstraint(_in("kind", ENTITY_KINDS), name="ck_entities_kind"),
+        CheckConstraint(_in("gender", GENDERS), name="ck_entities_gender"),
     )
 
     id: Mapped[uuid.UUID] = _id()
     world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    # the level it lives at: one project's part of the bible, or NULL for the world's (shared by every project)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), index=True)
     kind: Mapped[str] = mapped_column(String(20), nullable=False, default="character")
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     aliases: Mapped[list[str]] = mapped_column(ARRAY(String(200)), nullable=False, default=list)
@@ -244,6 +251,8 @@ class Entity(Base):
     # "not in this sense": phrases where the name is an ordinary word ("rose garden")
     exclusions: Mapped[list[str]] = mapped_column(ARRAY(String(200)), nullable=False, default=list,
                                                   server_default="{}")
+    # characters only (kept, unused, if the kind changes): female, male, nonbinary, or NULL for not set
+    gender: Mapped[str | None] = mapped_column(String(20))
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -451,6 +460,25 @@ class Fact(Base):
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
+
+
+class FactLabel(Base):
+    """The per-label switches of a kind (docs/SPEC.md §12.6): whether the label holds several values at once, whether
+    every entry of the kind is expected to have it, and whether the "expect it?" prompt has been shown. Labels and
+    values themselves are read from the facts; a row exists only once a switch was set or the prompt shown."""
+
+    __tablename__ = "fact_labels"
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    several: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    expected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    asked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+
+Index("uq_fact_labels_world_kind_label", FactLabel.world_id, FactLabel.kind, func.lower(FactLabel.label), unique=True)
 
 
 class RelationType(Base):

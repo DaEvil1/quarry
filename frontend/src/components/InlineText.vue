@@ -2,7 +2,8 @@
 import { nextTick, ref } from "vue";
 
 // Text that edits in place: click (or Enter on it) to edit, Enter or leaving the field saves, Esc cancels.
-const props = withDefaults(defineProps<{ value: string; placeholder?: string; label: string; tag?: string; maxlength?: number }>(), {
+// `list` names a datalist of values to offer while editing.
+const props = withDefaults(defineProps<{ value: string; placeholder?: string; label: string; tag?: string; maxlength?: number; list?: string }>(), {
   placeholder: "",
   tag: "span",
   maxlength: 300,
@@ -38,6 +39,7 @@ function done(save: boolean) {
     :class="`inline-${props.tag}`"
     :aria-label="props.label"
     :maxlength="props.maxlength"
+    :list="props.list"
     @keydown.enter.prevent="done(true)"
     @keydown.esc.prevent="done(false)"
     @blur="done(true)"

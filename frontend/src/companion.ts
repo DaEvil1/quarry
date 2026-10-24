@@ -15,6 +15,9 @@ export interface Check {
   chapter: { id: string; title: string } | null;
   entities: EntityRef[];
   later: boolean;
+  /** a conflicting fact's label and the entry's kind, for "Both are true (several values)" */
+  label?: string;
+  kind?: EntityKind;
 }
 
 export interface Resolution {
@@ -63,6 +66,12 @@ export interface PanelActions {
   addSpelling(entity: EntityRef, word: string): void;
   summary(entity: EntityRef, text: string): void;
   open(entity: EntityRef): void;
+  /** an entry of another book's bible named here: move it up to the world */
+  share(entity: EntityRef): void;
+  /** an expected label it hasn't got: open the fact on its page */
+  addLabel(entity: EntityRef, label: string): void;
+  /** a conflict that is two true values: the label holds several values for the kind */
+  several(kind: EntityKind, label: string): void;
   saveNote(text: string): void;
   stash(): void;
   update(): void;

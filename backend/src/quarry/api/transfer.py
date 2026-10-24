@@ -5,12 +5,14 @@ entry, journal entry and item, plus Decisions.md and a compiled manuscript.md pe
 that layout back (the compiled manuscript is ignored). Revision history stays in the database: an export carries
 the texts as they are now.
 
-    <world>/world.md                                  name, slug, words marked "not a typo"
-    <world>/Bible/<Kind>/<Name>.md                    id, name, kind, aliases; the notes
+    <world>/world.md                                  name, slug, words marked "not a typo", relationship types,
+                                                      the per-label switches (fact_labels)
+    <world>/Bible/<Kind>/<Name>.md                    id, name, kind, aliases, project (its level; null for the
+                                                      world), gender (when set); the notes
     <world>/Journal/<date> <title> (<id>).md          id, date, title, project
     <world>/Decisions.md                              one line per decision
     <world>/Planning/<status>/<date> <text> (<id>).md items for the whole world
-    <world>/Projects/<Name>/project.md                name, slug, kind, position, statuses (in order)
+    <world>/Projects/<Name>/project.md                name, slug, kind, position, statuses (in order), gap_chapters
     <world>/Projects/<Name>/Manuscript/<NN> <Title>.md id, title, state, position, pov, summary, status
     <world>/Projects/<Name>/Experiments/<Title> (<id>).md
     <world>/Projects/<Name>/Salvage/<Title> (<id>).md retired chapters, with their harvest notes
@@ -38,6 +40,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..mentions import refresh_world
 from ..models import (
+    GENDERS,
     STARTING_STATUSES,
     Chapter,
     ChapterStatus,
@@ -46,6 +49,7 @@ from ..models import (
     DecisionLink,
     Entity,
     Fact,
+    FactLabel,
     HarvestNote,
     Item,
     ItemLink,
@@ -99,6 +103,15 @@ def _parse(text: str) -> tuple[dict, str]:
     return (meta if isinstance(meta, dict) else {}), body
 
 
+def _gap(v) -> int:  # type: ignore[no-untyped-def]
+    """A project's gap length from project.md: 5 when missing (an export from before phase 11) or not a number."""
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return 5
+    return n if 1 <= n <= 999 else 5
+
+
 def _iso(v: datetime | date | None) -> str | None:
     return v.isoformat() if v is not None else None
 
@@ -140,11 +153,15 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
     ignored = list(db.scalars(select(NameIgnore.token).where(NameIgnore.world_id == world.id).order_by(NameIgnore.token)))
     types = list(db.scalars(select(RelationType).where(RelationType.world_id == world.id).order_by(RelationType.position)))
     type_by_id = {t.id: t for t in types}
+    switches = list(db.scalars(select(FactLabel).where(FactLabel.world_id == world.id)
+                               .order_by(FactLabel.kind, FactLabel.label)))
     files[f"{root}/world.md"] = _doc({
         "quarry_export": FORMAT, "name": world.name, "slug": world.slug,
         "exported_at": datetime.now(UTC).isoformat(), "ignored_words": ignored,
         "relation_types": [{"a": t.a_kind, "b": t.b_kind, "label": t.label, "reverse": t.reverse_label}
-                           for t in types]}, "")
+                           for t in types],
+        "fact_labels": [{"kind": r.kind, "label": r.label, "several": r.several, "expected": r.expected,
+                         "asked": r.asked} for r in switches]}, "")
 
     facts: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for f in db.scalars(select(Fact).where(Fact.world_id == world.id).order_by(Fact.entity_id, Fact.position)):
@@ -171,7 +188,9 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
     for e in entities:
         meta = {"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases), "summary": e.summary,
                 "match_case": e.match_case, "first_name_alias": e.first_name_alias,
-                "exclusions": list(e.exclusions)}
+                "exclusions": list(e.exclusions), "project": projects[e.project_id].slug if e.project_id else None}
+        if e.gender:
+            meta["gender"] = e.gender
         if facts.get(e.id):
             meta["facts"] = facts[e.id]
         if rels.get(e.id):
@@ -223,7 +242,7 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                                    .order_by(ChapterStatus.position, ChapterStatus.created_at)))
         status_label = {s.id: s.label for s in statuses}
         files[f"{d}/project.md"] = _doc({"name": p.name, "slug": p.slug, "kind": p.kind, "position": p.position,
-                                         "statuses": [s.label for s in statuses]}, "")
+                                         "statuses": [s.label for s in statuses], "gap_chapters": p.gap_chapters}, "")
         chapters = list(db.scalars(select(Chapter).where(Chapter.project_id == p.id)
                                    .order_by(Chapter.position, Chapter.created_at)))
         compiled = [f"# {p.name}", ""]
@@ -349,7 +368,7 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
             p = Project(world_id=world.id, name=str(meta.get("name") or folder), slug=pslug,
                         kind=meta.get("kind") if meta.get("kind") in ("novel", "novella", "short", "other") else "novel",
                         position=int(meta["position"]) if meta.get("position") is not None else len(project_ids),
-                        created_by=user.id,
+                        gap_chapters=_gap(meta.get("gap_chapters")), created_by=user.id,
                         updated_by=user.id)
             db.add(p)
             db.flush()
@@ -391,10 +410,14 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
         ename = " ".join(str(meta.get("name") or rel.rsplit("/", 1)[-1][:-3]).split())
         if ename.lower() in {n.lower() for n in entity_by_name}:
             continue
+        # the level: a project's slug in the export (a missing or unknown one, as before phase 11, is the world)
+        level = project_of(meta.get("project")) if len(project_ids) > 1 else None
         e = Entity(world_id=world.id, kind=kind, name=ename, aliases=[str(a) for a in meta.get("aliases") or []],
                    body=body, summary=str(meta.get("summary") or ""), match_case=meta.get("match_case") is not False,
                    first_name_alias=meta.get("first_name_alias") is not False,
-                   exclusions=[str(x) for x in meta.get("exclusions") or []], created_by=user.id, updated_by=user.id)
+                   exclusions=[str(x) for x in meta.get("exclusions") or []], project_id=level,
+                   gender=meta.get("gender") if meta.get("gender") in GENDERS else None,
+                   created_by=user.id, updated_by=user.id)
         db.add(e)
         db.flush()
         entity_by_name[ename] = e.id
@@ -524,6 +547,18 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
 
     for token in wmeta.get("ignored_words") or []:
         db.add(NameIgnore(world_id=world.id, token=str(token)))
+
+    # the per-label switches (none in an export from before phase 11)
+    switched: set[tuple[str, str]] = set()
+    for r in wmeta.get("fact_labels") or []:
+        if not isinstance(r, dict):
+            continue
+        kind, label = str(r.get("kind") or ""), " ".join(str(r.get("label") or "").split())[:100]
+        if kind not in KIND_FOLDERS or not label or (kind, label.lower()) in switched:
+            continue
+        switched.add((kind, label.lower()))
+        db.add(FactLabel(world_id=world.id, kind=kind, label=label, several=r.get("several") is True,
+                         expected=r.get("expected") is True, asked=r.get("asked") is True))
 
     db.flush()
     refresh_world(db, world.id)

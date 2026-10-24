@@ -2,8 +2,9 @@
 // live and works offline. Rules only: nothing here suggests story content or rewrites a sentence. The Continuity
 // checks are over recorded data and come from the server.
 
-import type { EntityRef, Presence } from "../types";
+import { ENTITY_KINDS, type EntityRef, type Presence } from "../types";
 import type { Card } from "./cards";
+import { missingKey, missingLabels } from "./labels";
 import type { Hit, Matcher } from "./matcher";
 
 export type EditorName = "proofreader" | "continuity" | "connections" | "archivist" | "looseEnds";
@@ -12,7 +13,7 @@ export const EDITORS: { name: EditorName; label: string; about: string }[] = [
   { name: "proofreader", label: "Proofreader", about: "doubled words, the same word close together, spacing, likely misspelled names" },
   { name: "continuity", label: "Continuity", about: "dead but named, before being born, conflicting facts, point of view, places inside themselves" },
   { name: "connections", label: "Connections", about: "names that share a sentence or paragraph with no recorded link, and where people are" },
-  { name: "archivist", label: "Archivist", about: "possible new names, entries without a one-liner, spellings worth adding" },
+  { name: "archivist", label: "Archivist", about: "possible new names, entries without a one-liner, spellings worth adding, expected labels, entries of another book's bible" },
   { name: "looseEnds", label: "Loose ends", about: "TK placeholders, margin notes, thoughts stashed for this chapter, your note for next time" },
 ];
 
@@ -34,6 +35,8 @@ export interface Finding {
   b?: EntityRef;
   word?: string;
   places?: EntityRef[];
+  /** an expected label the entry hasn't got */
+  label?: string;
 }
 
 export interface AnalyseInput {
@@ -47,6 +50,11 @@ export interface AnalyseInput {
   resolved: Set<string>;
   /** flag sentences longer than this many words (0: off) */
   longSentence: number;
+  /** the chapter's project (its slug), and a project's name by its slug */
+  project?: string;
+  projectName?: (slug: string) => string;
+  /** the labels expected on every entry of a kind */
+  expected?: (kind: string) => string[];
 }
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}:${b}` : `${b}:${a}`);
@@ -313,6 +321,28 @@ export function analyse(input: AnalyseInput): Finding[] {
     for (const id of named) {
       const c = input.card(id);
       if (c && !c.summary) keep({ editor: "archivist", rule: "no_summary", key: id, a: ref(id), message: `${c.name} has no one-line summary yet.` });
+    }
+    // an entry of another book's own bible, named in this one: share it with the world? (docs/SPEC.md §12.4)
+    if (input.project) {
+      for (const id of named) {
+        const c = input.card(id);
+        if (c?.project && c.project !== input.project) {
+          keep({ editor: "archivist", rule: "crossover", key: `${id}:${input.project}`, a: ref(id),
+            message: `${c.name} is in ${input.projectName?.(c.project) ?? c.project}'s bible and is named here.` });
+        }
+      }
+    }
+    // labels expected on every entry of its kind, missing (only labels marked expected: never inferred from use)
+    if (input.expected) {
+      for (const id of named) {
+        const c = input.card(id);
+        if (!c) continue;
+        const plural = ENTITY_KINDS.find((k) => k.value === c.kind)?.plural.toLowerCase() ?? c.kind;
+        for (const label of missingLabels(c, input.expected(c.kind))) {
+          keep({ editor: "archivist", rule: "missing_label", key: missingKey(id, label), a: ref(id), label,
+            message: `${c.name} has no ${label} (expected for ${plural}).` });
+        }
+      }
     }
     const misses = new Map<string, { n: number; h: Hit }>();
     for (const h of hits.filter((x) => x.kind === "near_miss")) {

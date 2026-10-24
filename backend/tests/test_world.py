@@ -74,7 +74,7 @@ def test_facts(world: Client):
     assert [f["label"] for f in d["facts"]] == ["status", "eye colour"]
     assert world.delete(f"{W}/facts/{b['id']}").status_code == 204
     sugg = world.get(f"{W}/fact-suggestions").json()
-    assert "status" in sugg["character"] and "eye colour" in sugg["character"]
+    assert "status" in sugg["character"]["labels"] and "eye colour" in sugg["character"]["labels"]
 
 
 def test_relationships_read_both_ways(world: Client):

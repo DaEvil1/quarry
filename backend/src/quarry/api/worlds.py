@@ -64,6 +64,7 @@ class ProjectOut(BaseModel):
     slug: str
     kind: str
     position: int
+    gap_chapters: int = 5
 
 
 class WorldOut(BaseModel):
@@ -106,6 +107,8 @@ class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     slug: str | None = Field(default=None, max_length=SLUG_MAX)
     kind: Kind | None = None
+    # the mentions strip's gap length (docs/SPEC.md §12.1)
+    gap_chapters: int | None = Field(default=None, ge=1, le=999)
 
 
 class ProjectOrder(BaseModel):
@@ -113,7 +116,8 @@ class ProjectOrder(BaseModel):
 
 
 def _project_out(p: Project) -> ProjectOut:
-    return ProjectOut(id=p.id, name=p.name, slug=p.slug, kind=p.kind, position=p.position)
+    return ProjectOut(id=p.id, name=p.name, slug=p.slug, kind=p.kind, position=p.position,
+                      gap_chapters=p.gap_chapters if p.gap_chapters is not None else 5)
 
 
 def _world_out(w: World, role: str) -> WorldOut:
@@ -241,6 +245,8 @@ def update_project(slug: str, project_slug: str, body: ProjectUpdate, user: User
         p.name = _clean_name(body.name)
     if body.kind is not None:
         p.kind = body.kind
+    if body.gap_chapters is not None:
+        p.gap_chapters = body.gap_chapters
     if body.slug is not None:
         new = _check_slug(body.slug)
         if new != p.slug and any(o.slug == new for o in w.projects):

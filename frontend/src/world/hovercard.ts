@@ -19,7 +19,7 @@ export function hideCard(now = false) {
   else closeTimer = window.setTimeout(close, 200);
 }
 
-export function showCard(anchor: HTMLElement, card: Card | undefined, open: () => void, delay: number) {
+export function showCard(anchor: HTMLElement, card: Card | undefined, open: () => void, delay: number, several?: (kind: string, label: string) => boolean) {
   window.clearTimeout(openTimer);
   window.clearTimeout(closeTimer);
   openTimer = window.setTimeout(() => {
@@ -30,6 +30,7 @@ export function showCard(anchor: HTMLElement, card: Card | undefined, open: () =
         hideCard(true);
         open();
       },
+      several,
     });
     dom.classList.add("qcard-floating");
     dom.addEventListener("mouseenter", () => window.clearTimeout(closeTimer));

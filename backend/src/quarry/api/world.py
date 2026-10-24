@@ -4,6 +4,7 @@ colour names and show them on hover (docs/WORLD-MODEL.md §2–§5)."""
 from __future__ import annotations
 
 import uuid
+from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Literal
 
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..mentions import first_name_aliases
-from ..models import Chapter, Entity, Fact, Project, RelationType, Relationship, User, World
+from ..models import Chapter, Entity, Fact, FactLabel, Project, RelationType, Relationship, User, World
 from ..vocabulary import STARTING_TYPES, SUGGESTED_FACTS
 from .deps import current_user
 from .storytime import check_span
@@ -76,6 +77,8 @@ class FactOut(BaseModel):
     from_chapter_id: uuid.UUID | None
     until_chapter_id: uuid.UUID | None
     version: int
+    # after adding: the one-time "expect it on every …?" prompt, when this fact brought its label to three entries
+    prompt: dict | None = None
 
 
 class TypeIn(BaseModel):
@@ -173,6 +176,15 @@ def _clean(text: str | None) -> str | None:
     return (text or "").strip() or None
 
 
+def norm(text: str) -> str:
+    """A label or value as it is compared: whatever the capitals, spaces trimmed (docs/SPEC.md §12.6)."""
+    return " ".join(text.split()).lower()
+
+
+# a label on at least this many entries of a kind is common for it: offered first, and as "Add:" on the others
+COMMON_AT = 3
+
+
 def fact_out(f: Fact) -> FactOut:
     return FactOut(id=f.id, entity_id=f.entity_id, label=f.label, value=f.value, position=f.position,
                    standing=f.standing, evidence=f.evidence, note=f.note,
@@ -207,15 +219,68 @@ def relationships_of(db: Session, world: World, entity_id: uuid.UUID | None = No
 
 @router.get("/fact-suggestions")
 def fact_suggestions(slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    """Labels offered when adding a fact: the suggested ones per kind, plus every label the world already uses."""
+    """What is offered when adding a fact, per kind: the labels (common ones and the starting suggestions first, then
+    labels used once or twice), which labels are common (on three or more entries), and for each label the values
+    already used for it on that kind, most used first, with counts. Read per kind and whatever the capitals; each
+    label and value in its most-used spelling."""
     world, _ = member_world(db, user, slug)
-    used = db.execute(select(Entity.kind, Fact.label).join(Entity, Entity.id == Fact.entity_id)
-                      .where(Fact.world_id == world.id).distinct()).all()
-    out = {k: list(v) for k, v in SUGGESTED_FACTS.items()}
-    for kind, label in used:
-        if label not in out.setdefault(kind, []):
-            out[kind].append(label)
+    rows = db.execute(select(Entity.kind, Fact.entity_id, Fact.label, Fact.value)
+                      .join(Entity, Entity.id == Fact.entity_id).where(Fact.world_id == world.id)
+                      .order_by(Fact.created_at)).all()
+    spelling: dict[tuple[str, str], Counter] = defaultdict(Counter)
+    entries: dict[tuple[str, str], set] = defaultdict(set)
+    value_spelling: dict[tuple[str, str, str], Counter] = defaultdict(Counter)
+    value_entries: dict[tuple[str, str, str], set] = defaultdict(set)
+    for kind, eid, label, value in rows:
+        key = (kind, norm(label))
+        spelling[key][label] += 1
+        entries[key].add(eid)
+        if value.strip():
+            vkey = (kind, norm(label), norm(value))
+            value_spelling[vkey][value.strip()] += 1
+            value_entries[vkey].add(eid)
+    out: dict[str, dict] = {}
+    for kind in KINDS:
+        used = sorted(((lab, len(ids)) for (k, lab), ids in entries.items() if k == kind), key=lambda x: (-x[1], x[0]))
+        common = [lab for lab, n in used if n >= COMMON_AT]
+        shown = {lab: spelling[(kind, lab)].most_common(1)[0][0] for lab, _ in used}
+        labels = [shown[lab] for lab in common]
+        for sug in SUGGESTED_FACTS.get(kind, []):
+            if norm(sug) not in common:
+                labels.append(shown.get(norm(sug), sug))
+        taken = {norm(x) for x in labels}
+        labels += [shown[lab] for lab, _ in used if lab not in taken]
+        values: dict[str, list[dict]] = defaultdict(list)
+        for (k, lab, val), ids in value_entries.items():
+            if k == kind:
+                values[lab].append({"value": value_spelling[(k, lab, val)].most_common(1)[0][0], "count": len(ids)})
+        for lab in values:
+            values[lab].sort(key=lambda v: (-v["count"], v["value"].lower()))
+        out[kind] = {"labels": labels, "common": [shown[lab] for lab in common], "values": dict(values)}
     return out
+
+
+def label_prompt(db: Session, world: World, e: Entity, label: str, had_it: bool) -> dict | None:
+    """The one-time question when a new fact brings its label to three (or more) entries of the kind: asked once per
+    label and kind, and marked asked in the same save, so a prompt ignored or shown on another device isn't shown
+    again (docs/SPEC.md §12.6.5)."""
+    if had_it:
+        return None
+    key = norm(label)
+    count = len({eid for eid, lab in db.execute(
+        select(Fact.entity_id, Fact.label).join(Entity, Entity.id == Fact.entity_id)
+        .where(Fact.world_id == world.id, Entity.kind == e.kind)).all() if norm(lab) == key})
+    if count < COMMON_AT:
+        return None
+    row = db.scalar(select(FactLabel).where(FactLabel.world_id == world.id, FactLabel.kind == e.kind,
+                                            func.lower(FactLabel.label) == key))
+    if row is not None and (row.asked or row.expected):
+        return None
+    if row is None:
+        row = FactLabel(world_id=world.id, kind=e.kind, label=label)
+        db.add(row)
+    row.asked = True
+    return {"kind": e.kind, "label": label, "count": count}
 
 
 @router.post("/entities/{entity_id}/facts", status_code=201)
@@ -224,7 +289,9 @@ def add_fact(slug: str, entity_id: uuid.UUID, body: FactIn, user: User = Depends
     world, _ = member_world(db, user, slug)
     e = _entity(db, world, entity_id)
     top = db.scalar(select(func.max(Fact.position)).where(Fact.entity_id == e.id))
-    f = Fact(world_id=world.id, entity_id=e.id, label=" ".join(body.label.split()), value=body.value.strip(),
+    label = " ".join(body.label.split())
+    had_it = any(norm(x) == norm(label) for x in db.scalars(select(Fact.label).where(Fact.entity_id == e.id)))
+    f = Fact(world_id=world.id, entity_id=e.id, label=label, value=body.value.strip(),
              position=0 if top is None else top + 1, standing=body.standing, evidence=_clean(body.evidence),
              note=_clean(body.note),
              established_in_chapter_id=_chapter_in_world(db, world, body.established_in_chapter_id),
@@ -233,8 +300,12 @@ def add_fact(slug: str, entity_id: uuid.UUID, body: FactIn, user: User = Depends
              created_by=user.id, updated_by=user.id)
     check_span(db, world, f.from_chapter_id, f.until_chapter_id)
     db.add(f)
+    db.flush()
+    prompt = label_prompt(db, world, e, label, had_it)
     db.commit()
-    return fact_out(f)
+    out = fact_out(f)
+    out.prompt = prompt
+    return out
 
 
 def _fact(db: Session, world: World, fact_id: uuid.UUID) -> Fact:
@@ -452,11 +523,16 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
     world, _ = member_world(db, user, slug)
     entities = list(db.scalars(select(Entity).where(Entity.world_id == world.id).order_by(func.lower(Entity.name))))
     firsts = first_name_aliases(entities)
+    projects = {p.id: p.slug for p in world.projects}
+    # every canon fact (the bible's tables filter and group by them), and the labels of all of them, whatever their
+    # standing (the labels an entry has, for "Add:" and expected labels)
     facts: dict[uuid.UUID, list[dict]] = {}
-    for f in db.scalars(select(Fact).where(Fact.world_id == world.id, Fact.standing == "canon")
-                        .order_by(Fact.entity_id, Fact.position)):
-        facts.setdefault(f.entity_id, []).append({"label": f.label, "value": f.value,
-                                                  "from": _sid(f.from_chapter_id), "until": _sid(f.until_chapter_id)})
+    labels: dict[uuid.UUID, set[str]] = defaultdict(set)
+    for f in db.scalars(select(Fact).where(Fact.world_id == world.id).order_by(Fact.entity_id, Fact.position)):
+        labels[f.entity_id].add(norm(f.label))
+        if f.standing == "canon":
+            facts.setdefault(f.entity_id, []).append({"label": f.label, "value": f.value, "from": _sid(f.from_chapter_id),
+                                                      "until": _sid(f.until_chapter_id)})
     relations: dict[uuid.UUID, list[dict]] = {}
     for r in relationships_of(db, world):
         span = {"from": _sid(r.from_chapter_id), "until": _sid(r.until_chapter_id)}
@@ -466,7 +542,9 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
                                                  "other": r.a.model_dump(mode="json"), "standing": r.standing, **span})
     return [{"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases),
              "first_name": firsts.get(e.id), "match_case": e.match_case, "exclusions": list(e.exclusions),
-             "summary": e.summary, "facts": facts.get(e.id, [])[:12], "relations": relations.get(e.id, [])[:16]}
+             "summary": e.summary, "facts": facts.get(e.id, []), "relations": relations.get(e.id, [])[:16],
+             "labels": sorted(labels.get(e.id, ())), "project": projects.get(e.project_id) if e.project_id else None,
+             "gender": e.gender}
             for e in entities]
 
 

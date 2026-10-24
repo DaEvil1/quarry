@@ -213,6 +213,8 @@ const editing = ref(false);
 const name = ref("");
 const slug = ref("");
 const kind = ref<ProjectKind>("novel");
+// how many chapters without an entry make a gap on its mentions strip (docs/SPEC.md §12.1)
+const gap = ref(5);
 watch(project, () => (editing.value = false));
 
 function startEdit() {
@@ -220,6 +222,7 @@ function startEdit() {
   name.value = project.value.name;
   slug.value = project.value.slug;
   kind.value = project.value.kind;
+  gap.value = project.value.gap_chapters ?? 5;
   error.value = "";
   editing.value = true;
 }
@@ -234,6 +237,7 @@ async function save() {
       name: name.value,
       slug: slug.value.trim(),
       kind: kind.value,
+      gap_chapters: gap.value,
     });
     session.putWorld(await get<World>(`/api/worlds/${w.slug}`));
     editing.value = false;
@@ -288,6 +292,11 @@ async function save() {
         <select id="p-kind" v-model="kind">
           <option v-for="k in PROJECT_KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
         </select>
+      </div>
+      <div class="field">
+        <label for="p-gap">Gap length</label>
+        <input id="p-gap" v-model.number="gap" type="number" min="1" max="999" required />
+        <div class="hint">On an entry's mentions strip, this many chapters without it, between two that name it, make a gap.</div>
       </div>
       <div class="field">
         <label for="p-slug">Address</label>

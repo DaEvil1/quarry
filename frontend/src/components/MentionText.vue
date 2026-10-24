@@ -33,7 +33,7 @@ const router = useRouter();
 const nameClass = (m: Mention) => (prefs.colourNames && m.entity_kind && !prefs.plainKinds.includes(m.entity_kind) ? `kname k-${m.entity_kind}` : "");
 function hover(e: MouseEvent, m: Mention) {
   const to = { name: "entity", params: { world: props.world, id: m.entity_id } };
-  showCard(e.currentTarget as HTMLElement, cards.byId.get(m.entity_id), () => void router.push(to), prefs.cardDelay);
+  showCard(e.currentTarget as HTMLElement, cards.byId.get(m.entity_id), () => void router.push(to), prefs.cardDelay, (kind, label) => cards.several(kind, label));
 }
 onBeforeUnmount(() => hideCard(true));
 

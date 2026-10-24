@@ -61,15 +61,25 @@ def build_world(c: Client) -> None:
     c.post(f"{W}/cuts", json={"id": kept, "chapter_id": one["id"], "body": "A gull cried.", "cut_at": "2026-10-20T10:00:00+00:00"})
     c.post(f"{W}/cuts/{kept}/put-back", json={"chapter_id": one["id"]})
     c.post(f"{W}/projects/novella/statuses", json={"label": "outline"})
+    # more views of the bible: a gap length, an entry in a project's own bible, a gender, the per-label switches
+    c.patch(f"{W}/projects/novella", json={"gap_chapters": 8})
+    c.post(f"{W}/entities", json={"name": "Mirelle", "project": "novella"})
+    current = c.get(f"{W}/entities/{v['id']}").json()["entity"]
+    c.patch(f"{W}/entities/{v['id']}", json={"base_version": current["version"], "gender": "male"})
+    c.put(f"{W}/labels/character/eye colour", json={"several": True})
+    c.put(f"{W}/labels/character/status", json={"expected": True})
 
 
 def snapshot(c: Client, slug: str) -> dict:
     """Everything a person sees in a world, without ids or timestamps."""
     base = f"/api/worlds/{slug}"
     world = c.get(base).json()
-    out: dict = {"projects": [(p["name"], p["slug"], p["kind"]) for p in world["projects"]]}
+    out: dict = {"projects": [(p["name"], p["slug"], p["kind"], p["gap_chapters"]) for p in world["projects"]]}
     out["entities"] = [(e["name"], e["kind"], e["aliases"], e["body"], e["mention_count"], e["summary"],
-                        e["match_case"], e["first_name_alias"], e["exclusions"]) for e in c.get(f"{base}/entities").json()]
+                        e["match_case"], e["first_name_alias"], e["exclusions"], e["project"], e["gender"])
+                       for e in c.get(f"{base}/entities").json()]
+    out["labels"] = sorted((k["kind"], x["label"], x["several"], x["expected"], x["asked"])
+                           for k in c.get(f"{base}/labels").json()["kinds"] for x in k["labels"])
     chapter_titles = {}
     for p in world["projects"]:
         for x in c.get(f"{base}/projects/{p['slug']}/chapters").json()["chapters"]:

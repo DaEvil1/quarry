@@ -50,6 +50,7 @@ export const router = createRouter({
         { path: "w/:world/bible", name: "bible", component: () => import("./views/BibleView.vue") },
         { path: "w/:world/bible/k/:kind", name: "bible-kind", component: () => import("./views/BibleView.vue") },
         { path: "w/:world/bible/types", name: "relation-types", component: () => import("./views/RelationTypesView.vue") },
+        { path: "w/:world/bible/labels", name: "labels", component: () => import("./views/LabelsView.vue") },
         { path: "w/:world/bible/:id", name: "entity", component: () => import("./views/EntityView.vue") },
         { path: "w/:world/bible/:id/read", name: "entity-read", component: () => import("./views/ThreadView.vue") },
         { path: "w/:world/checks", name: "checks", component: () => import("./views/ChecksView.vue") },
