@@ -499,7 +499,7 @@ select.standing.rumour { background: var(--warn-soft); color: var(--warn); }
 dl.relations { display: grid; grid-template-columns: minmax(7em, max-content) 1fr; gap: 6px 14px; margin: 0; }
 dl.relations dt { color: var(--muted); padding-top: 3px; }
 dl.relations dd { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.rel { display: inline-flex; align-items: center; gap: 4px; }
+.rel { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 100%; }
 .rel .kname { font-weight: 600; }
 @media (max-width: 600px) { dl.relations { grid-template-columns: 1fr; } dl.relations dd { margin-bottom: 6px; } }
 
