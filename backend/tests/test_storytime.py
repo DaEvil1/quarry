@@ -70,7 +70,8 @@ def test_is_at_and_where_everyone_is(world: Client):
     assert list(rows) == ["Varren", "Isolde"]
     assert rows["Varren"][one["id"]]["derived"]["name"] == "Old Harbour"
     # a place in another paragraph doesn't count
-    assert rows["Isolde"][one["id"]] == {"recorded": None, "note": None, "derived": None, "present": True}
+    assert rows["Isolde"][one["id"]] == {"count": 1, "recorded": None, "note": None, "derived": None, "present": True,
+                                        "people": []}
     assert rows["Isolde"][two["id"]]["recorded"]["name"] == "Lamphouse"
     assert two["id"] not in rows["Varren"]
     assert grid["events"] == {two["id"]: [{"id": storm["id"], "name": "The Storm", "kind": "event"}]}

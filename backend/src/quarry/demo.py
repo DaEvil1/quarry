@@ -7,6 +7,11 @@ The text is planted with what the writing companion looks for: a misspelled name
 spelling), a name the bible doesn't know yet, a doubled word, a TK, a margin note, a character named after their
 recorded death, a point-of-view character who is never named, someone named before they are introduced, two
 values of a fact at once, and characters who share sentences with no recorded relationship.
+
+For the views of the bible (docs/SPEC.md §12) it has a family of three generations (a grandmother, her two children,
+their children, so a cousin is worked out), gender set for most of them, an entry in each book's own bible, a witness,
+a pronunciation, events with a type (expected for every event, so the one without it is a finding), and a label that
+holds several values.
 """
 
 from __future__ import annotations
@@ -35,9 +40,10 @@ def _p(*paragraphs: str) -> str:
 
 BIBLE: list[dict] = [
     {
-        "id": "tamsin", "name": "Tamsin Vey", "kind": "character", "aliases": ["Tam"],
+        "id": "tamsin", "name": "Tamsin Vey", "kind": "character", "aliases": ["Tam"], "gender": "female",
         "summary": "The ferryman's daughter; seventeen, stubborn, better on the water than on land.",
         "facts": [
+            {"label": "pronunciation", "value": "TAM-zin VAY"},
             {"label": "age", "value": "17"},
             {"label": "eye colour", "value": "green", "evidence": "her green eyes narrowed against the glare",
              "established_in": "b1-c1"},
@@ -63,7 +69,7 @@ BIBLE: list[dict] = [
                    "Wants: to keep the ferry. Fears: that the delta is changing faster than she can learn it."),
     },
     {
-        "id": "oskar", "name": "Oskar Vey", "kind": "character",
+        "id": "oskar", "name": "Oskar Vey", "kind": "character", "gender": "male",
         "summary": "Tamsin's father, the ferryman at Carrow Ferry. Drowns on the night of the Flood of Lanterns.",
         "facts": [
             {"label": "occupation", "value": "ferryman"},
@@ -79,8 +85,44 @@ BIBLE: list[dict] = [
         ],
         "body": _p("Quiet, funny when he forgets to be careful. Never paid the Wardens' toll on time."),
     },
+    # the family: Agathe's children are Oskar and Linnet, so Tamsin and Corin are cousins (worked out, not recorded)
     {
-        "id": "ilse", "name": "Ilse Marrow", "kind": "character", "aliases": ["the Warden"],
+        "id": "agathe", "name": "Agathe Vey", "kind": "character", "gender": "female",
+        "summary": "Oskar's mother, the ferrywoman before him; drowned in a spring flood long before the story.",
+        "facts": [{"label": "status", "value": "dead"}],
+        "relationships": [
+            {"type": "parent of", "type_kinds": ["character", "character"], "to": "oskar"},
+            {"type": "parent of", "type_kinds": ["character", "character"], "to": "linnet"},
+        ],
+        "body": _p("Built the ferry house on its stilts. Tamsin has her hands, everyone says."),
+    },
+    {
+        "id": "mara", "name": "Mara Vey", "kind": "character", "gender": "female",
+        "summary": "Tamsin's mother, lost to the river when Tamsin was small.",
+        "facts": [{"label": "status", "value": "dead"}],
+        "relationships": [
+            {"type": "married to", "type_kinds": ["character", "character"], "to": "oskar"},
+            {"type": "parent of", "type_kinds": ["character", "character"], "to": "tamsin"},
+        ],
+        "body": _p(""),
+    },
+    {
+        "id": "linnet", "name": "Linnet Dray", "kind": "character", "gender": "female",
+        "summary": "Oskar's sister, a net-maker in Greywater.",
+        "relationships": [
+            {"type": "parent of", "type_kinds": ["character", "character"], "to": "corin"},
+            {"type": "lives in", "type_kinds": ["character", "place"], "to": "greywater"},
+        ],
+        "body": _p(""),
+    },
+    {
+        # gender not set: the family tree gives the general words for Corin (grandchild, sibling's child)
+        "id": "corin", "name": "Corin Dray", "kind": "character", "project": "ash-season",
+        "summary": "Linnet's child, Tamsin's cousin; came down from Greywater with the ash.",
+        "body": _p("Only in Ash Season so far, so in that book's own bible."),
+    },
+    {
+        "id": "ilse", "name": "Ilse Marrow", "kind": "character", "aliases": ["the Warden"], "gender": "female",
         "summary": "Warden-Captain of the River Wardens; keeps the locks and the tolls.",
         "facts": [
             {"label": "role", "value": "Warden-Captain"},
@@ -97,10 +139,12 @@ BIBLE: list[dict] = [
                    "and she is the only one who knows how to work them."),
     },
     {
-        "id": "cade", "name": "Brother Cade", "kind": "character",
+        "id": "cade", "name": "Brother Cade", "kind": "character", "gender": "male",
         "summary": "A monk of the Ashen Order at Saltreach Abbey; takes Tamsin in.",
         "facts": [{"label": "age", "value": "about sixty", "standing": "planned"}],
         "relationships": [
+            # he was on the causeway that night
+            {"type": "witnessed", "type_kinds": ["character", "event"], "to": "flood"},
             {"type": "member of", "type_kinds": ["character", "faction"], "to": "ashen-order"},
             {"type": "mentor of", "type_kinds": ["character", "character"], "to": "tamsin", "from": "b1-c3"},
             {"type": "knows about", "type_kinds": ["character", "*"], "to": "compass", "from": "b1-c3"},
@@ -123,10 +167,12 @@ BIBLE: list[dict] = [
         "body": _p(""),
     },
     {
-        "id": "hesper", "name": "Hesper Quill", "kind": "character",
+        "id": "hesper", "name": "Hesper Quill", "kind": "character", "gender": "female",
         "summary": "A cartographer from Greywater, mapping the delta's shifting channels.",
-        # planted: named in book one before she is introduced in book two
-        "facts": [{"label": "introduced", "value": "", "from": "b2-c2"}],
+        # planted: named in book one before she is introduced in book two; and a label that holds several values
+        "facts": [{"label": "introduced", "value": "", "from": "b2-c2"},
+                  {"label": "languages", "value": "Delta speech"},
+                  {"label": "languages", "value": "the Greywater chart-cant"}],
         "relationships": [{"type": "lives in", "type_kinds": ["character", "place"], "to": "greywater"}],
         "body": _p("Draws maps that are out of date by the time the ink dries, and knows it."),
     },
@@ -164,6 +210,14 @@ BIBLE: list[dict] = [
         "body": _p(""),
     },
     {
+        # only in the first book so far, so in its own bible
+        "id": "gatehouse", "name": "The Gatehouse", "kind": "place", "match_case": False,
+        "project": "the-ferrymans-daughter",
+        "summary": "Above the gates of Marrow Locks, where the Warden-Captain writes her reports.",
+        "relationships": [{"type": "inside", "type_kinds": ["place", "place"], "to": "marrow-locks"}],
+        "body": _p(""),
+    },
+    {
         "id": "greywater", "name": "Greywater", "kind": "place",
         "summary": "The market town upriver, where maps and rumours are sold.",
         "relationships": [{"type": "inside", "type_kinds": ["place", "place"], "to": "delta"}],
@@ -197,12 +251,19 @@ BIBLE: list[dict] = [
     {
         "id": "flood", "name": "The Flood of Lanterns", "kind": "event", "aliases": ["the Flood"],
         "summary": "The spring festival at the first high tide, when the delta floods and lanterns are set adrift.",
-        "facts": [{"label": "when", "value": "every spring, at the first high tide"},
+        "facts": [{"label": "type", "value": "festival"},
+                  {"label": "when", "value": "every spring, at the first high tide"},
                   {"label": "outcome", "value": "the year Oskar drowned", "from": "b1-c2"}],
         "relationships": [
             {"type": "happened at", "type_kinds": ["event", "place"], "to": "carrow-ferry"},
             {"type": "involved", "type_kinds": ["event", "*"], "to": "oskar"},
         ],
+        "body": _p(""),
+    },
+    {
+        # no type yet, though every event is expected to have one: the Archivist asks for it
+        "id": "fires", "name": "The Mountain Fires", "kind": "event", "aliases": ["the mountains burned"],
+        "summary": "The summer the mountains burned and the ash came down the river for a month.",
         "body": _p(""),
     },
     {
@@ -227,6 +288,12 @@ BIBLE: list[dict] = [
         "relationships": [{"type": "originated in", "type_kinds": ["term", "*"], "to": "carrow-ferry"}],
         "body": _p(""),
     },
+]
+
+# every event is expected to have a type; a character's languages hold several values at once
+FACT_LABELS = [
+    {"kind": "event", "label": "type", "several": False, "expected": True, "asked": True},
+    {"kind": "character", "label": "languages", "several": True, "expected": False, "asked": False},
 ]
 
 # ---- the manuscript ------------------------------------------------------------------------------------------------
@@ -342,7 +409,8 @@ CHAPTERS: list[dict] = [
             "counting the drifting ash-islands, Moss barking at each one as if it might be a seal.",
             "Some days she took out the compass and let it point at the Ferry House, just to see it do it. On "
             "those days she thought of Oskar, and of the argument he never finished with Brother Cade.",
-            "In Greywater, they said, a woman with ink-stained hands was asking for the best boat on the delta.",
+            "In Greywater, they said, a woman with ink-stained hands was asking for the best boat on the delta. Corin "
+            "Dray, her cousin, had come down from Greywater with the first of the ash and never gone home.",
         ),
     },
     {
@@ -362,10 +430,12 @@ CHAPTERS: list[dict] = [
 ]
 
 PROJECTS = [
+    # short chapters: three without a name make a gap on its mentions strip
     {"name": BOOK_ONE, "slug": "the-ferrymans-daughter", "kind": "novel", "position": 0,
-     "statuses": ["raw", "rewritten", "polished"]},
+     "statuses": ["raw", "rewritten", "polished"], "gap_chapters": 3},
     # each book names its own stages
-    {"name": BOOK_TWO, "slug": "ash-season", "kind": "novella", "position": 1, "statuses": ["sketch", "draft", "clean"]},
+    {"name": BOOK_TWO, "slug": "ash-season", "kind": "novella", "position": 1, "statuses": ["sketch", "draft", "clean"],
+     "gap_chapters": 5},
 ]
 
 # ---- revising: a passage in the cuts bin, and a few days of word history ------------------------------------------
@@ -439,12 +509,15 @@ def demo_files() -> dict[str, str]:
     files[f"{ROOT}/world.md"] = _doc({
         "quarry_export": FORMAT, "name": NAME, "slug": ROOT, "ignored_words": [],
         "relation_types": [{"a": a, "b": b, "label": label, "reverse": reverse} for a, b, label, reverse in STARTING_TYPES],
+        "fact_labels": FACT_LABELS,
     }, "")
     names = {e["id"]: e["name"] for e in BIBLE}
     for e in BIBLE:
         meta = {"id": e["id"], "name": e["name"], "kind": e["kind"], "aliases": e.get("aliases", []),
                 "summary": e.get("summary", ""), "match_case": e.get("match_case", True), "first_name_alias": True,
-                "exclusions": e.get("exclusions", [])}
+                "exclusions": e.get("exclusions", []), "project": e.get("project")}
+        if e.get("gender"):
+            meta["gender"] = e["gender"]
         if e.get("facts"):
             meta["facts"] = [{"label": f["label"], "value": f["value"], "standing": f.get("standing", "canon"),
                               "evidence": f.get("evidence"), "note": f.get("note"),

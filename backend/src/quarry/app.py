@@ -21,6 +21,7 @@ from .api import (
     demo,
     items,
     journal,
+    labels,
     manuscript,
     revising,
     storytime,
@@ -157,5 +158,6 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.include_router(views.router)
     app.include_router(companion.router)
     app.include_router(revising.router)
+    app.include_router(labels.router)
     _mount_frontend(app)
     return app

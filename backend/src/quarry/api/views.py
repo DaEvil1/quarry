@@ -35,6 +35,7 @@ def graph(slug: str, co: bool = Query(default=False), user: User = Depends(curre
     world, _ = member_world(db, user, slug)
     entities = list(db.scalars(select(Entity).where(Entity.world_id == world.id).order_by(Entity.name)))
     types = {t.id: t for t in db.scalars(select(RelationType).where(RelationType.world_id == world.id))}
+    projects = {p.id: p.slug for p in world.projects}
     edges = [{"id": str(r.id), "a": str(r.a_id), "b": str(r.b_id), "type_id": str(r.type_id),
               "label": types[r.type_id].label, "reverse_label": types[r.type_id].reverse_label,
               "standing": r.standing, "from_chapter_id": _sid(r.from_chapter_id),
@@ -43,7 +44,11 @@ def graph(slug: str, co: bool = Query(default=False), user: User = Depends(curre
     presence = [{"entity_id": str(p.entity_id), "place_id": str(p.place_id), "chapter_id": str(p.chapter_id)}
                 for p in db.scalars(select(Presence).where(Presence.world_id == world.id))]
     out = {
-        "nodes": [{"id": str(e.id), "name": e.name, "kind": e.kind, "summary": e.summary} for e in entities],
+        # with each entry's level (a project's slug, for the project filter) and a character's gender (for the family
+        # tree's words)
+        "nodes": [{"id": str(e.id), "name": e.name, "kind": e.kind, "summary": e.summary,
+                   "project": projects.get(e.project_id) if e.project_id else None, "gender": e.gender}
+                  for e in entities],
         "edges": edges,
         "types": [{"id": str(t.id), "a_kind": t.a_kind, "b_kind": t.b_kind, "label": t.label,
                    "reverse_label": t.reverse_label} for t in sorted(types.values(), key=lambda t: t.position)],

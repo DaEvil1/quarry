@@ -45,6 +45,8 @@ STARTING_TYPES: list[tuple[str, str, str, str | None]] = [
     ("character", "object", "seeks", "sought by"),
     ("character", "object", "lost", "lost by"),
     ("character", "object", "guards", "guarded by"),
+    # character – event: a witness was there and saw it (not the same as taking part)
+    ("character", "event", "witnessed", "witnessed by"),
     # place – place
     ("place", "place", "inside", "contains"),
     ("place", "place", "borders", None),
@@ -93,13 +95,15 @@ STARTING_TYPES: list[tuple[str, str, str, str | None]] = [
     ("*", "*", "linked to", None),
 ]
 
-# fact labels offered when adding a fact (anything else can be typed)
+# fact labels offered when adding a fact (anything else can be typed). A list in the code, not stored per world, so
+# every world offers a new one at once. Gender is a field on characters, not a fact; "pronouns" stays, for nuance.
 SUGGESTED_FACTS: dict[str, list[str]] = {
-    "character": ["status", "age", "role", "appearance", "eye colour", "hair", "voice", "occupation"],
-    "place": ["type", "population", "climate", "ruler", "known for"],
+    "character": ["status", "age", "role", "appearance", "eye colour", "hair", "voice", "occupation", "pronunciation",
+                  "pronouns"],
+    "place": ["type", "population", "climate", "ruler", "known for", "pronunciation"],
     "faction": ["type", "size", "motto", "symbol", "goal"],
     "culture": ["language", "faith", "customs", "homeland"],
-    "event": ["when", "outcome"],
+    "event": ["type", "when", "outcome"],
     "object": ["material", "appearance", "power", "age"],
     "term": ["meaning", "usage"],
     "other": [],
