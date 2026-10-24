@@ -12,6 +12,7 @@ import {
   localSummary,
   queueRevision,
   saveDraft,
+  sendDrafts,
   sendPendingRevisions,
   syncWorld,
 } from "./offline";
@@ -98,5 +99,16 @@ describe("drafts and offline snapshots", () => {
     await sendPendingRevisions();
     expect(sent).toEqual([{ reason: "restore", label: "before", body: "replaced text" }]);
     expect(await localDb.pendingRevisions.count()).toBe(0);
+  });
+
+  it("keeps drafts and offline snapshots while the server is restarting", async () => {
+    await saveDraft({ chapterId: "a", world: "coast", title: "A", body: "not saved yet", baseVersion: 3 });
+    await queueRevision({ world: "coast", chapterId: "a", reason: "restore", label: "before", body: "replaced text" });
+    // nginx answers 502 for the minute a new version is starting
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("<html>Bad Gateway</html>", { status: 502 }))));
+    await expect(sendDrafts("coast")).rejects.toThrow(/may be restarting/);
+    await sendPendingRevisions();
+    expect((await getDraft("a"))?.body).toBe("not saved yet");
+    expect(await localDb.pendingRevisions.count()).toBe(1);
   });
 });

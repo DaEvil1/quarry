@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { get, post } from "../api";
+import { ApiError, get, post, unreachable } from "../api";
 import { passkeysSupported, promptError, runSignIn } from "../passkey";
 import { useSession } from "../stores/session";
 
@@ -22,18 +22,45 @@ function next(): string {
   return typeof n === "string" && n.startsWith("/") && !n.startsWith("//") ? n : "/";
 }
 
-onMounted(async () => {
+// While the server can't be reached (no network, or restarting after an update), the page says which and tries
+// again by itself, every few seconds and when the device comes back online, so it opens once the server answers.
+const RETRY_MS = 5000;
+let retry: ReturnType<typeof setTimeout> | undefined;
+let gone = false;
+
+async function check() {
+  clearTimeout(retry);
   try {
     if (await session.load()) {
+      error.value = "";
       await router.replace(next());
       return;
     }
-  } catch {
-    error.value = "Quarry can't reach the server, and this device hasn't signed in before. Try again when you're online.";
+  } catch (e) {
+    if (!unreachable(e)) {
+      error.value = (e as Error).message;
+      return;
+    }
+    error.value =
+      e instanceof ApiError && e.status !== 0
+        ? "Quarry's server isn't answering right now; it may be restarting after an update. This page tries again by itself."
+        : "Quarry can't reach the server. Check your connection; this page tries again by itself.";
+    if (!gone) retry = setTimeout(check, RETRY_MS);
     return;
   }
+  error.value = "";
   const setup = await get<{ needed: boolean }>("/api/setup").catch(() => null);
   if (setup?.needed) await router.replace("/setup");
+}
+
+onMounted(() => {
+  window.addEventListener("online", check);
+  void check();
+});
+onBeforeUnmount(() => {
+  gone = true;
+  clearTimeout(retry);
+  window.removeEventListener("online", check);
 });
 
 async function signIn() {

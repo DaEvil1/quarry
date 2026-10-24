@@ -2,7 +2,7 @@
 // every chapter, and the last 30 snapshots of each. The chapter page and History fall back to this copy when the
 // server can't be reached, and text typed but not yet saved is kept here as a draft.
 
-import { ApiError, get, patch, post } from "./api";
+import { ApiError, get, patch, post, unreachable } from "./api";
 import {
   localDb,
   type Draft,
@@ -73,7 +73,7 @@ export async function syncWorld(world: string): Promise<boolean> {
     await sendPendingRevisions();
     return true;
   } catch (e) {
-    if (e instanceof ApiError && e.status !== 0) throw e;
+    if (e instanceof ApiError && !unreachable(e)) throw e;
     return false;
   }
 }
@@ -210,7 +210,7 @@ export async function sendDrafts(world: string): Promise<void> {
       });
       await localDb.drafts.delete(d.chapterId);
     } catch (e) {
-      if (!(e instanceof ApiError) || e.status === 0) throw e;
+      if (!(e instanceof ApiError) || unreachable(e)) throw e;
       if (e.status === 409) {
         const current = (e.body as { chapter?: { body: string } } | null)?.chapter;
         if (current && current.body !== d.body) {
@@ -245,7 +245,7 @@ export async function labelledCheckpoints(world: string, chapterId: string): Pro
   try {
     return { list: labelled(await get<RevisionInfo[]>(`/api/worlds/${encodeURIComponent(world)}/chapters/${chapterId}/revisions`)), local: false };
   } catch (e) {
-    if (!(e instanceof ApiError) || e.status !== 0) throw e;
+    if (!unreachable(e)) throw e;
     const local = await localDb.revisions.where("chapterId").equals(chapterId).toArray();
     const kept = await localDb.checkpoints.where("chapterId").equals(chapterId).toArray();
     const seen = new Set(local.map((r) => r.id));
@@ -262,7 +262,7 @@ export async function checkpointBody(world: string, chapterId: string, cp: Check
     await localDb.checkpoints.put({ id: r.id, chapterId, label: cp.label, body: r.body, created_at: r.created_at });
     return r.body;
   } catch (e) {
-    if (e instanceof ApiError && e.status === 0) return null;
+    if (unreachable(e)) return null;
     throw e;
   }
 }
@@ -284,7 +284,7 @@ export async function sendPendingRevisions(): Promise<void> {
       });
       await localDb.pendingRevisions.delete(r.id);
     } catch (e) {
-      if (!(e instanceof ApiError) || e.status === 0) return;
+      if (!(e instanceof ApiError) || unreachable(e)) return;
       // the chapter is gone or the snapshot is refused: nothing more to do with it
       await localDb.pendingRevisions.delete(r.id);
     }

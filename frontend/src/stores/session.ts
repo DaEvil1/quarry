@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 
-import { ApiError, get, post } from "../api";
+import { ApiError, get, post, unreachable } from "../api";
 import { clearMeSnapshot, readMeSnapshot, saveMeSnapshot } from "../localdb";
 import type { ItemCounts, Me, Project, World } from "../types";
 
@@ -36,7 +36,7 @@ export const useSession = defineStore("session", {
           await clearMeSnapshot();
           return false;
         }
-        if (e instanceof ApiError && e.status === 0) {
+        if (unreachable(e)) {
           const saved = await readMeSnapshot();
           if (saved) {
             this.me = saved;

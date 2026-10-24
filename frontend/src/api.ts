@@ -17,6 +17,17 @@ interface ValidationIssue {
   loc?: (string | number)[];
 }
 
+/** What nginx answers while the app behind it is down, e.g. for the minute a new version is starting. */
+const RESTARTING = new Set([502, 503, 504]);
+
+/**
+ * The server can't be reached: no network (status 0), or nginx answering for an app that is restarting (502–504).
+ * Either way the request never got to Quarry, so the device keeps what it has and tries again later, as offline.
+ */
+export function unreachable(e: unknown): boolean {
+  return e instanceof ApiError && (e.status === 0 || RESTARTING.has(e.status));
+}
+
 /** Turn a FastAPI error body into one readable sentence. */
 export function errorMessage(status: number, body: unknown): string {
   const detail = (body as { detail?: unknown } | null)?.detail;
@@ -27,6 +38,7 @@ export function errorMessage(status: number, body: unknown): string {
     return field ? `Check ${field}: ${first.msg ?? "invalid value"}` : (first.msg ?? "Check the form.");
   }
   if (status === 0) return "Quarry could not reach the server. Check your connection.";
+  if (RESTARTING.has(status)) return "Quarry's server isn't answering right now; it may be restarting. Try again in a moment.";
   if (status >= 500) return "Something went wrong on the server. Try again in a moment.";
   return `Request failed (${status}).`;
 }
