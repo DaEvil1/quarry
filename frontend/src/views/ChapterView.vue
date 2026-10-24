@@ -364,7 +364,7 @@ const worldHooks: WorldHooks = {
   matcher: currentMatcher,
   // the card as it reads at this chapter
   card: (id) => cards.asOf(cards.byId.get(id), chapter.value?.id ?? null),
-  names: () => cards.names,
+  names: () => byLevel(cards.names),
   prefs: () => prefs.$state,
   open: (id) => void router.push({ name: "entity", params: { world: worldSlug.value, id } }),
   addName: (id, word) => worldChange(() => fixes.addSpelling(worldSlug.value, word, id)),

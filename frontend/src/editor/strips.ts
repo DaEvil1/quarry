@@ -238,7 +238,7 @@ export function selectionStripDom(
         ...names
           .filter((n) => !q || n.name.toLowerCase().includes(q))
           .slice(0, 6)
-          .map((n) => chip(n.name, () => actions.addName(n.id), `k-${n.kind}`)),
+          .map((n) => chip(labelled(n), () => actions.addName(n.id), `k-${n.kind}`)),
       );
     };
     box.addEventListener("input", render);
