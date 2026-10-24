@@ -26,6 +26,8 @@ Single-user today; the data model leaves room for co-writers later (§7).
 | **Journal entry** | Dated thinking-on-paper (the "What now?" kind of writing). World-level or project-level. Editable, but conceptually append-only. |
 | **Decision** | A dated one-line verdict ("chapter 3 is now told by the sister"), optionally tied to the item it closes. World-level or project-level. |
 | **Harvest note** | A short note on what was alive in a retired chapter or rejected experiment. Shown in the Salvage view. |
+| **Cut** | A passage cut from a chapter into the project's cuts bin, labelled with the chapter it came from. Shown in Salvage; can be put back (§11). |
+| **Chapter status** | A pill per chapter (raw, rewritten, polished to start), renameable per project (§11). |
 | **Revision** | An immutable snapshot of a document's body and metadata. |
 | **Mention** | A computed occurrence of an entity (by name or alias) in any text. Never edited by hand. |
 | **User** | A person who can sign in. Today there is exactly one. |
@@ -154,6 +156,7 @@ Bible pages show:
 
 - **Backups.** The Postgres server's own backups are the disaster-recovery path. Every revision lives in the database, so restoring the database restores the full history.
 - **Export now.** Downloads a zip with one folder per world: `world.md`, `Bible/<Kind>/<Name>.md`, `Journal/`, `Decisions.md`, `Planning/<status>/` (items for the whole world), and per project `Projects/<Name>/` with `Manuscript/` (numbered in order), `Experiments/`, `Salvage/`, `Planning/` and a compiled `manuscript.md`. YAML frontmatter carries ids, state, POV, tags and aliases; the layout is documented in `backend/src/quarry/api/transfer.py`.
+  From phase 10, chapters also carry their summary and status, `project.md` the project's statuses, and each project has a `Cuts/` folder (§11).
 - **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. Revision history stays in the database and is not part of an export.
 - **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
@@ -191,7 +194,253 @@ quarry/                      # public GitHub repo (code only)
 
 6–9. **The world model**: the bible as data, relationships, story time, graphs and the writing companion. Designed in [WORLD-MODEL.md](WORLD-MODEL.md), with the phases and their *done when* in its §9.
 
-## 11. Out of scope (for now)
+10. **Revising and salvaging**: renames that keep the old name, chapter summaries and statuses, a cuts bin, reading one entry's thread, word history, changes since a checkpoint, and find and replace across chapters. Designed in §11, with a *done when* per part.
+
+## 11. Revising and salvaging (phase 10)
+
+Phases 1–9 serve writing forward. Phase 10 serves the other half of the work: going back over chapters, rewriting
+them and keeping what was cut. Each part is small, built on what exists (revisions, Salvage, the manuscript list,
+margin notes, mentions, the Drafting/Revising switch), and can ship on its own. The ideas come from the second round
+of research ([research/README.md](research/README.md#second-round-competitors), "Second round"). The principles hold: nothing here writes or
+suggests story content, nothing has to be filled in, and the compiled manuscript stays pure prose.
+
+Examples use made-up names.
+
+### 11.1 A rename keeps the old name
+
+Renaming an entry (on its page, in the bible table, anywhere its name is edited) keeps the old name as another name,
+so chapters that still say the old name stay linked to it.
+
+- The server adds the old name to the other names in the same save and says so. A toast reads
+  `Kept "Varren" as another name · Remove · Replace in the text…`.
+  - **Remove** takes it out again in one click. Old spellings in the text then show up as possible misspellings or
+    new names, as they would today.
+  - **Replace in the text…** opens find and replace (§11.7), filled in with the old and new names, whole words, match
+    capitals.
+- Nothing is offered when:
+  - only the capitals or spacing changed (`varren` → `Varren`);
+  - the old name is already one of its other names;
+  - the old name is another entry's name or other name (it would match two entries).
+- If the new name was one of the other names (promoting `Varren Hale` over `Varren`), it leaves the other names,
+  since it is now the name, and the old name takes its place there.
+
+**Data:** none. `PATCH /entities/<id>` gains `keep_old_name` (default true) and answers with `kept_alias`.
+
+*Done when* renaming Varren to Varran leaves "Varren" under his other names, a chapter that says "Varren" still
+colours it as him, and one click on Remove takes it away.
+
+### 11.2 A summary and a status per chapter
+
+Each chapter can have a **one-line summary** and a **status**. Both are optional and start empty.
+
+- **Summary.** On the manuscript list, under the title, in muted text, edited in place (like an entry's one-liner).
+  Also in the editor's side panel. One line, up to 300 characters. It is the seed of a corkboard later.
+- **Status.** A small pill beside the title. Clicking it shows the project's statuses to pick from, plus *none*.
+  - Each project starts with **raw**, **rewritten** and **polished**. They are renamed, added, removed and ordered on
+    the project page.
+  - Removing a status that is in use says how many chapters have it; they go back to *none*.
+  - Pills get stronger by position: the first is faint, the last is the strongest. Nothing is red.
+- **On the manuscript list**, next to the POV tally, a status tally with words: `9 raw (31k) · 4 rewritten (14k) ·
+  1 polished (3k) · 2 none`.
+- Experiments and retired chapters keep their summary and status; Salvage shows them.
+- **Export** writes `summary` and `status` (the label) into each chapter's frontmatter, and the project's statuses in
+  order into `project.md` (`statuses: [raw, rewritten, polished]`). **Restore** reads them back; a status a chapter
+  names that `project.md` doesn't list is added at the end. The compiled `manuscript.md` is unchanged.
+
+**Data:**
+
+```sql
+chapter_statuses  (id, project_id, label, position)            -- raw, rewritten, polished for each project
+chapters          + summary text default '', status_id NULL    -- ON DELETE SET NULL
+```
+
+Statuses are rows, so renaming *rewritten* to *second draft* renames it on every chapter that has it.
+
+*Done when* the manuscript list shows a summary and a status for each chapter, renaming *rewritten* renames every
+pill that says it, and exporting and restoring the world keeps the summaries, statuses and their order.
+
+### 11.3 The cuts bin
+
+A place for passages that don't belong where they are but are too good to lose.
+
+- **Cutting.** Select text in the editor and press **Ctrl+Shift+X**. The selection leaves the chapter and becomes a
+  cut in the project's bin, labelled with the chapter it came from. A toast says `Cut 84 words to the bin · Undo`;
+  Undo puts the text back and removes the cut. (Plain Ctrl+Z also brings the text back, but leaves the cut in the bin
+  as a copy.) On the phone, the selection strip gets a *Cut to bin* chip.
+- **Offline.** Cutting works offline: the cut waits in the outbox with an id chosen on the device, as captures do,
+  and the chapter's own change is a normal draft. Reading the bin needs the network, like Salvage today.
+- **In Salvage.** Salvage gets two tabs, *Retired chapters* and *Cuts*, and its search covers both. Each cut shows its
+  source chapter (a link), when it was cut, its word count and its text (long ones folded).
+- **In the editor.** The side panel lists the cuts from this chapter, newest first.
+- **Putting back.**
+  - From the editor's list: **Put back where it was** inserts the cut where it was taken from, found by the text
+    around it (kept at cut time). If that text is gone or found twice, the cut goes in at the cursor instead.
+    **Insert at cursor** puts it at the cursor.
+  - From Salvage: **Put back** opens the source chapter (or one you pick) and does the same.
+  - Either way it is an ordinary edit (Ctrl+Z undoes it). The cut stays in the bin, marked *put back* with the date
+    and chapter, and is hidden unless *Show put back* is on. **Copy** copies it without putting it back.
+- **What a cut is not.** Cuts aren't matched for mentions or near misses, aren't counted in any word count, and aren't
+  part of the compiled manuscript. Cuts aren't deleted (nothing is lost; search keeps a big bin usable).
+- **Export** writes `Projects/<Name>/Cuts/<date> <source title> (<id>).md` per cut, with frontmatter `id`,
+  `chapter` (the source chapter's id), `chapter_title`, `cut_at`, `put_back_at`, `before` and `after`; the body is
+  the cut text. **Restore** reads them back and relinks the source chapter by id.
+
+**Data:**
+
+```sql
+cuts  (id, world_id, project_id, chapter_id NULL,     -- source chapter; ON DELETE SET NULL
+       chapter_title,                                  -- the title when cut, for when the chapter is gone
+       body, before, after,                            -- up to 80 characters either side, to find the place again
+       cut_at, put_back_at NULL, put_back_to NULL,     -- the chapter it went back into
+       created_by)
+```
+
+*Done when* cutting a paragraph with Ctrl+Shift+X (also offline) puts it in Salvage under *Cuts* labelled with its
+chapter, searching Salvage for a word in it finds it, *Put back where it was* returns it to its old place, and
+exporting and restoring the world keeps every cut with its source chapter.
+
+### 11.4 Reading one entry's thread
+
+From an entry's page, **Read where Varren appears** opens the story filtered to him: read-only, in story order
+(project order, then chapter order, as for story time in [WORLD-MODEL.md](WORLD-MODEL.md) §4).
+
+- **Two ways to read**, a switch at the top:
+  - *Paragraphs* (the default): each paragraph that names him, under its chapter's title. Between paragraphs that
+    aren't next to each other, a quiet `⋯ 14 paragraphs` that opens those paragraphs in place when clicked.
+  - *Chapters*: every chapter that names him, in full.
+- A paragraph is a line, as in the companion. Names are coloured as in the editor; his own are marked more strongly.
+- **Margin notes are shown**, dimmed as in the editor. In *Paragraphs*, a `%%` line right before or after a shown
+  paragraph comes with it, and a margin note that names him is a hit of its own: notes to yourself about a character
+  belong in this reading.
+- A count at the top: `Varren: 212 paragraphs in 31 chapters`.
+- Each paragraph and chapter title links into the editor at that place, for when a fix is needed.
+- Current chapters only. A switch adds experiments and retired chapters, after the story and labelled as such.
+- **A second entry.** *With…* at the top picks one more entry (any kind). The reading then keeps only the paragraphs,
+  or in *Chapters* the chapters, that name both: `Varren and Isolde: 18 paragraphs in 9 chapters`.
+  - Both entries' names are marked strongly. A margin note is a hit of its own only when it names both.
+  - Each relationship on an entry's page also has *Read together*, which opens this reading for the two of them.
+  - Removing the second entry goes back to reading one. Two is the most; this is a reading, not a query.
+- **Built on the device**, from the offline copy of the chapters and the same matcher that colours names (other
+  names, first names and *not in this sense* included), so it works on the phone with no network.
+
+**Data:** none. A route, `/w/<world>/bible/<id>/read`, with `?with=<id>` for a second entry.
+
+*Done when* Varren's page opens a reading of every paragraph that names him (by any of his names), in story order
+across the world's projects, with the margin notes beside them shown, on the phone in airplane mode too; and adding
+Isolde with *With…* (or *Read together* on their relationship) leaves only the paragraphs that name both, and in
+*Chapters* only the chapters that name both.
+
+### 11.5 Word history
+
+How many words went into the project each day, worked out from revisions. Nothing new to type or set.
+
+- **On the project page**, a small chart: one bar per day for the last eight weeks, with *a year* (by week) and *all*
+  (by month) as other ranges.
+  - The bar is words **written**; words **cut** show as a fainter bar below the line.
+  - Hovering a bar shows the date, written, cut and the chapters touched. The range's total is shown under it.
+- **No streaks, goals, targets or reminders.** Days without writing are empty, never marked. Nothing counts days in a
+  row, and no colour says a day was good or bad.
+- **How it is counted.**
+  - When a revision is taken, the server compares its text with the chapter's previous revision (a word diff, as in
+    History, on the text without margin notes) and keeps the words added and removed in the revision's `meta`, so
+    nothing is diffed again when the chart is read.
+  - A day's figure is the sum over that day's revisions of all the project's chapters, whatever their state, plus,
+    for today, the working text against its last revision. Days follow the browser's time zone.
+  - Conflict copies are skipped: they are side copies, not the chapter's line.
+  - A chapter that doesn't start empty (Restore, the demo, an experiment started as a copy) gets a first revision
+    with the new reason `start`, which counts as no words. So restoring a world or copying a chapter isn't a huge day.
+  - It is a rough picture: moving a passage from one chapter to another, a restore, a put-back cut or a find and
+    replace count as cut in one place and written in another.
+- **Existing history.** The migration works out the words for every existing revision. Each chapter's first revision
+  counts as its start (no words), since there is no way to tell how it began; the history of the move from the Google
+  Doc therefore starts clean.
+
+**Data:**
+
+```sql
+revisions  + reason 'start'
+           + meta.added, meta.removed                 -- words since the chapter's previous revision
+```
+
+*Done when* after writing in two chapters on one day and cutting a scene the next, the project page shows both days
+with their written and cut words, and a restored world shows no words on the day it was restored.
+
+### 11.6 Changes since a checkpoint
+
+While **Revising**, the editor can mark what changed since a labelled checkpoint, so a second pass can see what the
+first one touched.
+
+- **Choosing.** In the editor's side panel, *Show changes since* lists the chapter's labelled checkpoints (the Ctrl+S
+  ones with a label, and labelled ones Quarry takes, such as before a restore or a find and replace), newest first,
+  and *nothing*.
+  - The choice is remembered per project on the device, by label. Opening another chapter with a checkpoint of the
+    same label shows its changes too; a chapter without one says so.
+  - **Checkpoint every chapter…** on the project page takes a labelled checkpoint of every current chapter and
+    experiment at once (`before the polish`), so one label covers the whole book.
+- **What shows.**
+  - Added or changed words get a soft tint, and the lines they are on a bar in the margin.
+  - Removed text leaves a small mark; resting on it (never while typing) shows what was there.
+  - A line in the panel counts it: `312 words changed, 4 passages removed since "before the polish"`.
+- **When.** Only in Revising; Drafting shows nothing. It is worked out again when typing pauses (as the Revising
+  findings are), paragraph by paragraph first and then word by word inside changed paragraphs, so it stays within the
+  typing budget on a 10,000-word chapter. The tint is separate from name colours and the companion's underlines.
+- **Offline.** It uses the revisions on the device. A checkpoint older than the device's last 30 revisions is fetched
+  the first time (online) and then kept on the device.
+
+**Data:** none; derived from revisions.
+
+*Done when*, with a checkpoint labelled "before the polish" in every chapter, editing a paragraph in Revising tints
+the changed words and marks a deleted sentence, switching to Drafting hides it, and opening the next chapter shows
+its changes since the same label.
+
+### 11.7 Find and replace across chapters
+
+The editor's search (Ctrl+F) covers one chapter. This covers them all.
+
+- **Opening.** Ctrl+Shift+H in the editor, *Find in all chapters…* in the editor's search panel, the project page,
+  the command palette, or *Replace in the text…* after a rename (§11.1). It is a page:
+  `/w/<world>/p/<project>/replace`.
+- **Finding.** Plain text (no patterns), with *match capitals* and *whole words*, both on by default. It searches
+  current chapters and experiments, margin notes included; retired chapters are left as they were. A scope switch
+  extends it to every project in the world.
+- **The preview** lists every hit, grouped by chapter in story order: about eight words either side, the found text
+  struck through and the replacement beside it. Every hit and every chapter has a checkbox, all on. The button says
+  what it will do: `Replace 41 in 12 chapters` (or `Delete 41…` with an empty replacement). With no replacement typed,
+  the page is just a project-wide find, each hit linking into its chapter.
+- **Replacing**, on the server, in one transaction, for each chapter with chosen hits:
+  1. If the chapter changed since the preview (another device saved), it is skipped and listed as *changed since the
+     preview*.
+  2. Otherwise it takes a checkpoint labelled `Before replacing "Varren" with "Varran"`,
+  3. replaces the chosen hits (each checked to still read the same at its place), bumps the version and refreshes
+     mentions.
+- **Undo.** The toast and the page offer **Undo**, which restores each chapter to that checkpoint if it hasn't changed
+  since (restore keeps the replaced text as a revision, as always). Later, the checkpoint is in each chapter's
+  History like any other.
+- **Drafts and devices.** Before the preview, this device sends any chapter text it still holds. It needs the
+  network, and says so offline. A device with an older copy open gets a conflict copy on its next save, as today.
+
+**Data:** none. `POST /projects/<project>/find` (the hits, with each chapter's version) and
+`POST /projects/<project>/replace` (the chosen hits and those versions).
+
+*Done when* replacing "Varren" with "Varran" previews every hit in every chapter, unticking two leaves those two
+alone, every changed chapter has a checkpoint named for the replace in its History, and Undo puts every chapter back.
+
+### 11.8 Data model, in one place
+
+```sql
+chapter_statuses  (id, project_id, label, position)                                  -- §11.2
+chapters          + summary text, status_id NULL                                     -- §11.2
+cuts              (id, world_id, project_id, chapter_id NULL, chapter_title, body,
+                   before, after, cut_at, put_back_at NULL, put_back_to NULL, created_by)  -- §11.3
+revisions         + reason 'start'; meta + added, removed                            -- §11.5
+```
+
+Renames, reading one entry, changes since a checkpoint, and find and replace add no tables.
+
+**Phase 10 is done when** each part's *done when* above holds, and the demo world has summaries, statuses, a cut
+and a few days of word history to show.
+
+## 12. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -200,7 +449,7 @@ quarry/                      # public GitHub repo (code only)
 - Native apps (the PWA is enough on Android)
 - A git mirror of the content (§8)
 
-## 12. Open questions
+## 13. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?
