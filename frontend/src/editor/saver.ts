@@ -7,7 +7,7 @@
 //  - without a connection, saving is retried every 10 seconds and the text stays in the editor; a retry whose
 //    text the server already has (the answer to the first try was lost) counts as saved, not as a conflict.
 
-import { ApiError } from "../api";
+import { ApiError, unreachable } from "../api";
 import { ChapterConflict, type Chapter } from "../manuscript";
 
 export const AUTOSAVE_MS = 1500;
@@ -116,7 +116,7 @@ export class ChapterSaver {
         } else {
           // keep the text for the next try; anything typed meanwhile wins over what was being sent
           this.pending = { ...sending, ...this.pending };
-          this.hooks.status(e instanceof ApiError && e.status !== 0 && e.status < 500 ? "unsaved" : "offline");
+          this.hooks.status(e instanceof ApiError && !unreachable(e) && e.status < 500 ? "unsaved" : "offline");
           clearTimeout(this.saveTimer);
           if (!this.closed) this.saveTimer = setTimeout(() => void this.flush(), RETRY_MS);
         }

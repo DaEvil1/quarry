@@ -40,7 +40,7 @@ import {
   type Chapter,
   type StatusRef,
 } from "../manuscript";
-import { ApiError } from "../api";
+import { unreachable } from "../api";
 import {
   cacheChapter,
   checkpointBody,
@@ -176,7 +176,7 @@ async function load() {
     ch = await getChapter(worldSlug.value, id);
     void cacheChapter(worldSlug.value, ch);
   } catch (e) {
-    if (e instanceof ApiError && e.status === 0) {
+    if (unreachable(e)) {
       ch = await localChapter(id);
       offlineCopy.value = !!ch;
     }
@@ -886,7 +886,7 @@ async function restore(revisionId: string, body: string) {
   try {
     ch = await restoreRevision(worldSlug.value, chapter.value.id, revisionId);
   } catch (e) {
-    if (!(e instanceof ApiError) || e.status !== 0) throw e;
+    if (!unreachable(e)) throw e;
     // offline: put the old text in the editor (it saves when the connection is back), and keep the text it
     // replaces on this device until it can be sent as a snapshot
     const current = prose.value?.view.state.doc.toString() ?? "";

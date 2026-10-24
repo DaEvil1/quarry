@@ -2,7 +2,7 @@
 import { diffWords } from "diff";
 import { computed, onMounted, ref } from "vue";
 
-import { ApiError } from "../api";
+import { unreachable } from "../api";
 import { getRevision, listRevisions, REASON_LABELS, type RevisionInfo } from "../manuscript";
 import { localRevision, localRevisions } from "../offline";
 
@@ -12,7 +12,7 @@ const props = defineProps<{ world: string; chapterId: string; current: string }>
 const emit = defineEmits<{ restore: [revisionId: string, body: string]; close: [] }>();
 // the server couldn't be reached: the snapshots kept on this device (the last 30)
 const local = ref(false);
-const offline = (e: unknown) => e instanceof ApiError && e.status === 0;
+const offline = unreachable;
 
 const revisions = ref<RevisionInfo[]>([]);
 const chosen = ref<(RevisionInfo & { body: string }) | null>(null);
