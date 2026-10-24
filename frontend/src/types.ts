@@ -70,13 +70,14 @@ export const STATUS_LABELS: Record<ItemStatus, string> = {
   deferred: "Deferred",
 };
 
-export type EntityKind = "character" | "place" | "faction" | "culture" | "event" | "object" | "term" | "other";
+export type EntityKind = "character" | "place" | "faction" | "culture" | "species" | "event" | "object" | "term" | "other";
 
 export const ENTITY_KINDS: { value: EntityKind; label: string; plural: string }[] = [
   { value: "character", label: "Character", plural: "Characters" },
   { value: "place", label: "Place", plural: "Places" },
   { value: "faction", label: "Faction", plural: "Factions" },
   { value: "culture", label: "Culture", plural: "Cultures" },
+  { value: "species", label: "Species", plural: "Species" },
   { value: "event", label: "Event", plural: "Events" },
   { value: "object", label: "Object", plural: "Objects" },
   { value: "term", label: "Term", plural: "Terms" },
@@ -144,6 +145,8 @@ export interface RelationType {
   label: string;
   reverse_label: string | null;
   position: number;
+  /** its relationships carry a role in the group on the B side (docs/SPEC.md §13.4) */
+  has_role: boolean;
   used: number;
 }
 
@@ -160,6 +163,9 @@ export interface Relationship {
   established_in_chapter_id: string | null;
   from_chapter_id: string | null;
   until_chapter_id: string | null;
+  /** the A side's role in the B side's group, and whether the type offers one */
+  role?: string | null;
+  has_role?: boolean;
   version: number;
   /** on an entry's page: how it reads from this entry, the entry on the other side, and which side this is */
   reads?: string;

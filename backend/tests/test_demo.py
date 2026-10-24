@@ -14,7 +14,7 @@ def test_demo_world(signed_in: Client):
     assert [p["name"] for p in world["projects"]] == ["The Ferryman's Daughter", "Ash Season"]
 
     entities = {e["name"]: e for e in signed_in.get(f"{W}/entities").json()}
-    assert {e["kind"] for e in entities.values()} == {"character", "place", "faction", "culture", "event", "object", "term"}
+    assert {e["kind"] for e in entities.values()} == {"character", "place", "faction", "culture", "species", "event", "object", "term"}
     # names are found in the text: the first name, an alias, a term in any case, and not "moss" the plant
     assert entities["Tamsin Vey"]["mention_count"] > 5
     assert entities["Tidecall"]["mention_count"] >= 2

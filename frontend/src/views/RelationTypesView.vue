@@ -107,6 +107,9 @@ const groups = computed(() => {
               @save="(v) => run(() => updateRelationType(world!.slug, t.id, { reverse_label: v || null }))"
             />
           </span>
+          <label class="small check" :title="'Its relationships carry a role in the group (member of the Lamp Guild · Captain)'">
+            <input type="checkbox" :checked="t.has_role" data-testid="has-role" @change="run(() => updateRelationType(world!.slug, t.id, { has_role: ($event.target as HTMLInputElement).checked }))" /> has a role
+          </label>
           <span class="muted small">{{ t.used ? `used ${t.used}×` : "unused" }}</span>
           <button
             type="button"

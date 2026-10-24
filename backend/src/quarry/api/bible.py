@@ -36,7 +36,7 @@ from .worlds import member_world
 
 router = APIRouter(prefix="/api/worlds/{slug}")
 
-Kind = Literal["character", "place", "faction", "culture", "event", "object", "term", "other"]
+Kind = Literal["character", "place", "faction", "culture", "species", "event", "object", "term", "other"]
 Gender = Literal["female", "male", "nonbinary"]
 SOURCES = {"item": Item, "decision": Decision, "journal": JournalEntry, "entity": Entity, "chapter": Chapter}
 

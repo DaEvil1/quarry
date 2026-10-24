@@ -32,7 +32,7 @@ CHALLENGE_PURPOSES = ("setup", "login", "add_passkey")
 # "experiment" items arrive with the editor (phase 4); the column accepts them already
 ITEM_KINDS = ("spark", "question", "task", "experiment")
 ITEM_STATUSES = ("open", "accepted", "rejected", "harvested", "deferred")
-ENTITY_KINDS = ("character", "place", "faction", "culture", "event", "object", "term", "other")
+ENTITY_KINDS = ("character", "place", "faction", "culture", "species", "event", "object", "term", "other")
 # canon: true in the book; planned: true in the author's head, not on the page yet; rumour: believed in the story
 STANDINGS = ("canon", "planned", "rumour")
 # texts that are scanned for mentions
@@ -494,6 +494,8 @@ class RelationType(Base):
     # how it reads from the B side; NULL means it reads the same both ways
     reverse_label: Mapped[str | None] = mapped_column(String(100))
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # its relationships carry a role in the group on the B side ("member of" the Lamp Guild · Captain)
+    has_role: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
 
 class Relationship(Base):
@@ -514,11 +516,28 @@ class Relationship(Base):
                                                                                   ondelete="SET NULL"))
     evidence: Mapped[str | None] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
+    # the A side's role in the B side's group (for a type with a role): free text, time-bounded with the relationship
+    role: Mapped[str | None] = mapped_column(String(100))
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
+
+
+class Role(Base):
+    """A role's switch across the world (docs/SPEC.md §13.4): whether only one may hold it in a group at a time. Roles
+    themselves are read from the relationships; a row exists only once the switch has been set."""
+
+    __tablename__ = "roles"
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(100), nullable=False)
+    one_at_a_time: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+
+Index("uq_roles_world_role", Role.world_id, func.lower(Role.role), unique=True)
 
 
 class DecisionLink(Base):

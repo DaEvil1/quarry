@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
-import { listLabels, renameLabel, renameValue, setLabelSwitches, undoRename, type Renamed } from "../bible";
+import { listLabels, renameLabel, renameRole, renameValue, setLabelSwitches, setRoleSwitch, undoRename, undoRoleRename, type Renamed } from "../bible";
 import { resolutions, resolve, unresolve, type Resolution } from "../companion";
 import UndoToast from "../components/UndoToast.vue";
 import { useSession } from "../stores/session";
@@ -58,12 +58,12 @@ async function run(fn: () => Promise<unknown>) {
 const toggle = (kind: EntityKind, label: string, field: "several" | "expected", on: boolean) => run(() => setLabelSwitches(worldSlug.value, kind, label, { [field]: on }));
 
 // rename or merge, with one step back
-const toast = ref<{ label: string; done: Renamed } | null>(null);
+const toast = ref<{ label: string; undo: () => Promise<{ restored: number; skipped: number }> } | null>(null);
 const labelDraft = ref<Record<string, string>>({});
 const everywhere = ref<Record<string, boolean>>({});
 const valueDraft = ref<Record<string, string>>({});
 function renamed(done: Renamed) {
-  toast.value = { label: done.message, done };
+  toast.value = { label: done.message, undo: () => undoRename(worldSlug.value, done) };
 }
 const doRenameLabel = (kind: EntityKind, label: string) => {
   const key = anchor(kind, label);
@@ -88,12 +88,26 @@ const doRenameValue = (kind: EntityKind, label: string, value: string) => {
 async function undo() {
   const t = toast.value;
   if (!t) return;
-  const r = await undoRename(worldSlug.value, t.done);
+  const r = await t.undo();
   toast.value = null;
   await load();
   void cards.refresh(worldSlug.value);
-  if (r.skipped) error.value = `${r.skipped} fact${r.skipped === 1 ? "" : "s"} changed since, and kept the new spelling.`;
+  if (r.skipped) error.value = `${r.skipped} change${r.skipped === 1 ? "" : "s"} changed since, and kept the new spelling.`;
 }
+
+// roles in groups (docs/SPEC.md §13.4): rename or merge across the world, and "one at a time"
+const roles = computed(() => page.value?.roles ?? []);
+const roleDraft = ref<Record<string, string>>({});
+const doRenameRole = (role: string) => {
+  const to = (roleDraft.value[norm(role)] ?? "").trim();
+  if (!to || to === role) return;
+  void run(async () => {
+    const done = await renameRole(worldSlug.value, role, to);
+    roleDraft.value[norm(role)] = "";
+    toast.value = { label: done.message, undo: () => undoRoleRename(worldSlug.value, done) };
+  });
+};
+const toggleRole = (role: string, on: boolean) => run(() => setRoleSwitch(worldSlug.value, role, on));
 
 // an expected label's missing entries: "Not for this one", or back to asking
 const resolution = (entityId: string, label: string) => resolved.value.find((r) => r.rule === "missing_label" && r.key === missingKey(entityId, label));
@@ -119,7 +133,7 @@ const askAgain = (r: Resolution) => run(() => unresolve(worldSlug.value, r.id));
     </div>
 
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
-    <p v-if="page && !kinds.length" class="empty">No facts yet. Labels show up here once entries have facts.</p>
+    <p v-if="page && !kinds.length && !roles.length" class="empty">No facts yet. Labels show up here once entries have facts.</p>
 
     <section v-for="k in kinds" :key="k.kind" class="card labels-kind" :class="`k-${k.kind}`" :data-testid="`labels-${k.kind}`">
       <h2><span class="kdot" /> {{ plural(k.kind) }} <span class="muted small">({{ k.total }})</span></h2>
@@ -185,6 +199,32 @@ const askAgain = (r: Resolution) => run(() => unresolve(worldSlug.value, r.id));
         </div>
       </details>
       <datalist :id="`labels-${k.kind}`"><option v-for="l in k.labels" :key="l.label" :value="l.label" /></datalist>
+    </section>
+    <section v-if="roles.length" class="card labels-kind" data-testid="labels-roles">
+      <h2>Roles <span class="muted small">({{ roles.length }})</span></h2>
+      <p class="muted small">Roles in groups, from relationships whose kind has a role (member of, leads …). A role marked one at a time is a Continuity finding when two hold it in the same group at once.</p>
+      <details v-for="r in roles" :key="r.role" class="label-row" :data-role="r.role">
+        <summary>
+          <strong>{{ r.role }}</strong>: <span>{{ r.count }} relationship{{ r.count === 1 ? "" : "s" }}</span>
+          <span v-if="r.types.length" class="muted small"> · {{ r.types.join(", ") }}</span>
+          <span v-if="r.one_at_a_time" class="pill warn">one at a time</span>
+        </summary>
+        <div class="label-body">
+          <div class="switches">
+            <label class="check"><input type="checkbox" :checked="r.one_at_a_time" data-testid="switch-one-at-a-time" @change="toggleRole(r.role, ($event.target as HTMLInputElement).checked)" /> One at a time (only one {{ r.role }} in a group at once)</label>
+          </div>
+          <form class="actions rename" @submit.prevent="doRenameRole(r.role)">
+            <label class="small muted" :for="`rr-${norm(r.role)}`">Rename or merge into</label>
+            <input :id="`rr-${norm(r.role)}`" v-model="roleDraft[norm(r.role)]" class="filter" list="roles-all" maxlength="100" :placeholder="r.role" :aria-label="`Rename ${r.role}`" />
+            <button class="btn btn-sm" type="submit">Rename</button>
+          </form>
+          <p v-if="r.groups.length" class="small">
+            <span class="muted">In </span>
+            <template v-for="(g, i) in r.groups" :key="g.id"><span v-if="i">, </span><RouterLink class="kname" :class="`k-${g.kind}`" :to="{ name: 'entity', params: { world: world.slug, id: g.id } }">{{ g.name }}</RouterLink></template>
+          </p>
+        </div>
+      </details>
+      <datalist id="roles-all"><option v-for="r in roles" :key="r.role" :value="r.role" /></datalist>
     </section>
     <UndoToast :label="toast?.label ?? null" :undo="undo" :ms="15000" @dismiss="toast = null" />
   </template>

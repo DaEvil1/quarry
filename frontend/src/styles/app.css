@@ -32,6 +32,7 @@
   --k-place: #1f7a4d;
   --k-faction: #7140c6;
   --k-culture: #0b7285;
+  --k-species: #5e7d0e;
   --k-event: #b42a6a;
   --k-object: #8a6100;
   --k-term: #3550c0;
@@ -62,6 +63,7 @@
     --k-place: #6fd19c;
     --k-faction: #b59cf7;
     --k-culture: #5fd0e0;
+    --k-species: #b5d66a;
     --k-event: #f08ab4;
     --k-object: #e4c162;
     --k-term: #93a9fb;
@@ -408,6 +410,7 @@ main:has(.chapter-page) { max-width: none; padding: 0; }
 .k-place { --k: var(--k-place); }
 .k-faction { --k: var(--k-faction); }
 .k-culture { --k: var(--k-culture); }
+.k-species { --k: var(--k-species); }
 .k-event { --k: var(--k-event); }
 .k-object { --k: var(--k-object); }
 .k-term { --k: var(--k-term); }
@@ -417,6 +420,16 @@ main:has(.chapter-page) { max-width: none; padding: 0; }
 .cm-k-place { color: var(--k-place); }
 .cm-k-faction { color: var(--k-faction); }
 .cm-k-culture { color: var(--k-culture); }
+.cm-k-species { color: var(--k-species); }
+/* what a character is, after the name; who possesses them, under it (docs/SPEC.md §13.3, §13.5) */
+.qcard-species, .species-words { color: var(--k-species); font-size: 0.85em; margin-left: 0.4em; font-weight: normal; }
+.qcard-possessed { font-size: 0.85em; color: var(--muted); font-style: italic; }
+.qcard-role { color: var(--muted); }
+.fline.ancestor { stroke-dasharray: 10 6; }
+.species-legend { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; }
+.legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.fline-label.lineage { font-style: italic; }
 .cm-k-event { color: var(--k-event); }
 .cm-k-object { color: var(--k-object); }
 .cm-k-term { color: var(--k-term); }
