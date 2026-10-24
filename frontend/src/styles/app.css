@@ -700,7 +700,7 @@ g:hover > .word-up { fill: color-mix(in srgb, var(--accent) 75%, var(--text)); }
 .strip-tip { margin: 2px 0 0; min-height: 1.3em; }
 @media (max-width: 767px) { .strip-row { flex-direction: column; gap: 2px; } .strip-project { width: auto; } .strip-cell { width: 16px; min-width: 16px; } }
 /* the entry page: how a name is said, gender and level beside the kind, kin worked out (dimmed), its own findings */
-.pronunciation { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 10px; font-style: italic; }
+.pronunciation { white-space: nowrap; font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 10px; font-style: italic; }
 .gender-pick { display: inline-flex; align-items: center; gap: 6px; }
 .family-worked-out { opacity: .78; }
 .family-worked-out .plain-list li { justify-content: flex-start; display: block; }

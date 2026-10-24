@@ -179,8 +179,10 @@ export interface Kin {
   greats: number;
   /** recorded (a relationship says so) or worked out */
   recorded: boolean;
-  /** for a recorded link: its label as it reads from the relative ("adoptive parent of") */
+  /** for a recorded link: its label as it reads from the relative ("adoptive parent of"), and whether it is a plain
+   * parent, marriage or sibling type (then it gets the kin word, like one worked out) */
   label?: string;
+  plain?: boolean;
   /** the people in between, from the centre's side */
   via: string[];
 }
@@ -237,13 +239,13 @@ export function kinOf(fam: Family, centre: string): Kin[] {
 
   // recorded
   for (const l of fam.links) {
-    if (l.kind === "parent" && l.b === centre) put({ id: l.a, relation: "parent", greats: 0, recorded: true, label: l.label, via: [] });
-    if (l.kind === "parent" && l.a === centre) put({ id: l.b, relation: "child", greats: 0, recorded: true, label: l.reverse, via: [] });
+    if (l.kind === "parent" && l.b === centre) put({ id: l.a, relation: "parent", greats: 0, recorded: true, label: l.label, plain: l.plain, via: [] });
+    if (l.kind === "parent" && l.a === centre) put({ id: l.b, relation: "child", greats: 0, recorded: true, label: l.reverse, plain: l.plain, via: [] });
     if (l.kind === "married" && (l.a === centre || l.b === centre)) {
-      put({ id: l.a === centre ? l.b : l.a, relation: "spouse", greats: 0, recorded: true, label: l.a === centre ? l.reverse : l.label, via: [] });
+      put({ id: l.a === centre ? l.b : l.a, relation: "spouse", greats: 0, recorded: true, label: l.a === centre ? l.reverse : l.label, plain: true, via: [] });
     }
     if (l.kind === "sibling" && (l.a === centre || l.b === centre)) {
-      put({ id: l.a === centre ? l.b : l.a, relation: "sibling", greats: 0, recorded: true, label: l.a === centre ? l.reverse : l.label, via: [] });
+      put({ id: l.a === centre ? l.b : l.a, relation: "sibling", greats: 0, recorded: true, label: l.a === centre ? l.reverse : l.label, plain: true, via: [] });
     }
   }
 
@@ -308,9 +310,10 @@ export function pathBetween(fam: Family, from: string, to: string): string[] {
   return path;
 }
 
-/** "granddaughter", "great-uncle" … for a kin entry, or a recorded link's own label. */
+/** "granddaughter", "great-uncle" … for a kin entry; a recorded link of another type than the plain ones keeps its
+ * own label ("adoptive parent of"). */
 export function kinText(k: Kin, gender: Gender | null | undefined): string {
-  return k.recorded && k.label ? k.label : kinWord(k.relation, gender, k.greats);
+  return k.recorded && k.label && !k.plain ? k.label : kinWord(k.relation, gender, k.greats);
 }
 
 // ---- the drawing --------------------------------------------------------------------------------------------------

@@ -163,6 +163,9 @@ describe("the family tree", () => {
     expect(tree.lines.find((l) => l.label)?.label).toBe("adoptive parent of");
     const k = kinOf(fam(d), "Bren").find((x) => x.id === "Seyla")!;
     expect(kinText(k, "female")).toBe("adoptive parent of");
+    // a plain recorded parent gets the word, by gender
+    const varren = kinOf(fam(world()), "Isolde").find((x) => x.id === "Varren")!;
+    expect([varren.recorded, kinText(varren, "male")]).toEqual([true, "father"]);
     const orphans = world({}, [
       { id: "18", a: "Ash", b: "Bren", type_id: "sibling", label: "sibling of", reverse_label: null, standing: "canon", from_chapter_id: null, until_chapter_id: null },
     ]);
