@@ -21,9 +21,10 @@ Examples here use made-up names.
 | Kind | For |
 |---|---|
 | Character | people, and anyone who acts |
+| Species | kinds of being: peoples, beasts, spirits, ancient races (from phase 12, [SPEC.md](SPEC.md) §13.3) |
 | Place | anything with a where: regions, cities, houses, rooms |
 | Faction | groups with a will: houses, guilds, armies, cults |
-| Culture | peoples, religions, traditions, languages |
+| Culture | what people share: religions, traditions, languages |
 | Event | something that happened, at a place, with participants, in a chapter |
 | Object | things that matter: a logbook, a ship, a sword |
 | Term | lore and concepts: a magic system, a title, a law |
@@ -63,12 +64,16 @@ add or remove types, and every pair also has a plain *linked to* for when you do
 
 | Between | Starting types |
 |---|---|
-| Character – character | parent/child, sibling, married, lovers, friends, rivals, enemies, serves/served by, mentor/student, knows, knows about (one way), has met |
+| Character – character | parent/child, sibling, married, lovers, friends, rivals, enemies, serves/served by, mentor/student, knows, knows about (one way), has met; possesses/possessed by, ancestor/descendant (phase 12) |
 | Character – place | lives in, born in, rules, works at, imprisoned in, visits |
 | Character – faction | member of, leads, founded, opposes |
 | Character – culture | belongs to, converted to |
 | Character – object | owns, carries, made, seeks, lost, guards |
 | Character – event | witnessed (from phase 11, [SPEC.md](SPEC.md) §12.5) |
+| Character – species | is a/includes, appears as/the guise of (from phase 12, [SPEC.md](SPEC.md) §13.3) |
+| Species – species | descended from/ancestor of, related to, preys on/prey of |
+| Species – place | native to/home of |
+| Culture – species, faction – species | culture of/has culture, made up of/makes up |
 | Place – place | inside/contains, borders, road to, sea route to |
 | Faction – faction | allied, at war, vassal of/overlord of, splinter of |
 | Faction – place | controls, based in, claims |
@@ -84,7 +89,10 @@ add or remove types, and every pair also has a plain *linked to* for when you do
 
 A relationship can also carry:
 
-- **When it holds**: *from* a chapter and/or *until* a chapter (§4). Left empty, it holds throughout.
+- **When it holds**: *from* a chapter and/or *until* a chapter (§4), or from phase 12 an in-world time instead of a
+  chapter. Left empty, it holds throughout.
+- **A role** (from phase 12), on types marked *has a role* such as *member of* and *leads*: `Captain`
+  ([SPEC.md](SPEC.md) §13.4).
 - **Standing**: *canon* (true in the book), *planned* (true in your head, not on the page yet) or *rumour*
   (believed by someone in the story). Graphs and checks can include or leave out planned and rumour.
 - **Evidence**: the chapter where it was established and, optionally, the passage (as for facts). Set
@@ -100,11 +108,32 @@ chapter that mentions a place. Evidence is shown, never stored as fact (§7).
 
 ## 4. Story time
 
-The **chapter is the clock**:
+The **chapter is the clock**, and from phase 12 the chapters can be set in **in-world time**
+([SPEC.md](SPEC.md) §13.1):
 
-- Story order is the series order of projects in a world, then chapter order within each.
-- Facts and relationships hold *from* and *until* chapters.
-- Every entry page has an **"as of chapter …"** selector that shows what is true at that point.
+- **Told order** is the series order of projects in a world, then chapter order within each: the order the reader
+  meets things in.
+- A chapter can say **when it is set**: one sortable number in the world's unit (years by default), with an optional
+  free label (`800 years before the Founding`), an *about* tick and an optional end. There is no calendar: no months,
+  moons or date arithmetic, only numbers that sort. A chapter can also be marked as **told as a tale or flashback**.
+- A time can also be **outside time**: a plane beyond the world, an afterlife, a vision, a myth or a prophecy.
+  Chapters, events, facts and relationships outside time are never placed on the axis or compared, and are always
+  shown under *as of*, labelled as such.
+- Named **eras** (events of the type *era*, each with a colour) tint every time shown with their name:
+  `year 312 · the Lamp Years`.
+- **Happened order** sorts chapters by when they are set, then by told order. A chapter with no time carries on from
+  the last chapter before it that has one and isn't a tale or flashback; a tale or flashback with no time is set
+  sometime before the story. **With no times and no marks, happened order is told order**, and everything works as it
+  did before phase 12.
+- Facts and relationships hold *from* and *until* chapters, read in **happened** order, or *from* and *until* an
+  in-world time, for history before the book. So someone recorded dead in chapter 9 is alive in a tale set centuries
+  earlier, wherever the tale sits in the book. A time bound outlives restructuring, where a chapter bound has to be
+  reviewed when its chapter is retired ([SPEC.md](SPEC.md) §13.6).
+- Every entry page has an **"as of chapter …"** selector that shows what is true at that point; once the world uses
+  times, it also takes a time.
+- The rule for which order is used: **told order is the reader's** (the manuscript, the mentions strip and its gaps,
+  first appearance, reading one entry's thread); **happened order is the world's** (facts and relationships, *as of*,
+  the cards and the cast, the family tree, the Continuity checks, ages).
 
 **Where everyone is.** A grid with characters down the side and chapters across. Each cell shows:
 
@@ -112,8 +141,11 @@ The **chapter is the clock**:
 - **Derived**: a place mentioned in the same paragraph as the character, shown fainter.
 - **Present**: mentioned in the chapter, place unknown.
 
-**In-world dates** come later: an optional date per chapter (free text with a sortable value), added without
-changing anything above.
+It keeps told order, with a switch to happened order once chapters have times.
+
+**History and the Timeline.** Events get a time (or a chapter they happen in), and one Timeline page shows the world
+in happened order or told order, with the book as a band among the world's history, eras as background bands,
+births, deaths and movements, and lanes per character or faction ([SPEC.md](SPEC.md) §13.2).
 
 ## 5. Writing in the editor
 
@@ -183,7 +215,10 @@ only with Ctrl, typing quiet period, text size and line width, and the default m
     co-occurrence as an option.
 - **Place tree.** Places nested by *inside/contains*, with who lives or is there at a chosen chapter.
 - **Cast per chapter.** On the manuscript page, the characters and places of each chapter.
-- **Later: your own map.** Upload a map image, pin places on it, and see who is where as of a chapter.
+- **The chart** (from phase 12, [SPEC.md](SPEC.md) §13.7): a schematic map of the places, drawn from how they nest,
+  border and connect, with shapes by type, pins to shape it by hand, and an optional *as of*.
+- **Later: your own map.** Upload a map image, pin places on it, and see who is where as of a chapter. The chart
+  doesn't replace it.
 
 ## 7. The writing companion
 
@@ -259,7 +294,7 @@ presence          (id, entity_id, place_id, chapter_id, note)                   
 decision_links    (decision_id, entity_id)
 resolutions       (world_id, rule, key, outcome, note)                            -- intentional / later / not connected
 session_notes     (chapter_id, user_id, note, cursor, updated_at)                 -- getting back in
-chapters          + in_world_date NULL (later)
+chapters          + time_at, time_end, time_label, time_approx, told_as             -- phase 12, SPEC.md §13.8
 map_images, map_pins                                                              -- later
 ```
 
@@ -301,8 +336,11 @@ highlighting; the server's result is the one that is stored.
     more) is designed in [SPEC.md](SPEC.md) §11.
 11. **More views of the bible** (a mentions strip per entry, a family tree with kin worked out, a grid of any
     entries across chapters, world entries and project entries, labels and values) is designed in [SPEC.md](SPEC.md) §12.
+12. **Time, history and kinds of being** (in-world time under the chapters, happened and told order, the Timeline and
+    history, recording an event from a passage, ages, Species, roles in groups, more starting vocabulary,
+    restructuring across several chapters, and the chart) is designed in [SPEC.md](SPEC.md) §13.
 
-**Later:** in-world dates, map images with pins, and from the research: a chapter-by-thread grid, scenes below
+**Later:** map images with pins, and from the research: a chapter-by-thread grid, scenes below
 chapters, and a corkboard (research/README.md).
 
 ## 10. Not planned
