@@ -200,7 +200,7 @@ quarry/                      # public GitHub repo (code only)
 
 10. **Revising and salvaging**: renames that keep the old name, chapter summaries and statuses, a cuts bin, reading one entry's thread, word history, changes since a checkpoint, and find and replace across chapters. Designed in §11, with a *done when* per part.
 11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, world entries and project entries, the *witnessed* type, a *gender* field on characters and a *pronunciation* fact, and labels and values (value suggestions, filtering by a value, a Labels page, labels with several values, expected labels). Designed in §12, with a *done when* per part.
-12. **Time, history and kinds of being**: in-world time on one axis under the chapters (a sortable number with a free label), chapters set in time and marked as told as a tale or flashback, facts, relationships and the checks read in happened order, a Timeline with happened and told orders, history, recording an event from a passage, ages, Species as a ninth kind, roles in groups with a one-at-a-time check, more starting vocabulary, and restructuring (experiments across several chapters, and a review of everything tied to chapters before they are retired). Designed in §13, with a *done when* per part; built as three phases, in the order 12c, 12a, 12b (§13.8).
+12. **Time, history and kinds of being**: in-world time on one axis under the chapters (a sortable number with a free label), chapters set in time and marked as told as a tale or flashback, facts, relationships and the checks read in happened order, a Timeline with happened and told orders, history, recording an event from a passage, ages, Species as a ninth kind, roles in groups with a one-at-a-time check, more starting vocabulary, restructuring (experiments across several chapters, and a review of everything tied to chapters before they are retired), and the chart (a schematic map of how places nest, border and connect). Designed in §13, with a *done when* per part; built as four phases, in the order 12c, 12a, 12b, 12d (§13.9).
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -915,8 +915,9 @@ Continuity checks (someone recorded dead in the present is flagged when they are
 nowhere for the world's history to live: wars, foundings and births long before chapter 1. Phase 12 adds **in-world
 time on one axis** under the chapters, a **Timeline** with a happened order and a told order, a way to **record
 history from the prose**, a ninth kind for **kinds of being**, **roles** inside groups, a little more starting
-vocabulary, and **restructuring**: experiments that replace several chapters at once, and a review of everything tied
-to chapters before they leave the book.
+vocabulary, **restructuring** (experiments that replace several chapters at once, and a review of everything tied to
+chapters before they leave the book), and **the chart**, a schematic map of how the world's places nest, border and
+connect.
 
 The principles hold: nothing here writes or suggests story content; times are optional everywhere, and a world that
 sets none works exactly as today; times are plain numbers with free labels, never a calendar (no months, moons or
@@ -1645,7 +1646,135 @@ one review for all three; and a chapter retired before phase 12 shows `Still tie
 page; *Re-anchor…* offers the draft where the passage now is and moves the evidence there; and *Dismiss* keeps it out
 for good.
 
-### 13.7 Data model, in one place
+### 13.7 The chart
+
+A schematic map of the world's places: not their shapes on the ground, but how they relate. Which land holds which
+cities, which lands border which, which sea surrounds an island, which roads join them. It is drawn from what is
+already recorded (the place tree's *inside*, *borders*, *road to*, *sea route to*, a place's *type*) plus four
+direction types, and it is a view of places in its own right, beside the graph and the place tree. It doesn't need
+the Timeline.
+
+Examples use made-up names: the Iron Vale is a land holding Old Harbour and Greywick; Old Harbour holds the Quay
+district and the Lamp House; the Grey Sea surrounds the Isle of Wrens; the Iron Vale borders the Salt Marches.
+
+#### 13.7.1 What is drawn
+
+- **Where.** Its own page, `/w/<world>/chart`, in the nav after *Graph*. A place's page gets *On the chart*, which
+  opens it centred and zoomed on that place.
+- **Containment is nesting.** A place *inside* another (read as the place tree reads it: `inside`, `in`, `part of`,
+  `within`, or the reverse `contains`) is drawn inside its shape: lands enclose regions and cities, cities enclose
+  districts and buildings, buildings enclose rooms. A place inside two others is drawn in the first recorded, as the
+  place tree does, and its card names the other.
+- **Borders touch.** Two places recorded as *borders* that sit in the same container are drawn sharing an edge. Across
+  containers, their containers are pulled together and a short thick mark joins the two at the nearest edges.
+- **Water surrounds.** A water place (§13.7.2) that contains land places is drawn as a water shape around them: the
+  Grey Sea around the Isle of Wrens. A land that *borders* a sea touches it; a river is a ribbon running between or
+  through the places it borders or is inside.
+- **Routes are lines.** *Road to* is a solid line between two places, *sea route to* a dashed one, drawn above the
+  shapes and routed around them where they can be.
+- **Directions.** New starting types, place – place: *north of* / *south of* and *east of* / *west of* (each pair
+  is one type and its reverse). North is up. The layout honours them where it can (§13.7.3); one it can't honour (a
+  place both north and south of another) is drawn anyway and listed under the chart as `Couldn't place: …`.
+- **Who and what.** Each shape has its name, coloured as a place. Places named often are a little larger, in the
+  three steps of the mentions strip (§12.1); a container is as large as what is inside it.
+- **Planes** (type *plane*) and everything inside them are laid out apart, each as its own island off to the side
+  of the world, with its name above it.
+
+#### 13.7.2 Shapes from the type
+
+A place's shape comes from its *type* fact (§12.6; starting values in §13.5), whatever the capitals, as it holds at
+the end of the story (or as of the chosen point, §13.7.4).
+
+| Type | Shape |
+|---|---|
+| world | the outermost hexagon, framing everything not in a plane |
+| land, region (and realm, kingdom, country, province) | hexagon |
+| city, town, village (and port, fort, hamlet) | circle |
+| district | rounded square |
+| building, room | square, sharp corners |
+| sea, lake (and ocean, bay) | soft blob, in a water tint |
+| river | ribbon, in a water tint |
+| island | soft blob, in a land tint |
+| mountain | triangle |
+| forest | scalloped circle |
+| reef | dotted blob |
+| plane | an island apart (§13.7.1) |
+| no type, or one not listed | rounded rectangle when it contains places, small rounded square when it doesn't, drawn lighter; its card says `no type` |
+
+- The list (with its synonyms) is in the code, like the starting values. A world can map its own type values to a
+  shape in the chart's settings (`duchy` → hexagon), kept per world.
+- A place with several types (§12.6.4) takes the first that maps to a shape.
+
+#### 13.7.3 Layout: automatic first, then shaped by hand
+
+- **Automatic.** Laid out from the inside out: each container's contents are packed inside it, with forces that make
+  bordering places touch, keep directions (*north of* above), pull places joined by a road closer, and stop shapes
+  overlapping; the container's size then follows from what it holds. It is laid out to rest before drawing, as the
+  graph is (d3-force, plain SVG, no graph library; DECISIONS, 2026-10-22), and seeded, so the same data gives the same
+  chart.
+- **Pinning.** Dragging a place moves it and **pins** it there. A pin is kept relative to its container, so moving a
+  container moves everything inside it. Pinned places stay put when the layout runs again; the rest settle around
+  them.
+  - **A place added** (or newly given a container) is laid out among the pinned ones, where there is room; a
+    container grows to fit, and its pins keep their places relative to it.
+  - **A place that moves to another container** keeps its pin for the old one (a pin belongs to a place in a
+    container) and is laid out fresh in the new one until it is pinned there. So a town that changes hands as of a
+    chapter (§13.7.4) sits where it was pinned in each.
+  - **A place removed** from the bible, or whose container is gone, loses its pins.
+  - **Reset layout** unpins everything, or everything inside one container (*Reset inside the Iron Vale*), with Undo.
+- Pins are the only thing stored: shapes, sizes and everything unpinned are worked out when drawn.
+
+#### 13.7.4 As of, and moving around
+
+- **As of** is an optional control on the chart, sharing the selector of §13.1.6 (a chapter, or from phase 12a a
+  time). With nothing chosen the chart shows the latest state: the end of the story, as the bible's tables read
+  facts. With a point chosen it shows, as of then:
+  - containment, borders, directions and routes as they held (relationships with *from* and *until*);
+  - **who controls** each place, from the *controls* relationships (faction – place), as a shade in the faction's
+    colour with a legend (factions take colours from a fixed set, in order of how much they control); a place
+    controlled by two is striped;
+  - **who is there**: characters recorded "is at" the place in that chapter, else those who *live in* it then, as
+    small dots on its shape, named on hover.
+- **Zoom and pan** as on the Timeline (§13.2.6). **Semantic zoom**: zoomed out, a container shows its name and how
+  many places it holds (`Iron Vale · 14 places`); zooming in reveals its contents and their names, level by level.
+- **Hover cards** use the same component as the editor's (WORLD-MODEL.md §5): the one-liner, facts as of the chosen
+  point, the closest relationships. **Click** opens the place.
+- **Filters**, kept in the address: by type (show or hide each), by depth (*down to*: lands · settlements · buildings
+  · rooms), and the standing switches of the graph (planned and rumoured relationships dashed or hidden).
+- **On the phone**, pinch and drag; dragging a place to pin it takes a long-press first, so panning doesn't pin.
+- **Smooth** at a few hundred places: the same budget as the graph's.
+- **Brushing on the Timeline**, a small extra, built only when 12b is in place: *Show on the chart* on a brushed span
+  opens the chart with a scrubber over that span, and moving it steps *as of* through the span, so changing borders
+  and control can be watched. It is not part of the chart's core, and not in its *done when*.
+- **Not a drawn map.** The chart doesn't replace an uploaded map image with pinned places, which stays on the later
+  list (WORLD-MODEL.md §6; §14).
+
+**Data:**
+
+```sql
+chart_pins  (world_id, place_id, container_id NULL,     -- NULL: at the top level
+             x real, y real,                             -- relative to the container
+             updated_by, updated_at)                     -- unique (place_id, container_id); ON DELETE CASCADE
+worlds      + chart jsonb default '{}'                   -- the chart's settings: shapes for the world's own types
+relation_types + north of / south of, east of / west of   -- place – place; every existing world, by migration
+```
+
+`GET /chart` returns the pins and settings; the chart is drawn in the browser from them, the cards (types, mentions)
+and `GET /graph`. `PUT /chart/pins/<place>` (with its container) and `DELETE /chart/pins` (all, or a container's,
+answering with them for Undo). **Export** writes `chart:` into `world.md` (the settings, and each pin with its place
+and container ids); **Restore** reads it back and relinks the places by id; an older export has none, so its chart
+starts laid out automatically.
+
+*Done when*, with no *as of* chosen, the chart shows the Iron Vale as a hexagon holding Old Harbour and Greywick as
+circles, Old Harbour holding the Quay as a rounded square and the Lamp House as a square, the Grey Sea as a blob
+around the Isle of Wrens, the Iron Vale sharing an edge with the Salt Marches, a road as a solid line and a sea route
+as a dashed one, and Greywick above Old Harbour when it is recorded *north of* it; a place with no type is a lighter
+rounded square; dragging Greywick pins it, and it stays there after the page is reloaded and after a new town is
+added to the Iron Vale; *Reset inside the Iron Vale* unpins it, and Undo pins it again; choosing *as of* chapter 4
+shades the places the Lamp Guild controls then and shows Varren's dot where he is recorded; zooming out folds Old
+Harbour to `Old Harbour · 2 places`; and exporting and restoring the world keeps the pins.
+
+### 13.8 Data model, in one place
 
 ```sql
 worlds          + time_unit, time_units                                   -- §13.1; 'year' / 'years'
@@ -1664,14 +1793,18 @@ relation_types  + species types, possesses, ancestor of                   -- §1
 experiment_ranges (item_id, chapter_id, position)                         -- §13.6.1; replaces chapters.replaces_id
 items           + insert_at_chapter_id, insert_side                       -- §13.6.1; experiments that only add
 retire_reviews  (id, world_id, chapter_ids, changes, created_by, created_at)   -- §13.6.2; for Undo and Reinstate
+chart_pins      (world_id, place_id, container_id NULL, x, y, updated_by, updated_at)   -- §13.7; relative to the container
+worlds          + chart jsonb                                             -- §13.7; the chart's settings
+relation_types  + north of / south of, east of / west of                  -- §13.7; every existing world
 ```
 
 Endpoints: `GET /timeline` gains each chapter's time, mark, set time and clock place (§13.1); `GET /chronology`
 (§13.2); `POST /events/record` (§13.2); `PATCH /chapters/<id>` takes the time and mark; facts and relationships take
 time bounds; relationships take `role`; `/labels` gains roles (§13.4); experiments take a range and drafts; `GET
 /chapters/ties` lists what is tied to chapters, and retiring and closing an experiment take the review's choices
-(§13.6). Happened order, set times, history, ages, lanes, species beside a name, kin across an ancestor link and the
-ties of a chapter, a time's era and the Timeline's clusters are worked out when read, never stored.
+(§13.6); `GET /chart` and its pins (§13.7). Happened order, set times, history, ages, lanes, species beside a name, kin across an ancestor link and the
+ties of a chapter, a time's era, the Timeline's clusters and the chart's shapes and unpinned layout are worked out
+when read, never stored.
 
 **Phase 12 is done when** each part's *done when* above holds, and the demo world (The Ninefold Delta) shows it:
 its chapters set in years (the book in year 412, Ash Season a year on), a short tale chapter set forty years before,
@@ -1680,12 +1813,13 @@ recorded from a passage with its telling, two eras in their colours (one nested 
 outside time; births for some of the family, so ages show; species (human,
 dog, and one made up for the delta) with an *is a*, an *appears as* and a *native to*; the Warden-Captain as a role
 on the River Wardens marked one at a time, with one clash planted; an ancestor link in the family; an experiment
-across two chapters of Ash Season; and a retired chapter with a fact still tied to it and an evidence passage in it.
+across two chapters of Ash Season; a retired chapter with a fact still tied to it and an evidence passage in it; and places typed, bordering and
+directed enough for a chart with a land, its towns, a sea around an island and one road.
 
-### 13.8 Three phases
+### 13.9 Four phases
 
-Phase 12 is built as three phases, **in this order**, by one build session, one after another, as **stacked pull
-requests**: 12c's off master, 12a's off 12c's branch, 12b's off 12a's.
+Phase 12 is built as four phases, **in this order**, by one build session, one after another, as **stacked pull
+requests**: 12c's off master, 12a's off 12c's branch, 12b's off 12a's, 12d's off 12b's.
 
 1. **12c, species, roles and vocabulary** (§13.3–§13.5): one kind, one field with a switch, one small table, a
    migration of types and starting values. Small, and it needs nothing from the others.
@@ -1696,18 +1830,23 @@ requests**: 12c's off master, 12a's off 12c's branch, 12b's off 12a's.
 3. **12b, history and the timeline** (§13.2): event times, eras and their colours, the Timeline page and its design,
    History, *Record as event*, *Set born/died here*, ages and the age check, and an entry's own timeline. It builds
    on 12a's clock.
+4. **12d, the chart** (§13.7): the shapes, nesting, borders, water, routes and directions, the layout and pins, and
+   *as of* on the chart. It needs 12c's place types (the starting values) and nothing from 12a or 12b: *as of* takes
+   chapters until 12a adds times, and the Timeline link is an extra built only because 12b is in place by then. It
+   could be built straight after 12c if wanted; the order above stands.
 
 What a part needs from a later one waits quietly: until 12a the role check compares in book order; until 12b an
 ancestor link says `generations not recorded` (no birth times are worked out yet), the review has no events or
 tellings to list, and the Archivist no tellings. Each phase updates the demo world with its own parts, and each
 pull request lists what it leaves for the next.
 
-### 13.9 Open questions for phase 12
+### 13.10 Open questions for phase 12
 
 None left. Thomas's answers are in DECISIONS.md (2026-10-25): the kind is called Species; a tale or flashback with no
 time is set before the story; *outside time* is a third kind of time; eras stay events, with a colour that tints every
 time shown; one at a time per role across the world; a computed age that disagrees with an *age* fact is a finding;
-*keep* without a time holds throughout; an experiment may only add; and the build order is 12c, 12a, 12b.
+*keep* without a time holds throughout; an experiment may only add; and the build order is 12c, 12a, 12b, then the
+chart as 12d.
 
 ## 14. Out of scope (for now)
 
@@ -1717,6 +1856,8 @@ time shown; one at a time per role across the world; a computed age that disagre
 - Real-time collaborative editing or CRDTs
 - Native apps (the PWA is enough on Android)
 - A git mirror of the content (§8)
+- A drawn map: uploaded map images with pinned places stay on the later list (WORLD-MODEL.md §6). The chart (§13.7)
+  is schematic and doesn't replace them.
 
 ## 15. Open questions
 
