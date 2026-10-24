@@ -39,8 +39,11 @@ STANDINGS = ("canon", "planned", "rumour")
 MENTION_SOURCES = ("item", "decision", "entity", "journal", "chapter")
 CHAPTER_STATES = ("current", "experiment", "retired")
 # why a revision was taken: autosnap (idle, long session, leaving), checkpoint (Ctrl+S), state (retired, swapped
-# in), restore (the text before a restore), conflict (a copy that lost to another device's save)
-REVISION_REASONS = ("autosnap", "checkpoint", "state", "restore", "conflict")
+# in), restore (the text before a restore), conflict (a copy that lost to another device's save), start (the text a
+# chapter began with: a restore, the demo, an experiment started as a copy; it counts as no words written)
+REVISION_REASONS = ("autosnap", "checkpoint", "state", "restore", "conflict", "start")
+# the statuses every project starts with (renamed, added, removed and ordered per project)
+STARTING_STATUSES = ("raw", "rewritten", "polished")
 REVISION_DOCS = ("chapter",)
 MENTION_KINDS = ("exact", "alias", "near_miss")
 
@@ -336,11 +339,53 @@ class Chapter(Base):
     experiment_item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"))
     replaces_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # one optional line about the chapter, and where it stands (the project's statuses)
+    summary: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
+    status_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapter_statuses.id", ondelete="SET NULL"))
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
+
+
+class ChapterStatus(Base):
+    """One stage a chapter can be at in a project (raw, rewritten, polished …). Ordered; the label is shown on every
+    chapter that has it, so renaming it renames them all."""
+
+    __tablename__ = "chapter_statuses"
+
+    id: Mapped[uuid.UUID] = _id()
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False,
+                                                  index=True)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = _created()
+
+
+class Cut(Base):
+    """A passage cut from a chapter into the project's bin. Kept forever: putting it back marks it, never removes it.
+    Not matched for names, not counted, not compiled."""
+
+    __tablename__ = "cuts"
+
+    # chosen by the device that cut it, so a cut sent again from an offline phone is kept once
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False,
+                                                  index=True)
+    chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"), index=True)
+    # the chapter's title when it was cut, for when the chapter is gone
+    chapter_title: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    # up to 80 characters either side, to find the place again
+    before: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    after: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cut_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    put_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    put_back_to: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
 
 
 class Revision(Base):

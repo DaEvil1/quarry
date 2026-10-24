@@ -22,7 +22,20 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..margin import story_text
 from ..mentions import refresh_source
-from ..models import Chapter, Decision, Entity, HarvestNote, Item, Mention, Project, Revision, User, World
+from ..models import (
+    Chapter,
+    ChapterStatus,
+    Decision,
+    Entity,
+    HarvestNote,
+    Item,
+    Mention,
+    Project,
+    Revision,
+    User,
+    World,
+)
+from ..wordhistory import word_changes
 from .deps import current_user
 from .worlds import member_world
 
@@ -45,6 +58,12 @@ class Ref(BaseModel):
     name: str
 
 
+class StatusRef(BaseModel):
+    id: uuid.UUID
+    label: str
+    position: int
+
+
 class ChapterOut(BaseModel):
     id: uuid.UUID
     project: str
@@ -52,6 +71,8 @@ class ChapterOut(BaseModel):
     state: str
     position: int
     pov: Ref | None
+    summary: str = ""
+    status: StatusRef | None = None
     experiment_item_id: uuid.UUID | None
     replaces_id: uuid.UUID | None
     words: int
@@ -90,6 +111,11 @@ class ChapterUpdate(BaseModel):
 
 class OrderIn(BaseModel):
     ids: list[uuid.UUID]
+
+
+class AboutIn(BaseModel):
+    summary: str | None = Field(default=None, max_length=300)
+    status_id: uuid.UUID | None = None
 
 
 class SnapshotIn(BaseModel):
@@ -151,7 +177,8 @@ def _pov(db: Session, world: World, entity_id: uuid.UUID | None) -> uuid.UUID | 
     return e.id
 
 
-def chapter_out(db: Session, world: World, ch: Chapter, names: dict[uuid.UUID, str] | None = None) -> ChapterOut:
+def chapter_out(db: Session, world: World, ch: Chapter, names: dict[uuid.UUID, str] | None = None,
+                statuses: dict[uuid.UUID, ChapterStatus] | None = None) -> ChapterOut:
     slugs = {p.id: p.slug for p in world.projects}
     pov = None
     if ch.pov_entity_id:
@@ -160,9 +187,14 @@ def chapter_out(db: Session, world: World, ch: Chapter, names: dict[uuid.UUID, s
             e = db.get(Entity, ch.pov_entity_id)
             name = e.name if e else None
         pov = Ref(id=ch.pov_entity_id, name=name) if name else None
+    status = None
+    if ch.status_id:
+        st = statuses.get(ch.status_id) if statuses is not None else db.get(ChapterStatus, ch.status_id)
+        status = StatusRef(id=st.id, label=st.label, position=st.position) if st else None
     return ChapterOut(id=ch.id, project=slugs[ch.project_id], title=ch.title, state=ch.state, position=ch.position,
-                      pov=pov, experiment_item_id=ch.experiment_item_id, replaces_id=ch.replaces_id,
-                      words=words(ch.body), version=ch.version, updated_at=ch.updated_at, retired_at=ch.retired_at)
+                      pov=pov, summary=ch.summary, status=status, experiment_item_id=ch.experiment_item_id,
+                      replaces_id=ch.replaces_id, words=words(ch.body), version=ch.version, updated_at=ch.updated_at,
+                      retired_at=ch.retired_at)
 
 
 def chapter_detail(db: Session, world: World, ch: Chapter) -> ChapterDetail:
@@ -182,17 +214,31 @@ def chapter_detail(db: Session, world: World, ch: Chapter) -> ChapterDetail:
                          experiment_status=item.status if item else None)
 
 
+def last_revision(db: Session, chapter_id: uuid.UUID) -> Revision | None:
+    """The chapter's latest revision on its own line (conflict copies are side copies)."""
+    return db.scalars(select(Revision).where(Revision.doc_table == "chapter", Revision.doc_id == chapter_id,
+                                             Revision.reason != "conflict")
+                      .order_by(Revision.created_at.desc()).limit(1)).first()
+
+
 def snapshot(db: Session, ch: Chapter, reason: str, user: User, label: str | None = None,
              body: str | None = None) -> Revision | None:
-    """Keep the chapter's text (or the given text) as a revision; an automatic one is skipped when nothing changed."""
+    """Keep the chapter's text (or the given text) as a revision; an automatic one is skipped when nothing changed.
+    The words added and removed since the chapter's previous revision are kept with it, for the word history; a start
+    or a conflict copy counts as none."""
     text = ch.body if body is None else body
     if reason == "autosnap":
         last = db.scalars(select(Revision).where(Revision.doc_table == "chapter", Revision.doc_id == ch.id)
                           .order_by(Revision.created_at.desc()).limit(1)).first()
         if last is not None and last.body == text and last.title == ch.title:
             return None
+    added = removed = 0
+    if reason not in ("start", "conflict"):
+        prev = last_revision(db, ch.id)
+        added, removed = word_changes(prev.body if prev is not None else "", text)
     rev = Revision(doc_table="chapter", doc_id=ch.id, version=ch.version, title=ch.title, body=text,
-                   meta={"state": ch.state, "words": words(text)}, reason=reason, label=label, created_by=user.id)
+                   meta={"state": ch.state, "words": words(text), "added": added, "removed": removed},
+                   reason=reason, label=label, created_by=user.id)
     db.add(rev)
     db.flush()
     return rev
@@ -241,15 +287,30 @@ def manuscript(slug: str, project_slug: str, user: User = Depends(current_user),
     rows = db.scalars(select(Chapter).where(Chapter.project_id == project.id, Chapter.state != "retired")
                       .order_by(Chapter.position, Chapter.created_at)).all()
     names = dict(db.execute(select(Entity.id, Entity.name).where(Entity.world_id == world.id)).all())
-    current = [chapter_out(db, world, c, names) for c in rows if c.state == "current"]
-    experiments = [chapter_out(db, world, c, names) for c in rows if c.state == "experiment"]
+    statuses = project_statuses(db, project.id)
+    by_id = {s.id: s for s in statuses}
+    current = [chapter_out(db, world, c, names, by_id) for c in rows if c.state == "current"]
+    experiments = [chapter_out(db, world, c, names, by_id) for c in rows if c.state == "experiment"]
     tally = Counter(c.pov.name for c in current if c.pov)
     retired = db.scalar(select(func.count()).select_from(Chapter).where(Chapter.project_id == project.id,
                                                                        Chapter.state == "retired"))
+    # how far along the book is: chapters and words per status, in the project's order, then those with none
+    status_tally = []
+    for s in [*statuses, None]:
+        group = [c for c in current if (c.status.id if c.status else None) == (s.id if s else None)]
+        status_tally.append({"id": str(s.id) if s else None, "label": s.label if s else None,
+                             "chapters": len(group), "words": sum(c.words for c in group)})
     return {"chapters": current, "experiments": experiments,
             "pov_tally": [{"name": n, "chapters": k} for n, k in tally.most_common()],
             "words": sum(c.words for c in current), "retired": retired or 0,
+            "statuses": [StatusRef(id=s.id, label=s.label, position=s.position) for s in statuses],
+            "status_tally": status_tally,
             "cast": cast(db, world, [c.id for c in rows if c.state == "current"])}
+
+
+def project_statuses(db: Session, project_id: uuid.UUID) -> list[ChapterStatus]:
+    return list(db.scalars(select(ChapterStatus).where(ChapterStatus.project_id == project_id)
+                           .order_by(ChapterStatus.position, ChapterStatus.created_at)))
 
 
 def cast(db: Session, world: World, chapter_ids: list[uuid.UUID], limit: int = 8) -> dict[str, list[dict]]:
@@ -365,6 +426,26 @@ def update_chapter(slug: str, chapter_id: uuid.UUID, body: ChapterUpdate, user: 
     return chapter_detail(db, world, ch)
 
 
+@router.patch("/chapters/{chapter_id}/about")
+def update_about(slug: str, chapter_id: uuid.UUID, body: AboutIn, user: User = Depends(current_user),
+                 db: Session = Depends(get_db)) -> ChapterOut:
+    """The chapter's one-line summary and its status. Labels, not text: no version check and no new version, so
+    setting them on the manuscript list never turns another device's next save into a conflict copy."""
+    world, _ = member_world(db, user, slug)
+    ch = _chapter(db, world, chapter_id)
+    if body.summary is not None:
+        ch.summary = " ".join(body.summary.split())
+    if "status_id" in body.model_fields_set:
+        if body.status_id is not None:
+            st = db.get(ChapterStatus, body.status_id)
+            if st is None or st.project_id != ch.project_id:
+                raise HTTPException(422, "No such status in this project.")
+        ch.status_id = body.status_id
+    ch.updated_by = user.id
+    db.commit()
+    return chapter_out(db, world, ch)
+
+
 @router.delete("/chapters/{chapter_id}", status_code=204)
 def delete_chapter(slug: str, chapter_id: uuid.UUID, user: User = Depends(current_user),
                    db: Session = Depends(get_db)) -> None:
@@ -426,6 +507,13 @@ def restore(slug: str, chapter_id: uuid.UUID, body: RestoreIn, user: User = Depe
     r = db.get(Revision, body.revision_id)
     if r is None or r.doc_table != "chapter" or r.doc_id != ch.id:
         raise HTTPException(404, "No such revision of this chapter.")
+    restore_revision(db, world, ch, r, user)
+    db.commit()
+    return chapter_detail(db, world, ch)
+
+
+def restore_revision(db: Session, world: World, ch: Chapter, r: Revision, user: User) -> None:
+    """Put a revision's text back, keeping the text it replaces as a revision first. Flushed, not committed."""
     snapshot(db, ch, "restore", user, label=f"Before restoring {r.created_at:%Y-%m-%d %H:%M}")
     ch.body = r.body
     ch.title = r.title or ch.title
@@ -433,8 +521,6 @@ def restore(slug: str, chapter_id: uuid.UUID, body: RestoreIn, user: User = Depe
     ch.updated_by = user.id
     db.flush()
     refresh_source(db, world.id, "chapter", ch.id, ch.body)
-    db.commit()
-    return chapter_detail(db, world, ch)
 
 
 @router.post("/chapters/{chapter_id}/retire")
@@ -513,6 +599,9 @@ def start_experiment(slug: str, chapter_id: uuid.UUID, body: ExperimentIn, user:
                  experiment_item_id=item.id, replaces_id=original.id, created_by=user.id, updated_by=user.id)
     db.add(ch)
     db.flush()
+    if ch.body.strip():
+        # a copy is not a day's writing
+        snapshot(db, ch, "start", user)
     refresh_source(db, world.id, "chapter", ch.id, ch.body)
     refresh_source(db, world.id, "item", item.id, item.body)
     db.commit()
