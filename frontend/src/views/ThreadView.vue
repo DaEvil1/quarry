@@ -67,6 +67,8 @@ const reading = computed(() => {
   void cards.version;
   return thread(ordered.value, cards.matcher(), ids.value, mode.value);
 });
+/** the chapters and the world's names are both here (until then a count would read 0) */
+const ready = computed(() => chapters.value !== null && cards.world === worldSlug.value && !!entry.value);
 const heading = computed(() =>
   threadCount([entry.value?.name ?? "…", ...(other.value ? [other.value.name] : [])], reading.value.paragraphs, reading.value.chapters),
 );
@@ -98,7 +100,8 @@ const paraClass = (p: Para) => ({ margin: p.margin, hit: p.hit });
           <RouterLink :to="{ name: 'entity', params: { world: world.slug, id } }">{{ entry?.name ?? "Entry" }}</RouterLink>
           · Reading
         </div>
-        <h1 data-testid="thread-count">{{ heading }}</h1>
+        <h1 v-if="ready" data-testid="thread-count">{{ heading }}</h1>
+        <h1 v-else>Reading…</h1>
         <p v-if="!synced" class="small muted" data-testid="thread-offline">Offline: read from the chapters kept on this device.</p>
       </div>
       <div class="actions thread-tools">
@@ -123,12 +126,11 @@ const paraClass = (p: Para) => ({ margin: p.margin, hit: p.hit });
       <button v-else type="button" class="btn btn-sm" @click="picking = true">With…</button>
     </div>
 
-    <p v-if="chapters === null" class="muted">Reading…</p>
-    <p v-else-if="!reading.parts.length" class="empty">
-      {{ chapters.length ? "No chapter names " + (other ? "both." : "it yet.") : "No chapters on this device yet; open the world once with a connection." }}
+    <p v-if="ready && !reading.parts.length" class="empty">
+      {{ chapters?.length ? "No chapter names " + (other ? "both." : "it yet.") : "No chapters on this device yet; open the world once with a connection." }}
     </p>
 
-    <template v-for="(part, i) in reading.parts" :key="part.chapter.id">
+    <template v-for="(part, i) in ready ? reading.parts : []" :key="part.chapter.id">
       <h2 v-if="projectBreak(i)" class="small muted thread-project">{{ part.chapter.project_name }}</h2>
       <article class="card thread-chapter" data-testid="thread-chapter">
         <h3 class="thread-title">
