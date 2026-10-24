@@ -49,3 +49,4 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-22: Margin notes (%% lines) stay in the chapter and its exported file, but are left out of the word count, the names found in the chapter, and the compiled manuscript.md.
 - 2026-10-22: A demo world (The Ninefold Delta, made up) loads from the New world page, through the same code as Restore. It is planted with one of each thing the companion finds, so every panel has something to show. Worlds can now be deleted by their owner, by typing the world's name.
 - 2026-10-22: A name or other name that starts with "The" also matches with "the" (and the other way round), on the server and in the browser alike: "The River Wardens" is found in "the flag of the River Wardens".
+- 2026-10-24: Added a second round of research (docs/research/05–07: World Anvil, other worldbuilding tools, novel-writing tools) with a summary in the research README. Nothing has been scheduled from it yet.
