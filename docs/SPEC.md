@@ -196,7 +196,7 @@ quarry/                      # public GitHub repo (code only)
 6–9. **The world model**: the bible as data, relationships, story time, graphs and the writing companion. Designed in [WORLD-MODEL.md](WORLD-MODEL.md), with the phases and their *done when* in its §9.
 
 10. **Revising and salvaging**: renames that keep the old name, chapter summaries and statuses, a cuts bin, reading one entry's thread, word history, changes since a checkpoint, and find and replace across chapters. Designed in §11, with a *done when* per part.
-11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, world entries and project entries, the *witnessed* type and *pronunciation* and *gender* facts, and labels and values (value suggestions, filtering by a value, a Labels page, labels with several values, expected labels). Designed in §12, with a *done when* per part.
+11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, world entries and project entries, the *witnessed* type, a *gender* field on characters and a *pronunciation* fact, and labels and values (value suggestions, filtering by a value, a Labels page, labels with several values, expected labels). Designed in §12, with a *done when* per part.
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -445,10 +445,10 @@ and a few days of word history to show.
 ## 12. More views of the bible (phase 11)
 
 Phase 10 served the manuscript. Phase 11 goes back to the bible, with new ways to look at what Quarry already
-stores: mentions, relationships, "is at" and the story order. Nothing new has to be filled in: the two new fields
-have defaults (a project's gap length, §12.1, and an entry's level, §12.4, which is set for you), §12.5 adds one
-relationship type and two suggested facts, and §12.6 makes the facts typed so far easier to keep consistent, with
-one small table of per-label switches.
+stores: mentions, relationships, "is at" and the story order. Nothing new has to be filled in: the new fields have
+defaults (a project's gap length, §12.1; an entry's level, §12.4, which is set for you; a character's gender, §12.5,
+not set until chosen), §12.5 also adds one relationship type and one suggested fact, and §12.6 makes the facts typed
+so far easier to keep consistent, with one small table of per-label switches.
 The ideas come from the second round of research ([research/README.md](research/README.md#second-round-competitors),
 "Cheap additions" and "Later"). The principles hold: nothing here writes or suggests story content, and anything
 worked out (gaps, kin, shared chapters) is shown, never stored.
@@ -529,15 +529,22 @@ A tree drawn from the parent/child and *married* relationships already recorded.
   - **sibling** (a shared parent; *half-sibling* when each also has a parent the other doesn't);
   - **grandparent / grandchild**, and *great-* for each generation further, up to four; beyond that, *ancestor* and
     *descendant*;
-  - **aunt or uncle / niece or nephew**, and **cousin** (children of siblings); more distant blood relatives are
+  - **parent's sibling / sibling's child**, and **cousin** (children of siblings); more distant blood relatives are
     just *relative*;
   - by marriage: **parent-in-law / child-in-law**, **sibling-in-law** (a spouse's sibling or a sibling's spouse), and
     **step-parent / stepchild** (a spouse's child who isn't their own).
-- **The words** follow the relative's *gender* fact as of the chosen chapter, where there is one: *sister*,
-  *grandfather*, *aunt*, *nephew*, *mother-in-law*, *stepdaughter*. Quarry has no gender field, so this reads a fact
-  labelled *gender* or *pronouns* (any capitals): *woman*, *female*, *f*, *she* … give the female word, *man*,
-  *male*, *m*, *he* … the male one. Anything else, or no such fact, gives the plain word (*sibling*, *parent's
-  sibling*, *sibling's child*). *Cousin* is the same for everyone. Recorded relationships keep their own labels.
+- **The words** follow the relative's *gender* field (§12.5), never a fact:
+  - *female*: mother, daughter, sister, half-sister, grandmother, granddaughter, aunt, niece, mother-in-law,
+    daughter-in-law, sister-in-law, stepmother, stepdaughter, wife;
+  - *male*: father, son, brother, half-brother, grandfather, grandson, uncle, nephew, father-in-law, son-in-law,
+    brother-in-law, stepfather, stepson, husband;
+  - *nonbinary* or *not set*: the general word, one per relation: parent, child, sibling, half-sibling, grandparent,
+    grandchild, parent's sibling, sibling's child, parent-in-law, child-in-law, sibling-in-law, step-parent,
+    stepchild, spouse.
+
+  *Cousin*, *relative*, *ancestor* and *descendant* are the same for everyone, and *great-* is added to any of the
+  grand- words. Recorded relationships keep their own labels. Free-text facts such as *pronouns* stay for nuance;
+  the tree doesn't read them.
 
   Two people related in two ways (cousins who marry) show both. A recorded relationship wins: if Isolde and Oswin
   have a recorded *sibling of*, the worked-out *sibling* isn't shown again.
@@ -558,9 +565,9 @@ A tree drawn from the parent/child and *married* relationships already recorded.
 chapter comes from the cards.
 
 *Done when* the tree centred on Mirelle shows three generations, with Varren and Seyla as a couple, Varren labelled
-*grandfather* and Isolde *aunt* (their *gender* facts say so); Isolde's page lists *brother: Oswin*, *niece:
-Mirelle* and *stepmother: Seyla*, dimmed and with their paths, while a relative without a *gender* fact gets the
-plain word; none of them adds a relationship row; and as of chapter 2 Seyla is in neither the tree nor Isolde's
+*grandfather* and Isolde *aunt* (their gender is set to male and female); Isolde's page lists *brother: Oswin*,
+*niece: Mirelle* and *stepmother: Seyla*, dimmed and with their paths, while a relative whose gender is nonbinary or
+not set gets the general word (*sibling*, *parent's sibling*); none of them reads a fact; none of them adds a relationship row; and as of chapter 2 Seyla is in neither the tree nor Isolde's
 list.
 
 ### 12.3 Entries across chapters
@@ -672,7 +679,7 @@ Road chosen she is listed under *In this book*, and with Ninefold chosen under *
 which moves her up in one click; a world with one project shows no levels; and exporting and restoring the world
 keeps each entry's level.
 
-### 12.5 Two small additions
+### 12.5 Three small additions
 
 - **Witnessed.** A new starting relationship type, character → event: *witnessed* / *witnessed by* (`Varren
   witnessed the Burning of the Quay`). It is not *took part in*: a witness was there and saw it, which is what "who
@@ -682,24 +689,43 @@ keeps each entry's level.
     world that has no character–event type already reading *witnessed* (either way, any capitals).
   - **Restore** keeps the export's own vocabulary, as now: a world restored from an export made before phase 11 has
     no *witnessed* until it is added on the types page.
-- **Pronunciation** and **gender.** *Pronunciation* is a suggested fact for characters and places (`VAR-en`), and
-  *gender* one for characters, which the family tree reads for its words (§12.2).
+- **Gender**, a structured field on characters only: a dropdown of *female*, *male*, *nonbinary* and *not set*.
+  - Optional, *not set* to start, edited on the entry page beside the kind. It is not time-bounded: it has no
+    *from* or *until*, unlike facts.
+  - The family tree reads it for its words (§12.2); *nonbinary* and *not set* give the general words.
+  - On the name's card it shows only when set, as one small word after the name, so an unset field adds nothing.
+  - An entry whose kind changes away from character keeps the value but doesn't show or use it.
+  - **Export** writes `gender:` into a character's frontmatter when set; **Restore** reads it back (anything else, or
+    nothing, means not set).
+  - **Existing worlds** start with every character *not set*; nothing is inferred from facts. The demo sets it for
+    some of its characters.
+  - It replaces a *gender* fact suggestion. A free-text *pronouns* fact stays suggested (§12.6.5) for nuance.
+- **Pronunciation.** A suggested fact for characters and places (`VAR-en`).
   - Suggested facts are a list in the code, not stored per world, so every world, old and new, offers it at once:
     no migration.
   - A fact labelled *pronunciation* (any capitals) is shown in small type after the name, on the entry page and on
     the name's card, and isn't repeated among the card's facts. Otherwise it is a fact like any other, exported as
     facts are.
 
-**Data:** no tables. One data migration adds the *witnessed* type to existing worlds.
+**Data:**
+
+```sql
+entities  + gender text NULL CHECK (gender IN ('female', 'male', 'nonbinary'))   -- NULL is not set
+```
+
+One data migration adds the *witnessed* type to existing worlds. `PATCH /entities/<id>` takes `gender`, and the cards
+carry it.
 
 *Done when*, after upgrading, an existing world's types page lists *witnessed* under Character–event; recording
 "Varren witnessed the Burning of the Quay" reads back as "witnessed by Varren" on the event; and a character's fact
-picker offers *pronunciation* and *gender*, and a pronunciation then shows beside the name on the card.
+picker offers *pronunciation*, which then shows beside the name on the card; and an existing world's characters show
+*Gender: not set*, setting Varren to *male* shows `male` on his card (a character not set shows nothing there), and
+exporting and restoring the world keeps it.
 
 ### 12.6 Labels and values
 
 Classification stays free-form. There are no fixed lists, no required fields, no forms per kind and no category
-trees: an event's type, a character's gender or a place's climate is a fact like any other, typed when it comes up
+trees: an event's type, a character's pronouns or a place's climate is a fact like any other, typed when it comes up
 while writing. What builds up that way already has a shape: the same labels come back for the same kind, with the
 same handful of values. These parts make that shape pay off without asking for anything up front.
 
@@ -807,9 +833,9 @@ two chips on his page and card and Checks lists no conflict; switched off, Check
 
 #### 12.6.5 Suggestions that grow with use, and expected labels
 
-- **New starting suggestions**: *type* for events, *pronouns* for characters (next to *gender* and *pronunciation*
-  from §12.5), both optional like every suggestion. `SUGGESTED_FACTS` is a list in the code, not stored per world, so
-  existing and new worlds offer them at once, with no migration.
+- **New starting suggestions**: *type* for events, *pronouns* for characters (next to *pronunciation* from §12.5;
+  gender is a field, not a fact), both optional like every suggestion. `SUGGESTED_FACTS` is a list in the code, not
+  stored per world, so existing and new worlds offer them at once, with no migration.
 - **Growing with use.** Every label in use is already offered for its kind. A label on **at least three** entries of
   a kind now counts as *common* for that kind:
   - it is listed with the starting suggestions, at the top of the label field, before labels used only once or
@@ -856,6 +882,7 @@ for that character only and *Add it* opens the fact on the entry.
 ```sql
 projects        + gap_chapters int default 5                         -- §12.1
 entities        + project_id NULL                                    -- §12.4; ON DELETE SET NULL; NULL is the world
+entities        + gender NULL (female | male | nonbinary)            -- §12.5; characters only; NULL is not set
 relation_types  + "witnessed" / "witnessed by" (character – event)   -- §12.5; added to every existing world
 fact_labels     (id, world_id, kind, label, several, expected, asked)  -- §12.6; only labels with a switch set
 ```
@@ -866,7 +893,7 @@ and `/labels` lists, renames and switches labels (§12.6). The mentions strip, t
 common labels and missing-label findings are worked out when read, never stored.
 
 **Phase 11 is done when** each part's *done when* above holds, and the demo world has a family of three
-generations (with a cousin worked out, and *gender* facts for the words), an entry in each of its two projects'
+generations (with a cousin worked out, and gender set for some of them), an entry in each of its two projects'
 bibles, a *witnessed* and a pronunciation, and events with a *type* (one label with several values, one marked
 expected) to show.
 
