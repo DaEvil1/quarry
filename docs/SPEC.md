@@ -634,9 +634,15 @@ world, so a name always means one entry, whichever book it is read in.
 
 **Where it shows:**
 
-- **Bible lists.** Each kind's table gets a *Project* column and a filter: *All projects*, one project (its own
-  entries and the world's, not other projects'), or *World only*. *All projects* is the default, the choice is
-  remembered on the device, and the counts in the nav stay counts for the whole world.
+- **Bible lists show everything, the current book first.** Nothing is hidden: the world's entries and every
+  project's are listed in every book. With a project chosen in the switcher, each kind's table has two groups:
+  - **In this book**: entries named in its current chapters, and entries in its own bible even if not named yet;
+  - **Elsewhere**, dimmed below them, each with a small tag for where it is used: `only in The Salt Road`,
+    `in 2 other books`, or `not named yet`.
+
+  Within a group the table sorts as it does now (by name, or by a column clicked). A *Level* column shows *World* or
+  the project. Search covers both groups. With no project chosen, or with one project in the world, there is one
+  group, as today. The counts in the nav stay counts for the whole world.
 - **Pickers** in a chapter (*is at*, *Link to…*, the editor's strips) list the chapter's own project's entries and
   the world's first, other projects' after them, labelled with their project.
 - **Views.** When the grid (§12.3) is limited to a project, its kind rows leave out other projects' entries (entries
@@ -656,10 +662,12 @@ entities  + project_id NULL                   -- ON DELETE SET NULL; NULL is the
 ```
 
 The cards on the device carry it too, for the Archivist, the pickers and the editor's new entries.
-`PATCH /entities/<id>` takes `project`.
+`PATCH /entities/<id>` takes `project`, and the bible's list of entries gains, per entry, the projects whose current
+chapters name it (from the stored mentions), for the two groups and their tags.
 
-*Done when* Mirelle, added as a new name from a Salt Road chapter, starts in The Salt Road's bible and shows under
-its filter but not Ninefold's; naming her in a Ninefold chapter makes the Archivist offer *Share with the world*,
+*Done when* Mirelle, added as a new name from a Salt Road chapter, starts in The Salt Road's bible; with The Salt
+Road chosen she is listed under *In this book*, and with Ninefold chosen under *Elsewhere*, tagged
+`only in The Salt Road`; naming her in a Ninefold chapter makes the Archivist offer *Share with the world*,
 which moves her up in one click; a world with one project shows no levels; and exporting and restoring the world
 keeps each entry's level.
 
@@ -705,11 +713,8 @@ bibles, a *witnessed* and a pronunciation to show.
 
 ### 12.7 Open questions for phase 11
 
-- **Tidying existing entries.** Every entry is in the world's bible after the upgrade. Is a one-time tidy wanted (the
-  bible table shows the entries named in one project only, and moves the chosen ones there in one go), or is moving
-  them by hand, as they come up, enough?
-- **The bible's default filter.** *All projects* to start, remembered on the device. Should it follow the project
-  chosen in the switcher instead (that project's entries and the world's)?
+None left. Existing entries all start in the world's bible and need no tidying: what is there today is test worlds
+and the demo, which sets its own levels.
 
 ## 13. Out of scope (for now)
 
