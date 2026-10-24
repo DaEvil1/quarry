@@ -200,7 +200,7 @@ quarry/                      # public GitHub repo (code only)
 
 10. **Revising and salvaging**: renames that keep the old name, chapter summaries and statuses, a cuts bin, reading one entry's thread, word history, changes since a checkpoint, and find and replace across chapters. Designed in §11, with a *done when* per part.
 11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, world entries and project entries, the *witnessed* type, a *gender* field on characters and a *pronunciation* fact, and labels and values (value suggestions, filtering by a value, a Labels page, labels with several values, expected labels). Designed in §12, with a *done when* per part.
-12. **Time, history and kinds of being**: in-world time on one axis under the chapters (a sortable number with a free label), chapters set in time and marked as told as a tale or flashback, facts, relationships and the checks read in happened order, a Timeline with happened and told orders, history, recording an event from a passage, ages, Species as a ninth kind, roles in groups with a one-at-a-time check, more starting vocabulary, and restructuring (experiments across several chapters, and a review of everything tied to chapters before they are retired). Designed in §13, with a *done when* per part; suggested as three phases, 12a–12c (§13.8).
+12. **Time, history and kinds of being**: in-world time on one axis under the chapters (a sortable number with a free label), chapters set in time and marked as told as a tale or flashback, facts, relationships and the checks read in happened order, a Timeline with happened and told orders, history, recording an event from a passage, ages, Species as a ninth kind, roles in groups with a one-at-a-time check, more starting vocabulary, and restructuring (experiments across several chapters, and a review of everything tied to chapters before they are retired). Designed in §13, with a *done when* per part; built as three phases, in the order 12c, 12a, 12b (§13.8).
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -942,6 +942,11 @@ Drowned Bell*, is a tale Isolde tells, set 800 years before the Founding, and Se
 - **Approximate**: a tick, *about*. Shown as `about year 312`; it sorts by its number like any other, and anything
   worked out from it (an age, a gap) says *about* too.
 - **A span**, optional: a second number for where it ends, `years 300–302`. Spans sort by their start.
+- **Three states.** A time is *a time* (a number, as above), *not set*, or **outside time**: for what is at no point
+  on the world's axis, such as planes beyond the world, an afterlife, visions, dreams, myths and prophecies
+  (§13.1.8).
+- **Its era.** A time inside an era's span is shown with the era's tint and name, wherever it appears:
+  `year 312 · the Lamp Years` (§13.2.1).
 
 The same time field (number, end, label, about) is used for chapters (§13.1.2) and events (§13.2.1). Bounds on
 facts and relationships use the number and the tick (§13.1.5).
@@ -1065,24 +1070,63 @@ mark without a time).
   (§13.4) compare on the clock.
 - A finding's chapter is still the chapter it is about, and Checks still lists findings by that chapter in book
   order.
+- **A computed age that disagrees with an *age* fact** (§13.2.4) is a finding too.
+
+#### 13.1.8 Outside time
+
+Some things are at no point on the world's axis: a plane beyond the world, an afterlife, a vision or a dream, a myth
+that is told but never happened, a prophecy. **Outside time** is the time field's third choice, beside a time and
+*not set*.
+
+- **What can be outside time.**
+  - A **chapter** (*set in: outside time*): a chapter in the Hollow Court, beyond death. It needs no tale or flashback
+    mark, though it may have one.
+  - An **event** (*when: outside time*): the Prophecy of the Second Lamp, the myth of the Drowned Bell.
+  - A **fact** or a **relationship** (a tick, *outside time*, in place of *from* and *until*): Seyla *rules* the Hollow
+    Court, outside time; *title: Queen of the Hollow Court*, outside time. It has no bounds.
+- **Never on the axis.** Outside time has no number and no era, so it is never placed, never compared and never
+  carried on:
+  - happened order leaves outside-time chapters out of the clock; lists in happened order show them after it, under
+    *Outside time*, in book order (the grid's happened order too);
+  - an unset chapter after one carries on from the last chapter before it that has a time and no mark, as if the
+    outside-time chapter weren't there;
+  - the Continuity checks skip outside-time chapters, facts and relationships: no *named after death* in the Hollow
+    Court, no *two values at once* between an outside-time title and one in time, no role clash, no age conflict;
+  - no age is worked out in an outside-time chapter or for an outside-time event.
+- **As of.** An outside-time fact or relationship is **always shown**, whatever chapter or time is chosen, labelled
+  `outside time`. It never takes over from a value in time, and is never taken over by one; a label that holds one
+  value shows both, the one in time first.
+  - *As of* an outside-time chapter shows the outside-time facts and relationships and those with no bounds; those
+    bounded in time are left out, and a line says so: `Outside time: what changes over time isn't shown`.
+- **Shown** as `outside time`, in a neutral tint, wherever a time would be.
+- **On the Timeline** it has its own strip, apart from the axis (§13.2.2).
+- **Export** writes `time: outside` for a chapter or an event, and `outside_time: true` for a fact or relationship
+  (with no `from`/`until`); **Restore** reads them back.
+
+*Done when* chapter 21, *The Hollow Court*, set outside time, names Seyla (dead from chapter 9) with no finding and
+no age on her card; *title: Queen of the Hollow Court*, outside time, shows on her page as of chapter 2, chapter 14
+and year 0 alike, labelled `outside time`, and Checks finds no conflict with her *title: Lady of Old Harbour*; chapter
+22, with no time, carries on from the last timed chapter before 21; the Prophecy of the Second Lamp, outside time,
+sits in the Timeline's outside-time strip; and exporting and restoring the world keeps all three.
 
 **Data:**
 
 ```sql
 worlds        + time_unit text default 'year', time_units text default 'years'
 chapters      + time_at numeric NULL, time_end numeric NULL, time_label text NULL,
-                time_approx bool default false,
+                time_approx bool default false, outside_time bool default false,   -- outside: no time_at
                 told_as text NULL CHECK (told_as IN ('flashback', 'tale'))
 facts         + from_time numeric NULL, from_approx bool default false,
-                until_time numeric NULL, until_approx bool default false
-relationships + from_time, from_approx, until_time, until_approx        -- as for facts
+                until_time numeric NULL, until_approx bool default false,
+                outside_time bool default false                                    -- outside: no bounds
+relationships + from_time, from_approx, until_time, until_approx, outside_time     -- as for facts
               -- for both: CHECK (from_chapter_id IS NULL OR from_time IS NULL), and the same for until
 ```
 
 `GET /timeline` gains per chapter its time, mark, set time and `clock` (its place in happened order); the browser's
 `holds` and `factsAsOf` (`world/time.ts`) and the server's checks compare clock places instead of book indexes, and
 time bounds against set times. `story_order` keeps book order beside a new `clock_order`. **Export** writes a
-chapter's `time:` (`at`, `end`, `label`, `approx`) and `told_as:`, the time bounds of facts and relationships
+chapter's `time:` (`at`, `end`, `label`, `approx`, or `outside`) and `told_as:`, the time bounds of facts and relationships
 (`from_time:`, `until_time:` and their `approx`), and the unit into `world.md`. **Restore** reads them back; an older
 export has none, which is today's behaviour.
 
@@ -1100,7 +1144,8 @@ before (the existing tests pass unchanged).
 - **When.** An event's page has *When* beside the kind, with two choices:
   - **in a chapter**: the event happens on the page in that chapter, takes the chapter's set time and follows it when
     it changes. With no times in the world it still has a place: that chapter, in book order;
-  - **a time**: the time field of §13.1.1 (number, end, label, about), for anything off the page, such as history.
+  - **a time**: the time field of §13.1.1 (number, end, label, about), for anything off the page, such as history;
+  - **outside time** (§13.1.8), for myths, prophecies, visions.
 
   Or empty: *not placed yet*. The Events table gets a *When* column that sorts in happened order.
 - The suggested fact *when* gives way to the field. Existing *when* facts stay, as facts (a festival's "every spring"
@@ -1108,51 +1153,67 @@ before (the existing tests pass unchanged).
 - **History** is what happened before the story: events, births and deaths set before the first chapter on the
   clock (chapters marked as tales or flashbacks don't count as the story's start). It is a view of the Timeline
   (§13.2.2), not a separate store.
-- **Eras** are events too: an event whose *type* (§12.6) is *era*, whatever the capitals, with a span, is drawn as a
-  background band on the Timeline, and can be picked as a filter. Nothing else is set up for them; *era* is among the
-  starting values for an event's type (§13.5). An era named in the prose is matched like any other entry.
+- **Eras** are events too: an event whose *type* (§12.6) is *era*, whatever the capitals, with a span. Being events,
+  they have a page, mentions and relationships for free; an era named in the prose is matched like any other entry.
+  *Era* is among the starting values for an event's type (§13.5).
+  - **A colour.** An era's page has a colour, picked from a palette of eight that works in both themes (each a pair
+    of tokens, light and dark, like the kind colours). A new era takes the next colour not yet used.
+  - **Its span.** An era with a start and no end runs on to the end of time (the era the book is in, say). An era
+    inside another's span is **nested** in it.
+  - **A time's era** is the innermost era whose span holds it; between two eras that overlap without nesting, the one
+    that starts later.
+  - **Every time shown carries its era**: its tint and its name, `year 312 · the Lamp Years`, wherever a time is
+    shown: the manuscript list, the editor's side panel, the *as of* selector, an event's *When* and the Events
+    table, spans (`from year 278 · the Long Ebb`), the name's card, an entry's own timeline and the Timeline. A time
+    in no era is shown plain, and outside time has none. A world without eras looks as it did.
+  - On the Timeline eras are background bands, nested ones thinner inside them (§13.2.2), and can be a filter or a
+    lane.
 
 #### 13.2.2 The Timeline page
 
-One page for the world: `/w/<world>/timeline`, in the nav after *Graph*.
+One page for the world: `/w/<world>/timeline`, in the nav after *Graph*. How it looks and moves is in the design
+brief (§13.2.6).
 
 - **Two orders**, a switch at the top, as in Aeon Timeline (research/06 §7): **Happened** (the default once anything
   has a time) and **Told**. Moving something in one order never moves it in the other.
-- **Happened.** Time runs down the page.
-  - Rows are evenly spaced, not to scale: 800 years and a week each take one gap, and the gap says how long it is
-    (`· 512 years ·`). Things at the same time share a heading.
-  - **Events**: name (coloured as an event), type, the people in it, small. An event with a span has a bar in the
-    margin from its start to its end.
-  - **Chapters, as a band.** The stretch from the book's first to its last chapter by set time (tales and flashbacks
-    aside) is shaded *the book*; its chapters are folded into one line per project (`The Salt Road · chapters 1–13 ·
-    year 312`) that opens to one row each. A tale or flashback sits at its own time with its mark: `14 · The Drowned
-    Bell — tale`.
+- **Happened.** Time runs left to right along one axis; lanes are rows across it.
+  - **To scale, with gaps folded.** The axis is to scale, except that a long stretch with nothing in it is folded to
+    a fixed width and labelled with its length (`· 512 years ·`), so 800 empty years don't push the book off the
+    screen. Folds are worked out again as the zoom changes.
+  - **Eras** are painted as background bands across every lane, in their colours, named along the top; an era nested
+    in another is a thinner band inside it. The axis's labels carry their era's tint.
+  - **Events**, the main lane: each event a mark (an event with a span, a bar), with its name beside it where there is
+    room; type and the people in it on its card.
+  - **The book**, a lane of its own: the chapters as ticks at their set times, and the stretch from the book's first
+    to its last chapter by set time (tales and flashbacks aside) shaded *the book*. A tale or flashback is a marked
+    tick at its own time: `14 · The Drowned Bell — tale`.
   - **Births and deaths**, from facts (the start of a *born* fact; the start of the *status* fact the Continuity check
-    reads as dead) or from events whose type is *birth* or *death* (§13.5) and who they involve.
-  - **Movements** from "is at", each at its chapter's set time, shown in lanes and when the page is filtered to
-    entries (otherwise there would be one row per character per chapter).
-  - **Eras** as bands behind the rows, named at the left; an era inside another sits inside its band.
-  - **Not placed yet**: events with no time, listed at the end, each with *When…* to set it in place.
-- **Told.** Rows are the chapters in book order, each with its set time and mark. A thin margin shows where each
-  chapter sits in happened order, so a flashback is a jump to the left. Under each chapter: the events told in it
-  (§13.2.3), the events happening in it, and births and deaths recorded from it. Events never told and not in any
-  chapter are listed at the end, *Not in the book yet*.
+    reads as dead) or from events whose type is *birth* or *death* (§13.5) and who they involve. They show in the
+    characters' lanes, and in the main lane when the page is filtered to entries.
+  - **Movements** from "is at", each at its chapter's set time, in the characters' lanes (and in the main lane when
+    filtered to entries; otherwise there would be one mark per character per chapter).
+  - **Outside time**: a strip of its own under the axis, not on it and not to scale: the outside-time events and
+    chapters in book order, and each lane's own outside-time items in line with that lane (§13.1.8).
+  - **Not placed yet**: a tray at the end with the events that have no time, each with *When…* to set it in place.
+- **Told.** Rows are the chapters in book order, each with its set time (tinted by its era) and mark. A thin margin
+  shows where each chapter sits in happened order, so a flashback is a jump to the left and a chapter outside time
+  sits apart. Under each chapter: the events told in it (§13.2.3), the events happening in it, and births and deaths
+  recorded from it. Events never told and not in any chapter are listed at the end, *Not in the book yet*.
 - **History** is a tab: the happened view cut off where the book begins. With no chapter times it shows the events
   with a time, and says `Set a time on a chapter to place the book among them`.
-- **Lanes**, optional: *Lanes…* adds characters or factions as narrow columns beside the main one, kept in the
-  address (up to 6 on the desk, 2 on the phone).
+- **Lanes**, optional: *Lanes…* adds a lane per character, faction or era, kept in the address (any number; they
+  scroll).
   - A **character's lane**: a life line from birth to death (fading out where either is unknown), the places over
-    time (each run of chapters with the same "is at" one segment, named; *lives in* spans fainter), and a dot for each
-    event they are related to, with their age at it when it can be worked out (§13.2.4).
+    time (each run of chapters with the same "is at" one segment, named; *lives in* spans fainter), and a mark for
+    each event they are related to, with their age at it when it can be worked out (§13.2.4).
   - A **faction's lane**: its events, its members joining and leaving (*member of* spans), and who held each role
     when (§13.4).
-- **Filters**, kept in the address, the last used remembered per world on the device: kinds of row (events,
-  chapters, births and deaths, movements), entries (only rows about them, with the grid's picker), an era (only its
+  - An **era's lane**: the events within its span, and the eras nested in it.
+  - Every lane **collapses** to a thin line with its counts (`Seyla · 12 events · 4 places`) and opens again; which
+    lanes are collapsed is kept in the address.
+- **Filters**, kept in the address, the last used remembered per world on the device: kinds of mark (events,
+  chapters, births and deaths, movements), entries (only marks about them, with the grid's picker), an era (only its
   span), and standing (planned and rumour, as on the Graph).
-- Clicking a row opens it: an event's page, a chapter at its passage, an entry at its fact.
-- **Drawn in the browser**, plain HTML and SVG, no library, from the cards, the graph's relationships and one new
-  read (presence and tellings). It reads online, like the Graph. On the phone it is one column that scrolls down; the
-  lanes scroll sideways inside their card.
 
 #### 13.2.3 Recording from the prose
 
@@ -1200,7 +1261,14 @@ One page for the world: `/w/<world>/timeline`, in the nav after *Graph*.
 - **Shown** on the name's card (`age 34`, as of this chapter), on the entry page beside the facts (`34 as of chapter
   9 · born year 278`), in the character's lane, and on the entry's own timeline. After the death time: `died at 61`.
   Before the birth time: `not born yet`.
-- An *age* fact stays a fact. When both exist, both are shown; nothing compares them.
+- An *age* fact stays a fact, and both are shown. When they **disagree**, it is a **Continuity** finding:
+  `Tamsin is 17 in "The Crossing" by her age, but born in year 390 makes her 22.`
+  - The *age* fact as of the chapter is read as a number when its value starts with one (`17`, `about 60`); a value
+    that doesn't (`old`, `in her thirties`) is never compared.
+  - They disagree when they differ by more than one unit (a birthday later in the year isn't a clash); with *about*
+    on either side, by more than one unit plus a tenth of the age.
+  - Canon facts only, chapters on the clock only (not tales or flashbacks without a time, not outside time).
+  - Resolved like any finding: *update the fact*, *intentional*, *later*.
 
 #### 13.2.5 An entry's own timeline
 
@@ -1217,22 +1285,65 @@ in happened order, each row with its time.
 It follows the page's *as of*: rows after it on the clock are dimmed. *Open in the Timeline* opens the page with this
 entry's lane.
 
+#### 13.2.6 The Timeline's design (brief)
+
+The Timeline should look good, be pleasant to move around in, and pack a lot in without clutter. Time is coloured by
+its era. What it has to do:
+
+- **Zoom and pan.** Wheel or pinch zooms around the pointer, dragging pans, `+` `−` and the arrow keys do the same,
+  and *Fit* shows everything. Double-clicking a cluster or an era zooms to it.
+- **Semantic zoom.** What is drawn depends on how far in you are:
+  - up close, every event, birth, death and move is its own mark with its name;
+  - further out, marks that would overlap merge, per lane, into a **cluster** with a count and a breakdown
+    (`14 events · 3 births · 2 moves`);
+  - furthest out, the eras, the book's band and the clusters' counts.
+- **Collapsible lanes**, per character, faction or era (§13.2.2).
+- **Hover cards.** Resting on a mark (a long-press on the phone) shows the **same card component as the editor's**
+  (WORLD-MODEL.md §5): the one-liner, facts as of that time, the closest relationships. A chapter's card has its
+  title, summary, set time and status; a cluster's lists what is in it. The card never takes focus.
+- **Click through.** Clicking a mark opens it: an entry's page, a chapter in the editor at its passage, a fact on its
+  entry.
+- **Brushing.** Dragging along the axis (or in the overview) marks a span. The other lanes dim outside it, and the
+  list under the Timeline, *In this span* (events, chapters, births and deaths, moves, with counts), shows only what
+  is in it. The span says its length and era (`year 290–312 · 22 years · the Lamp Years`), is kept in the address,
+  and is cleared with Esc or its `×`.
+- **An overview strip** above the axis: the whole timeline, small, with the eras in their colours, how dense the marks
+  are, and the book's band, and the part on screen as a frame that can be dragged and resized.
+- **Smooth at a few thousand items.** The layout is worked out once per change of data; panning and zooming move a
+  transform, and the clusters are worked out again only when the zoom crosses a step, so no more than a few hundred
+  marks are drawn at any zoom. Budget, as for typing (DECISIONS, 2026-10-22): pan and zoom at 60 frames a second with
+  3,000 items on the desk, no frame over 50 ms at 4× slower CPU, and the first drawing within a second.
+- **On the phone**, the same axis: pinch to zoom, drag to pan, lanes stacked and scrolling down, the overview on top.
+- **By keyboard**, arrow keys move from mark to mark, and the *In this span* list reaches everything shown.
+- Drawn in the browser, plain SVG, no library, as the graph and the family tree are, from the cards, the graph's
+  relationships and `GET /chronology`. It reads online, like the Graph.
+
+*Done when*, in a world of 3,000 events (a fixture made up for the purpose, like the editor's `frontend/perf`):
+zooming out from one year to the whole world merges marks into clusters with counts and zooming back in splits them
+into named marks, within the budget above; eras are painted as bands in their colours, a nested era thinner inside
+its parent, and a time on the manuscript list reads `year 312 · the Lamp Years` in that era's tint; collapsing
+Seyla's lane leaves a line with her counts; resting on an event shows the editor's card for it and clicking opens its
+page; brushing years 290–312 dims everything outside and leaves only that span in *In this span*; and dragging the
+overview's frame pans the Timeline.
+
 **Data:**
 
 ```sql
 entities  + time_at numeric NULL, time_end numeric NULL, time_label text NULL,
-            time_approx bool default false,
-            time_chapter_id NULL                -- events: "in a chapter" (ON DELETE SET NULL) or a time, not both;
-                                                -- kept, unused, if the kind changes
+            time_approx bool default false, outside_time bool default false,
+            time_chapter_id NULL,               -- events: "in a chapter" (ON DELETE SET NULL), a time, or outside
+                                                -- time, one of them; kept, unused, if the kind changes
+            era_colour text NULL                -- eras: one of the palette's eight names
 tellings  (id, world_id, event_id, chapter_id NULL,   -- ON DELETE SET NULL
            passage text, created_by, created_at)
 ```
 
-The cards carry an event's time. `GET /chronology` returns the world's "is at" rows and tellings for the Timeline;
-the rest is worked out in the browser from the cards, `GET /timeline` and `GET /graph`. `POST /events/record` saves
-*Record as event* in one transaction and answers with what it added, for Undo. **Export** writes an event's `when:`
-(a chapter id, or the time) and `tellings:` (chapter and passage) into its frontmatter; **Restore** reads them back
-and relinks the chapters by id.
+The cards carry an event's time, and each era's span and colour, so a time's era is found on the device.
+`GET /chronology` returns the world's "is at" rows and tellings for the Timeline; the rest is worked out in the
+browser from the cards, `GET /timeline` and `GET /graph`. `POST /events/record` saves *Record as event* in one
+transaction and answers with what it added, for Undo. **Export** writes an event's `when:` (a chapter id, the time,
+or `outside`), an era's `colour:`, and `tellings:` (chapter and passage) into its frontmatter; **Restore** reads them
+back and relinks the chapters by id.
 
 *Done when* selecting the passage in chapter 2 where Varren tells how the Lamp Guild was founded and choosing *Record
 as event* offers the guild, Seyla and Isolde (the names in it) as chips, and saves *The Founding* with year 0, its
@@ -1399,6 +1510,10 @@ sure that retiring a chapter never quietly changes what the bible says.
   asks for a title and how to begin: *from scratch* (one empty draft) or *from copies* (a draft copied from each
   chapter in the range, each with a `start` revision, §11.5). Starting from the editor, as today, is a range of one.
   The range is a run of current chapters in one project.
+- **Only adding.** A range can also be **none**, placed before or after a chapter: *Add chapters here…* before
+  chapter 1 starts *New prologue*. Its drafts are written alongside in the same way; accepting inserts them at that
+  place and retires nothing, so there is no review; harvesting or rejecting retires the drafts as for any
+  experiment.
 - **Writing alongside the book.** The drafts are written beside the current book without changing it: the current
   chapters stay current, in the book, the compiled manuscript and every count. The drafts are outside the story
   order, as experiments are today.
@@ -1412,7 +1527,8 @@ sure that retiring a chapter never quietly changes what the bible says.
     range in the editor's chapter switcher; they are still in the book.
 - **On the manuscript list** the range gets a quiet bracket, and the experiment shows under its last chapter as the
   alternative to it: `↳ New beginning · replaces 1–5 (14.2k words) · 3 drafts (9.4k)`, opening to its drafts in order,
-  each with its summary and status. *Read as if accepted* opens the book read-only with the drafts in place of the
+  each with its summary and status; one that only adds shows at its place: `↳ New prologue · adds 2 drafts before
+  chapter 1`. *Read as if accepted* opens the book read-only with the drafts in place of the
   range (the reading of §11.4 takes the same switch).
 - **Several experiments** may cover the same chapters. When one is accepted, any other whose range has lost
   chapters says so (`2 of its chapters were replaced by "New beginning"`) and can be given a new range.
@@ -1429,19 +1545,23 @@ sure that retiring a chapter never quietly changes what the bible says.
 
 ```sql
 experiment_ranges  (item_id, chapter_id, position)    -- the current chapters an experiment would replace, in order
+items              + insert_at_chapter_id NULL, insert_side text NULL   -- an experiment that only adds:
+                                                       -- 'before' or 'after' that chapter (ON DELETE SET NULL)
 chapters           - replaces_id                       -- moved into experiment_ranges by the migration
                    -- a draft's position is its place among its experiment's drafts
 ```
 
 The migration turns each existing experiment's `replaces_id` into a range of one. **Export** writes the experiment
-item's `replaces:` (a list of chapter ids) and each draft's `item:` and `position:`; **Restore** reads them back, and a
+item's `replaces:` (a list of chapter ids) or `insert:` (`before:` or `after:` a chapter id) and each draft's `item:`
+and `position:`; **Restore** reads them back, and a
 draft in an older export with `replaces: <id>` gives its experiment a range of that one chapter.
 
 *Done when* an experiment *New beginning* for chapters 1–5 starts from copies, gets a sixth draft and a new order,
 shows on the manuscript list as the alternative to 1–5 while the book, its word count and `manuscript.md` are
 unchanged; *Read as if accepted* shows the drafts in place of 1–5; accepting it puts the six drafts at the start of
-the book and the five old chapters in Salvage, after the review and the harvest-note prompt; and an existing
-single-chapter experiment still accepts as before.
+the book and the five old chapters in Salvage, after the review and the harvest-note prompt; *New prologue*, adding
+two drafts before chapter 1, accepts with no review and leaves every chapter current; and an existing single-chapter
+experiment still accepts as before.
 
 #### 13.6.2 A review before anything is retired
 
@@ -1462,7 +1582,8 @@ been seen.
     or the one it carries on; the row says which, `from year 312`); if it has none, that bound goes and the row holds
     throughout on that side (the row says so: `will hold from the start`). When other chapters of the book share that
     set time, the bound would take them in too, so the row says so (`chapters 1–13 are all set in year 312`) and
-    starts on *move* instead. An event in the chapter takes its time, or
+    starts on *move* instead. For example: Isolde *lives in* Old Harbour *from chapter 3*; chapter 3 is retired and
+    has no time; *keep* makes it hold from the beginning of the story. An event in the chapter takes its time, or
     becomes *not placed yet*. Evidence, tellings, item links, "is at" and the note stay pointing at the chapter, which
     is still there, in Salvage.
   - **Move to another chapter**: pick one; the bound, evidence or link points at it instead. The pick is set for you
@@ -1529,16 +1650,19 @@ for good.
 ```sql
 worlds          + time_unit, time_units                                   -- §13.1; 'year' / 'years'
 chapters        + time_at, time_end, time_label, time_approx, told_as     -- §13.1; told_as: flashback | tale
+chapters, entities, facts, relationships + outside_time bool              -- §13.1.8
 facts           + from_time, from_approx, until_time, until_approx        -- §13.1; a bound is a chapter or a time
 relationships   + from_time, from_approx, until_time, until_approx        -- §13.1
 relationships   + role NULL                                               -- §13.4
 relation_types  + has_role bool                                           -- §13.4
 roles           (id, world_id, role, one_at_a_time)                       -- §13.4; only roles with the switch set
 entities        + time_at, time_end, time_label, time_approx, time_chapter_id   -- §13.2; events
+entities        + era_colour NULL                                         -- §13.2.1; eras, one of eight
 entities.kind   + 'species'                                               -- §13.3
 tellings        (id, world_id, event_id, chapter_id NULL, passage, created_by, created_at)   -- §13.2
 relation_types  + species types, possesses, ancestor of                   -- §13.3, §13.5; every existing world
 experiment_ranges (item_id, chapter_id, position)                         -- §13.6.1; replaces chapters.replaces_id
+items           + insert_at_chapter_id, insert_side                       -- §13.6.1; experiments that only add
 retire_reviews  (id, world_id, chapter_ids, changes, created_by, created_at)   -- §13.6.2; for Undo and Reinstate
 ```
 
@@ -1547,52 +1671,43 @@ Endpoints: `GET /timeline` gains each chapter's time, mark, set time and clock p
 time bounds; relationships take `role`; `/labels` gains roles (§13.4); experiments take a range and drafts; `GET
 /chapters/ties` lists what is tied to chapters, and retiring and closing an experiment take the review's choices
 (§13.6). Happened order, set times, history, ages, lanes, species beside a name, kin across an ancestor link and the
-ties of a chapter are worked out when read, never stored.
+ties of a chapter, a time's era and the Timeline's clusters are worked out when read, never stored.
 
 **Phase 12 is done when** each part's *done when* above holds, and the demo world (The Ninefold Delta) shows it:
 its chapters set in years (the book in year 412, Ash Season a year on), a short tale chapter set forty years before,
 in which a character recorded dead in the present appears without a finding; a few events of history, one of them
-recorded from a passage with its telling, and an era; births for some of the family, so ages show; species (human,
+recorded from a passage with its telling, two eras in their colours (one nested in the other) and a prophecy
+outside time; births for some of the family, so ages show; species (human,
 dog, and one made up for the delta) with an *is a*, an *appears as* and a *native to*; the Warden-Captain as a role
 on the River Wardens marked one at a time, with one clash planted; an ancestor link in the family; an experiment
 across two chapters of Ash Season; and a retired chapter with a fact still tied to it and an evidence passage in it.
 
-### 13.8 One phase or three
+### 13.8 Three phases
 
-With restructuring, phase 12 is too big for one go. Three phases are suggested, in this order:
+Phase 12 is built as three phases, **in this order**, by one build session, one after another, as **stacked pull
+requests**: 12c's off master, 12a's off 12c's branch, 12b's off 12a's.
 
-- **12a, time and restructuring** (§13.1, §13.6): the clock, chapter times and marks, time bounds, the checks on the
-  clock, experiments across several chapters, the review before retiring, and evidence in Salvage. This is what a new
-  beginning needs before it is written: times to anchor facts to, and a review so that retiring the old chapters
-  changes nothing quietly. It also fixes the tale chapters' findings, which are wrong today.
-- **12b, history and the timeline** (§13.2): event times and eras, the Timeline page with History and lanes, *Record
-  as event*, *Set born/died here*, ages and an entry's own timeline. It builds on 12a's clock.
-- **12c, species, roles and vocabulary** (§13.3–§13.5): one kind, one field with a switch, one small table, a
-  migration of types and starting values. Small, and it doesn't need the others.
+1. **12c, species, roles and vocabulary** (§13.3–§13.5): one kind, one field with a switch, one small table, a
+   migration of types and starting values. Small, and it needs nothing from the others.
+2. **12a, time and restructuring** (§13.1, §13.6): the clock, chapter times and marks, outside time, time bounds, the
+   checks on the clock, experiments across several chapters (and ones that only add), the review before retiring,
+   and evidence in Salvage. This is what a new beginning needs before it is written: times to anchor facts to, and a
+   review so that retiring the old chapters changes nothing quietly. It also fixes the tale chapters' findings.
+3. **12b, history and the timeline** (§13.2): event times, eras and their colours, the Timeline page and its design,
+   History, *Record as event*, *Set born/died here*, ages and the age check, and an entry's own timeline. It builds
+   on 12a's clock.
 
-What a part needs from a later one waits quietly: before 12b, the review has no events or tellings to list and the
-Archivist no tellings; before 12c, the Timeline has no species or roles to show. 12c can go first if a short phase is
-wanted; 12a then 12b otherwise. If restructuring is not needed soon, §13.6 can move into 12b instead, leaving 12a as
-time alone.
+What a part needs from a later one waits quietly: until 12a the role check compares in book order; until 12b an
+ancestor link says `generations not recorded` (no birth times are worked out yet), the review has no events or
+tellings to list, and the Archivist no tellings. Each phase updates the demo world with its own parts, and each
+pull request lists what it leaves for the next.
 
 ### 13.9 Open questions for phase 12
 
-Settled: the kind is called **Species**.
-
-1. **A tale or flashback with no time** is read as set before the story, and the checks skip it (§13.1.3). Is that
-   the right default, or should it carry on from the chapter before it until a time is set?
-2. **Eras as events** with the type *era* (§13.2.1), rather than a list of their own on the world page. Events give
-   them a page, mentions and relationships for free; is there anything an era needs that an event can't hold?
-3. **One at a time per role across the world** (§13.4): a Captain is one at a time in every group. Is that enough, or
-   does a role need the switch per type (one Captain per ship, many per army)?
-4. **Ages and the age fact.** When a computed age and an *age* fact disagree, should that be a Continuity finding
-   (Talmaara's "impossible ages", research/06 §9)? As spec'd, both are shown and nothing compares them.
-5. **Keep without a time** (§13.6.2): a bound on a retired chapter with no set time goes, so the row holds throughout
-   on that side. Is that the right *keep*, or should *keep* rather mean the neighbouring chapter (which *move*
-   preselects)?
-6. **An experiment that only adds** chapters, replacing none (a prologue before chapter 1), isn't covered: today that
-   is just writing a new chapter. Is a range of none, placed before or after a chapter, wanted?
-7. **Three phases** (§13.8), and in which order.
+None left. Thomas's answers are in DECISIONS.md (2026-10-25): the kind is called Species; a tale or flashback with no
+time is set before the story; *outside time* is a third kind of time; eras stay events, with a colour that tints every
+time shown; one at a time per role across the world; a computed age that disagrees with an *age* fact is a finding;
+*keep* without a time holds throughout; an experiment may only add; and the build order is 12c, 12a, 12b.
 
 ## 14. Out of scope (for now)
 

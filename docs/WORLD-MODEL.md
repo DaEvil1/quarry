@@ -116,6 +116,11 @@ The **chapter is the clock**, and from phase 12 the chapters can be set in **in-
 - A chapter can say **when it is set**: one sortable number in the world's unit (years by default), with an optional
   free label (`800 years before the Founding`), an *about* tick and an optional end. There is no calendar: no months,
   moons or date arithmetic, only numbers that sort. A chapter can also be marked as **told as a tale or flashback**.
+- A time can also be **outside time**: a plane beyond the world, an afterlife, a vision, a myth or a prophecy.
+  Chapters, events, facts and relationships outside time are never placed on the axis or compared, and are always
+  shown under *as of*, labelled as such.
+- Named **eras** (events of the type *era*, each with a colour) tint every time shown with their name:
+  `year 312 · the Lamp Years`.
 - **Happened order** sorts chapters by when they are set, then by told order. A chapter with no time carries on from
   the last chapter before it that has one and isn't a tale or flashback; a tale or flashback with no time is set
   sometime before the story. **With no times and no marks, happened order is told order**, and everything works as it
