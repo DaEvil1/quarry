@@ -201,7 +201,7 @@ quarry/                      # public GitHub repo (code only)
 Phases 1–9 serve writing forward. Phase 10 serves the other half of the work: going back over chapters, rewriting
 them and keeping what was cut. Each part is small, built on what exists (revisions, Salvage, the manuscript list,
 margin notes, mentions, the Drafting/Revising switch), and can ship on its own. The ideas come from the second round
-of research ([research/README.md](research/README.md), "Second round"). The principles hold: nothing here writes or
+of research ([research/README.md](research/README.md#second-round-competitors), "Second round"). The principles hold: nothing here writes or
 suggests story content, nothing has to be filled in, and the compiled manuscript stays pure prose.
 
 Examples use made-up names.
