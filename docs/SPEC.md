@@ -21,7 +21,7 @@ Single-user today; the data model leaves room for co-writers later (§7).
 | **World** | A shared setting. Owns the bible. Holds any number of projects. Carries little else by default. |
 | **Project** | One work in a world: a novel, novella, short story. Owns its manuscript. |
 | **Chapter** | A unit of manuscript prose in a project. State is `current` (in the book), `experiment` (an alternate draft tied to an experiment item) or `retired` (salvage). Ordered by `position` among current chapters. Optional POV entity. |
-| **Entity** | A bible page in a world: character, place, term, faction, object or other. Has a name, aliases and a body. Lives at world level (shared by every project) or in one project's part of the bible (§12.4); either way it is matched in every project. |
+| **Entity** | A bible page in a world: character, species, place, faction, culture, event, object, term or other. Has a name, aliases and a body. Lives at world level (shared by every project) or in one project's part of the bible (§12.4); either way it is matched in every project. |
 | **Item** | Anything that needs attention: `spark`, `question`, `task` or `experiment`. Status is `open`, `accepted`, `rejected`, `harvested` or `deferred`. Belongs to a world and optionally to one project (an idea about the world in general has no project). Can link to entities and chapters. |
 | **Journal entry** | Dated thinking-on-paper (the "What now?" kind of writing). World-level or project-level. Editable, but conceptually append-only. |
 | **Decision** | A dated one-line verdict ("chapter 3 is now told by the sister"), optionally tied to the item it closes. World-level or project-level. |
@@ -158,6 +158,9 @@ Bible pages show:
 - **Export now.** Downloads a zip with one folder per world: `world.md`, `Bible/<Kind>/<Name>.md`, `Journal/`, `Decisions.md`, `Planning/<status>/` (items for the whole world), and per project `Projects/<Name>/` with `Manuscript/` (numbered in order), `Experiments/`, `Salvage/`, `Planning/` and a compiled `manuscript.md`. YAML frontmatter carries ids, state, POV, tags and aliases; the layout is documented in `backend/src/quarry/api/transfer.py`.
   From phase 10, chapters also carry their summary and status, `project.md` the project's statuses, and each project has a `Cuts/` folder (§11).
   From phase 11, bible entries also carry the project they belong to (`project:`, §12.4).
+  From phase 12, chapters also carry when they are set and whether they are told as a tale or flashback, events their
+  time and tellings, facts and relationships their time bounds, relationships their role, and `world.md` the time
+  unit and the one-at-a-time roles (§13).
 - **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. Revision history stays in the database and is not part of an export.
 - **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
@@ -197,6 +200,7 @@ quarry/                      # public GitHub repo (code only)
 
 10. **Revising and salvaging**: renames that keep the old name, chapter summaries and statuses, a cuts bin, reading one entry's thread, word history, changes since a checkpoint, and find and replace across chapters. Designed in §11, with a *done when* per part.
 11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, world entries and project entries, the *witnessed* type, a *gender* field on characters and a *pronunciation* fact, and labels and values (value suggestions, filtering by a value, a Labels page, labels with several values, expected labels). Designed in §12, with a *done when* per part.
+12. **Time, history and kinds of being**: in-world time on one axis under the chapters (a sortable number with a free label), chapters set in time and marked as told as a tale or flashback, facts, relationships and the checks read in happened order, a Timeline with happened and told orders, history, recording an event from a passage, ages, Species as a ninth kind, roles in groups with a one-at-a-time check, and more starting vocabulary. Designed in §13, with a *done when* per part; suggested as two phases, 12a and 12b (§13.7).
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -903,7 +907,515 @@ None left. Missing labels are findings only for labels marked *expected* (Thomas
 is correct."), with a one-time prompt at the third use (§12.6.5). Existing entries all start in the world's bible
 and need no tidying: what is there today is test worlds and the demo, which sets its own levels.
 
-## 13. Out of scope (for now)
+## 13. Time, history and kinds of being (phase 12)
+
+Phases 6–11 kept one clock: the chapter, in book order ([WORLD-MODEL.md](WORLD-MODEL.md) §4). That is right for a
+book told forwards and wrong for one that isn't. A tale told by a character, set centuries earlier, breaks the
+Continuity checks (someone recorded dead in the present is flagged when they are alive in the tale), and there is
+nowhere for the world's history to live: wars, foundings and births long before chapter 1. Phase 12 adds **in-world
+time on one axis** under the chapters, a **Timeline** with a happened order and a told order, a way to **record
+history from the prose**, a ninth kind for **kinds of being**, **roles** inside groups, and a little more starting
+vocabulary.
+
+The principles hold: nothing here writes or suggests story content; times are optional everywhere, and a world that
+sets none works exactly as today; times are plain numbers with free labels, never a calendar (no months, moons or
+date arithmetic: [research/README.md](research/README.md#not-building), "Not building", and research/05 §4 on how
+World Anvil's calendars barely connect to its timelines); the compiled manuscript stays pure prose.
+
+Examples use made-up names. The Lamp Guild was founded in year 0, so its people count years from the Founding. The
+book is set in year 312. Varren marries Seyla in chapter 3; Seyla, a selkie, dies in chapter 9. Chapter 14, *The
+Drowned Bell*, is a tale Isolde tells, set 800 years before the Founding, and Seyla is in it.
+
+### 13.1 Story time on one axis
+
+#### 13.1.1 An in-world time
+
+- **A number.** A time is one sortable number: whole or with decimals, below zero for before the world's zero
+  (`312`, `-800`, `312.5`). Quarry never converts it, splits it into months or works out weekdays. Two times compare
+  by their numbers and nothing else.
+- **The world names its unit.** On the world page: *Time is counted in* `year` / `years`, the default. A world
+  counting in days, or in reigns, changes the words; numbers are left as they are.
+- **A free label**, optional: `800 years before the Founding`, `the winter of the long ice`. Where a label is given it
+  is shown, with the number small beside it or on hover; otherwise the number is shown with the unit:
+  `year 312`, `year −800`.
+- **Approximate**: a tick, *about*. Shown as `about year 312`; it sorts by its number like any other, and anything
+  worked out from it (an age, a gap) says *about* too.
+- **A span**, optional: a second number for where it ends, `years 300–302`. Spans sort by their start.
+
+The same time field (number, end, label, about) is used for chapters (§13.1.2) and events (§13.2.1). Bounds on
+facts and relationships use the number and the tick (§13.1.5).
+
+#### 13.1.2 When a chapter is set
+
+- **Set in.** Each chapter can say when it is set, with the time field. Empty to start. It is edited in place on the
+  manuscript list (muted, after the summary) and in the editor's side panel. Like a summary and a status, it is
+  saved without the version check and makes no new version: it is a label on the chapter, not its text.
+- **Told as.** A chapter can be marked as told as a **flashback** or a **tale** (a story a character tells), or
+  neither, the default. The mark shows as a small pill beside the title on the manuscript list and in the editor.
+  Both marks behave the same; they differ only in the word shown.
+- **A gentle hint.** On the manuscript list, a chapter whose own time is before the one of the chapter before it,
+  and that has no mark, gets a quiet `set earlier` note with one click to mark it a flashback. Nothing else asks for
+  it, and the note can be left there forever.
+- **One time per chapter.** A tale told inside a present-day chapter (a few paragraphs in someone's mouth) is not a
+  time for the chapter: it is recorded as an event from the passage (§13.2.3).
+- Experiments and retired chapters keep their time and mark; an accepted experiment brings its own into the book.
+
+#### 13.1.3 The clock: happened order
+
+The book's chapters now have two orders: **told** (book order, as today: project order, then chapter order) and
+**happened** (when they are set). Happened order is worked out, never stored:
+
+1. **A chapter's set time** is
+   - its own time, when it has one;
+   - otherwise, unless it is marked as a flashback or a tale, the set time of the nearest chapter **before** it in
+     book order that has its own time and no mark: an unset chapter carries on from the present it follows. With
+     none before it, the first such chapter **after** it (so the chapters before the first one with a time share
+     its time);
+   - otherwise none.
+2. **Happened order** sorts chapters by set time, then by book order. Two chapters set at the same time keep their
+   book order; a span sorts by its start.
+3. **A flashback or tale with no time of its own** is set *sometime before the story*: it sorts before every other
+   chapter (in book order among such chapters), and the Continuity checks skip it (§13.1.7). Marking a tale is
+   enough to stop false findings in it, before any time is chosen.
+4. **No times and no marks**: every chapter's set time is none, and happened order is book order. Everything works
+   exactly as today.
+5. If only flashbacks and tales have times, the other chapters have no set time and keep book order after them.
+
+So with chapters 1–13 set in year 312 and chapter 14 marked a tale set in year −800, happened order is 14, 1, 2, …,
+13, 15, …; chapter 15, with no time, carries on from chapter 13 in year 312, not from the tale.
+
+#### 13.1.4 What follows the clock, and what stays in book order
+
+The rule: **told order is the reader's; happened order is the world's.**
+
+- **Happened order** (the clock) is used by: facts and relationships and their *from*/*until* (§13.1.5), *as of*
+  (§13.1.6) on entry pages, the name's card, the companion's cast, the graph and the family tree, the Continuity
+  checks (§13.1.7), ages (§13.2.4), and the Timeline's *happened* view.
+- **Book order** stays for: the manuscript list and chapter numbers, the mentions strip and its gaps (§12.1), first
+  appearance, reading one entry's thread (§11.4), find and replace, word history and the POV tally, and the Timeline's
+  *told* view. These are about what the reader meets, and when.
+- **Where they meet.**
+  - The mentions strip stays in book order, but *as of* now dims the chapters that are **later on the clock**: a
+    flashback after the chosen chapter in the book, but set before it, isn't dimmed. With no times, the chapters after
+    it, as today.
+  - The Where-everyone-is grid (§12.3) keeps book order by default and gets *Order: told · happened* once any chapter
+    has a time. Each chapter's head shows its set time and mark. "Is at" stays one place per character per chapter;
+    its time is the chapter's set time.
+
+#### 13.1.5 Facts and relationships
+
+- **Bounded by chapters, read on the clock.** A fact or relationship *from* chapter A *until* chapter B holds in a
+  chapter when that chapter is at or after A and at or before B in **happened** order. Book order no longer decides.
+  - *Seyla: status dead from chapter 9.* In chapter 14, the tale set in year −800, she is alive: chapter 14 is before
+    chapter 9 on the clock. In chapter 15 she is dead.
+  - *Varren married to Seyla from chapter 3 until chapter 9*, with chapter 3 set in year 305 and chapter 9 in year
+    312. A flashback in chapter 20 set in year 300, before the wedding, is outside the span though it comes after
+    chapter 9 in the book; one set in year 308 is inside it.
+  - A span *from* chapter 14 (the tale) *until* chapter 3 runs forwards now: the tale is earlier. A span runs
+    backwards only on the clock.
+  - The latest-starting fact still takes over from an open-ended earlier one (phase 7), with "latest" on the clock.
+  - A bound to an experiment or a retired chapter is still ignored, as today.
+- **Bounded by a time.** A *from* or *until* can be a time instead of a chapter (one or the other, never both): *born
+  from year 278*, *member of the Lamp Guild until year 0*. History before the book needs this, since no chapter is
+  set then. The span picker offers the book's chapters (with their times) and *A time…* (a number and *about*).
+  - A time bound holds in a chapter whose set time is on the right side of it; a chapter set exactly at that time
+    counts as inside. A chapter with no set time ignores time bounds (as it ignores a retired chapter), so in a world
+    with no chapter times a time-bounded fact simply holds throughout.
+  - Spans shown in text: `from year 278`, `year 0 – chapter 9`, `about year −800 – year 0`.
+- **Saving.** "From must come before until" is checked on the clock. Setting or changing a chapter's time can make an
+  existing span run backwards; Checks lists it, as it lists one after chapters are reordered today.
+
+#### 13.1.6 As of
+
+- **The selector** lists the book's chapters per project in book order, as now, with each chapter's set time after
+  its title and the tales and flashbacks marked: `14 · The Drowned Bell — tale, year −800`.
+- **A time.** Once any chapter or bound has a time, the selector also offers *At a time…*: a number. *As of year 0*
+  shows what holds at that time: chapter bounds compare by their set time, and chapters set at that time count as
+  begun. The choice is kept in the address: `?asof=<chapter>` as now, or `?at=<number>`.
+- Everything that follows *as of* follows either kind: the entry page, the family tree, the graph.
+
+#### 13.1.7 The Continuity checks
+
+All of them use the clock, and every check that compares times skips a chapter set at an unknown earlier time (a
+mark without a time).
+
+- **Named after being recorded dead**: named in a chapter that is after the death on the clock. Names inside a
+  passage recorded as the telling of an event (§13.2.3) are skipped: telling of the dead is history, not an
+  appearance.
+- **Named before coming into the story** is split by what the label means:
+  - *born* and *arrives* are about the world, so they use the clock: being named in a tale set before the birth is a
+    finding; being named in a later chapter set after it isn't.
+  - *introduced* and *first appears* are about the reader, so they keep book order.
+- **Spans that run backwards**, **two values at once** (*fact_conflict*) and **two holders of a one-at-a-time role**
+  (§13.4) compare on the clock.
+- A finding's chapter is still the chapter it is about, and Checks still lists findings by that chapter in book
+  order.
+
+**Data:**
+
+```sql
+worlds        + time_unit text default 'year', time_units text default 'years'
+chapters      + time_at numeric NULL, time_end numeric NULL, time_label text NULL,
+                time_approx bool default false,
+                told_as text NULL CHECK (told_as IN ('flashback', 'tale'))
+facts         + from_time numeric NULL, from_approx bool default false,
+                until_time numeric NULL, until_approx bool default false
+relationships + from_time, from_approx, until_time, until_approx        -- as for facts
+              -- for both: CHECK (from_chapter_id IS NULL OR from_time IS NULL), and the same for until
+```
+
+`GET /timeline` gains per chapter its time, mark, set time and `clock` (its place in happened order); the browser's
+`holds` and `factsAsOf` (`world/time.ts`) and the server's checks compare clock places instead of book indexes, and
+time bounds against set times. `story_order` keeps book order beside a new `clock_order`. **Export** writes a
+chapter's `time:` (`at`, `end`, `label`, `approx`) and `told_as:`, the time bounds of facts and relationships
+(`from_time:`, `until_time:` and their `approx`), and the unit into `world.md`. **Restore** reads them back; an older
+export has none, which is today's behaviour.
+
+*Done when*, with chapters 1–13 set in year 312, Seyla *status: dead from chapter 9* and *married to Varren from
+chapter 3*, and chapter 14 marked a tale set in year −800: Checks lists no "named after death" for Seyla in chapter
+14; her page *as of* chapter 14 shows her alive and unmarried; chapter 15, with no time, shows her dead; removing
+the tale's time but keeping the mark still gives no finding there; a fact *born from year 278* is offered and shown
+as `from year 278`; and a world with no times and no marks gives exactly the findings and *as of* results it gave
+before (the existing tests pass unchanged).
+
+### 13.2 History and the timeline
+
+#### 13.2.1 Events get a time
+
+- **When.** An event's page has *When* beside the kind, with two choices:
+  - **in a chapter**: the event happens on the page in that chapter, takes the chapter's set time and follows it when
+    it changes. With no times in the world it still has a place: that chapter, in book order;
+  - **a time**: the time field of §13.1.1 (number, end, label, about), for anything off the page, such as history.
+
+  Or empty: *not placed yet*. The Events table gets a *When* column that sorts in happened order.
+- The suggested fact *when* gives way to the field. Existing *when* facts stay, as facts (a festival's "every spring"
+  is still a good one).
+- **History** is what happened before the story: events, births and deaths set before the first chapter on the
+  clock (chapters marked as tales or flashbacks don't count as the story's start). It is a view of the Timeline
+  (§13.2.2), not a separate store.
+- **Eras** are events too: an event whose *type* (§12.6) is *era*, whatever the capitals, with a span, is drawn as a
+  background band on the Timeline, and can be picked as a filter. Nothing else is set up for them; *era* is among the
+  starting values for an event's type (§13.5). An era named in the prose is matched like any other entry.
+
+#### 13.2.2 The Timeline page
+
+One page for the world: `/w/<world>/timeline`, in the nav after *Graph*.
+
+- **Two orders**, a switch at the top, as in Aeon Timeline (research/06 §7): **Happened** (the default once anything
+  has a time) and **Told**. Moving something in one order never moves it in the other.
+- **Happened.** Time runs down the page.
+  - Rows are evenly spaced, not to scale: 800 years and a week each take one gap, and the gap says how long it is
+    (`· 512 years ·`). Things at the same time share a heading.
+  - **Events**: name (coloured as an event), type, the people in it, small. An event with a span has a bar in the
+    margin from its start to its end.
+  - **Chapters, as a band.** The stretch from the book's first to its last chapter by set time (tales and flashbacks
+    aside) is shaded *the book*; its chapters are folded into one line per project (`The Salt Road · chapters 1–13 ·
+    year 312`) that opens to one row each. A tale or flashback sits at its own time with its mark: `14 · The Drowned
+    Bell — tale`.
+  - **Births and deaths**, from facts (the start of a *born* fact; the start of the *status* fact the Continuity check
+    reads as dead) or from events whose type is *birth* or *death* (§13.5) and who they involve.
+  - **Movements** from "is at", each at its chapter's set time, shown in lanes and when the page is filtered to
+    entries (otherwise there would be one row per character per chapter).
+  - **Eras** as bands behind the rows, named at the left; an era inside another sits inside its band.
+  - **Not placed yet**: events with no time, listed at the end, each with *When…* to set it in place.
+- **Told.** Rows are the chapters in book order, each with its set time and mark. A thin margin shows where each
+  chapter sits in happened order, so a flashback is a jump to the left. Under each chapter: the events told in it
+  (§13.2.3), the events happening in it, and births and deaths recorded from it. Events never told and not in any
+  chapter are listed at the end, *Not in the book yet*.
+- **History** is a tab: the happened view cut off where the book begins. With no chapter times it shows the events
+  with a time, and says `Set a time on a chapter to place the book among them`.
+- **Lanes**, optional: *Lanes…* adds characters or factions as narrow columns beside the main one, kept in the
+  address (up to 6 on the desk, 2 on the phone).
+  - A **character's lane**: a life line from birth to death (fading out where either is unknown), the places over
+    time (each run of chapters with the same "is at" one segment, named; *lives in* spans fainter), and a dot for each
+    event they are related to, with their age at it when it can be worked out (§13.2.4).
+  - A **faction's lane**: its events, its members joining and leaving (*member of* spans), and who held each role
+    when (§13.4).
+- **Filters**, kept in the address, the last used remembered per world on the device: kinds of row (events,
+  chapters, births and deaths, movements), entries (only rows about them, with the grid's picker), an era (only its
+  span), and standing (planned and rumour, as on the Graph).
+- Clicking a row opens it: an event's page, a chapter at its passage, an entry at its fact.
+- **Drawn in the browser**, plain HTML and SVG, no library, from the cards, the graph's relationships and one new
+  read (presence and tellings). It reads online, like the Graph. On the phone it is one column that scrolls down; the
+  lanes scroll sideways inside their card.
+
+#### 13.2.3 Recording from the prose
+
+- **Record as event.** Selecting a passage in a chapter (a character telling an old tale, say) offers *Record as
+  event* in the selection strip, on the desk and on the phone (next to *Cut to bin*). The strip grows into a small
+  form in place, as *Another name of…* does: never a dialog, and Esc goes straight back to the text.
+  1. **The event**: type a name for a new one, or pick an existing event (the events named in the selection and the
+     chapter come first).
+  2. **Who and where**: a chip for each entry named in the selection, found by the matcher that colours names (any
+     of their names). Characters, factions and species start ticked as taking part; the first place named starts
+     ticked as where it happened; other kinds start unticked. Entries already related to the event say so. Nothing is
+     suggested beyond the names in the selection.
+  3. **When**: the time field; it can be left empty and set later. In a tale or flashback with a time of its own, a
+     chip offers it: `This chapter's time (year −800)`.
+  4. **Save** (Enter). A new event is made (in the chapter's project's bible when the world has several, §12.4).
+     The passage is kept as a **telling**: the chapter and the passage's text. The ticked entries are recorded with
+     the world's *involved* and *happened at* types (found by label, as the family tree finds parent types; *linked
+     to* when the world has neither), established in this chapter, with the passage as evidence. For an existing
+     event, the telling and any new participants are added; an empty time is filled; a different time asks
+     `Keep year 0 · Use year −800`.
+
+  A toast says `Recorded "The Founding" · 3 taking part · Open · Undo`; Undo removes what this save added.
+- **Tellings** show on the event's page under *Told in*: each passage quoted, with its chapter, linking into the
+  editor at the passage. An event can be told several times (Varren in chapter 2, a priest in chapter 30).
+- **Telling is not appearing.** The *named after death* check skips names inside a telling's passage, found in its
+  chapter by its text. If the passage has been edited so that it can't be found, the names count again and the
+  telling is marked *passage changed* on the event page.
+- **Set born here · Set died here.** The same strip lists each character named in the selection with two chips:
+  `Seyla: born here · died here`.
+  - *Born here* records a *born* fact from this chapter; *died here* records *status: dead* from this chapter. Either
+    keeps the passage as evidence.
+  - If the fact exists already, the chip says so and offers to move it: `Seyla is recorded born in chapter 2 · Move it
+    here`.
+  - In a tale or flashback with no time of its own, a line says `This chapter has no time yet: Seyla will count as
+    born before the story begins · Set its time…`.
+- As everywhere in the editor (WORLD-MODEL.md §5), the strip opens only for a selection, never while typing.
+
+#### 13.2.4 Ages
+
+- **A birth time** is the start of a character's canon *born* fact (a time, or a chapter's set time), or the time of
+  a canon *birth* event they are involved in. A **death time** is the start of the *status* fact the Continuity check
+  reads as dead, or of a *death* event.
+- **Age as of a chapter** is the chapter's set time minus the birth time, in the world's unit, rounded down, and
+  *about* when either is approximate. As of a time, the same with that time.
+- **Shown** on the name's card (`age 34`, as of this chapter), on the entry page beside the facts (`34 as of chapter
+  9 · born year 278`), in the character's lane, and on the entry's own timeline. After the death time: `died at 61`.
+  Before the birth time: `not born yet`.
+- An *age* fact stays a fact. When both exist, both are shown; nothing compares them.
+
+#### 13.2.5 An entry's own timeline
+
+Each entry page gets a **Timeline** section (hidden while it would be empty): the entry's own slice of the Timeline,
+in happened order, each row with its time.
+
+- A **character**: born, events they are related to, runs of "is at" (`at Old Harbour · chapters 3–7`), relationships
+  starting and ending (with their roles, §13.4), died; with their age on each row when it can be worked out.
+- A **place**: events that happened there, and who was there when (from "is at").
+- A **faction**: its events, members joining and leaving, and who held each role.
+- An **event**: its time and era, its tellings, and the ages of the people in it.
+- A **species**, a culture or anything else: the events it is related to.
+
+It follows the page's *as of*: rows after it on the clock are dimmed. *Open in the Timeline* opens the page with this
+entry's lane.
+
+**Data:**
+
+```sql
+entities  + time_at numeric NULL, time_end numeric NULL, time_label text NULL,
+            time_approx bool default false,
+            time_chapter_id NULL                -- events: "in a chapter" (ON DELETE SET NULL) or a time, not both;
+                                                -- kept, unused, if the kind changes
+tellings  (id, world_id, event_id, chapter_id NULL,   -- ON DELETE SET NULL
+           passage text, created_by, created_at)
+```
+
+The cards carry an event's time. `GET /chronology` returns the world's "is at" rows and tellings for the Timeline;
+the rest is worked out in the browser from the cards, `GET /timeline` and `GET /graph`. `POST /events/record` saves
+*Record as event* in one transaction and answers with what it added, for Undo. **Export** writes an event's `when:`
+(a chapter id, or the time) and `tellings:` (chapter and passage) into its frontmatter; **Restore** reads them back
+and relinks the chapters by id.
+
+*Done when* selecting the passage in chapter 2 where Varren tells how the Lamp Guild was founded and choosing *Record
+as event* offers the guild, Seyla and Isolde (the names in it) as chips, and saves *The Founding* with year 0, its
+participants and the passage under *Told in*; the Timeline's happened view lists the tale (year −800), the Founding
+and then the book's band, with `· 800 years ·` and `· 312 years ·` between them, and its told view shows chapter 14
+jumping back; History lists the tale and the Founding; with Seyla *born from year
+−1000*, *Set died here* on her in chapter 9 records her death, after which her lane runs from her birth to chapter 9,
+her card in chapter 5 shows `age 1312` and in chapter 14 `age 200`; and her page lists, in happened order, her birth,
+the Founding, her marriage from chapter 3 and her death.
+
+### 13.3 Species
+
+A ninth kind, for kinds of being: peoples, beasts, spirits, ancient races. It is not Culture: Culture is what people
+share (faith, customs, language); Species is what they are. Spec'd as **Species**; the name is the first open
+question (§13.8).
+
+- **In the nav and the bible** like every kind: a page with its table, its own colour in both themes, the strip's
+  `+ Species` under *More…*, and the F8 pass and the companion's *Add as…*.
+- **Starting relationship types:**
+
+  | Between | Types |
+  |---|---|
+  | Character – species | *is a* / *includes* (time-bounded like any relationship; several allowed: a half-selkie is a selkie and a human; someone turned is a human until chapter 9 and a wraith from it); *appears as* / *the guise of* (a disguise or outward form) |
+  | Species – species | *descended from* / *ancestor of*; *related to*; *preys on* / *prey of* |
+  | Species – place | *native to* / *home of* |
+  | Culture – species | *culture of* / *has culture* |
+  | Faction – species | *made up of* / *makes up* |
+
+  Event, term and *linked to* types already reach every kind.
+- **Suggested facts**: *form* (humanoid, beast, spirit …), *lifespan*, *habitat*, *appearance*, *pronunciation*, and
+  *name meaning* (§13.5). Free text, as all facts; lifespan isn't checked against ages.
+- **Beside a character's name.** The species a character *is* as of the chapter (from *is a*, found by label as the
+  family tree finds parent types) shows as one small word after the name on the card and the entry page, as gender
+  does: `Seyla · selkie`. While an *appears as* holds, it is added: `Seyla · selkie · appears as human`. Several show
+  side by side. Nothing shows when none is recorded.
+- **On the characters table**, a *Species* column (at the end of the story, as the table reads facts, §12.6.2), which
+  filters and groups like a fact column.
+- **On the graph**, *Colour by: kind · cluster · species*: characters take their species' colour (as of the graph's
+  chapter), from a fixed set in order of size, with the rest grey and a legend.
+- **Existing worlds** get the kind and its starting types from a data migration: each type is added at the end of its
+  pair unless the world already has a type for that pair reading the same (either way, any capitals), as *witnessed*
+  was (§12.5). Suggested facts reach every world at once (they are not stored). Entries recorded as culture or other
+  that are really species can be moved by changing their kind; their relationships stay, as for any change of kind.
+- **Restore** keeps an export's own vocabulary, except that an export with no type touching species (every export
+  made before phase 12) gets the species starting types, since the kind didn't exist when it was made.
+
+**Data:**
+
+```sql
+entities.kind    + 'species'                        -- the CHECK constraint widens
+relation_types   + the species starting types       -- for every existing world, by migration
+```
+
+The cards carry each character's *is a* and *appears as* relationships with their spans, so the word beside the name
+follows *as of* offline too.
+
+*Done when*, after upgrading, an existing world's types page lists the species types; Seyla *is a* selkie, and *appears
+as* human from chapter 3 until chapter 9, shows `selkie · appears as human` on her card in chapter 5 and `selkie` in
+chapter 10; the characters table has a Species column that groups by it; the graph colours characters by species; and
+exporting and restoring the world keeps it all.
+
+### 13.4 Roles in groups
+
+A captain in a guild, a treasurer, the keeper of a temple's lamps: a role belongs on the relationship that puts
+someone in the group, and changes when they are promoted, demoted or replaced.
+
+- **Which relationships have one.** A switch per relationship type on the types page, *has a role*. It is on to start
+  for *member of*, *leads*, *serves* and *works at*, and can be set on any other type. The holder is the A side, the
+  group the B side: Varren *member of* the Lamp Guild; Isolde *serves* Varren.
+- **The field.** Such a relationship gets *role*: free text, empty to start, with value suggestions as in §12.6.1: the
+  roles used on that type across the world, most used first with counts, those already used in the same group first.
+  `Captain (3) · Treasurer (1)`.
+- **Time-bounded like the relationship.** The role is the role for the relationship's span. A promotion is a new
+  span: *Change role from here…* on a relationship ends it just before a chosen chapter or time and starts a copy with
+  the new role from there. Planned and rumoured roles are kept and shown as their standing says.
+- **Shown wherever the relationship shows**: on both entry pages (`member of the Lamp Guild · Captain · from chapter
+  3`, and from the guild's side `has member Varren · Captain`), on the name's card, on the graph's edge, in a faction's
+  lane and on the entry's own timeline (§13.2).
+- **One at a time.** A switch per role, off to start: *one at a time* (whatever the capitals, across the world). With
+  it on, two holders of that role in the same group at the same time is a **Continuity** finding:
+  `The Lamp Guild has two Captains in chapter 5: Varren (from chapter 1) and Isolde (from chapter 5).`
+  - Canon relationships only, compared on the clock (§13.1). A handover (one ends at the chapter or time where the
+    other starts) is not a clash.
+  - It is resolved like any finding, plus **End Varren's before Isolde's**, which sets the earlier one's *until*.
+  - The switch lives on the Labels page (§12.6.3) in a new *Roles* card, which lists roles with counts and renames or
+    merges them across the world with Undo, as it does values.
+- **Export** writes a relationship's `role:`, each type's `has_role:`, and the one-at-a-time roles into `world.md`
+  (`roles:`); **Restore** reads them back. An older export has no roles; its types get *has a role* by the same labels
+  as the migration.
+
+**Data:**
+
+```sql
+relation_types  + has_role bool default false      -- on for member of, leads, serves, works at; by migration too
+relationships   + role text NULL
+roles           (id, world_id, role, one_at_a_time bool default false)
+                -- unique (world_id, lower(role)); a row exists only once the switch has been set
+```
+
+*Done when* Varren *member of* the Lamp Guild with role *Captain* until chapter 4 and Isolde *Captain* from chapter
+5 show their roles on both entry pages, the guild's lane shows who was Captain when, and typing `Cap` offers
+*Captain (2)*; with *one at a time* on for Captain, extending Varren's until chapter 6 lists the clash at chapter 5
+on Checks, and *End Varren's before Isolde's* clears it.
+
+### 13.5 Starting vocabulary
+
+- **Possesses / possessed by** (character – character), time-bounded as always: the Grey Tenant *possesses* Isolde
+  from chapter 12 until chapter 15. While it holds as of the chapter, the possessed character's card says
+  `possessed by the Grey Tenant` under the name. Nothing else reads it.
+- **Ancestor of / descendant of** (character – character), for lineages across centuries where the generations
+  between aren't recorded.
+  - **The family tree** (§12.2) reads it by label (a label ending in `ancestor of`, a reverse ending in `descendant
+    of`, or the mirror) and draws a **long dashed link**: the ancestor at least two rows above, the link labelled with
+    the gap: `about 600 years` from their birth times (§13.2.4) when both are known, otherwise `generations not
+    recorded`.
+  - **Kin worked out** through it stops there: the descendant, and anyone descended from them through parent links,
+    are the ancestor's *descendants*, and the ancestor's own ancestors theirs; no cousins, siblings or in-laws are
+    worked out across it.
+  - *Their own ancestor* (Continuity) follows these links too.
+- **Name meaning**, a suggested fact on every kind (`name meaning: "keeper of the ford"`). A term's *meaning* stays
+  the meaning of the term.
+- **Starting values.** Value suggestions (§12.6.1) also offer a short list from the code after the values in use,
+  without counts, so a new world has something to pick from. Like suggested facts they are not stored, so every world
+  gets them at once:
+  - a place's *type*: world, plane, land, region, sea, lake, river, island, mountain, forest, reef, city, town,
+    village, district, building, room;
+  - an event's *type*: era, war, battle, founding, treaty, betrayal, birth, death, festival, wedding, coronation
+    (*era*, *birth* and *death* are read by the Timeline, §13.2);
+  - a species' *form*: humanoid, beast, bird, fish, spirit, plant.
+- **Existing worlds** get the new types from the same data migration as Species, by the same rule (unless the world
+  has one reading the same).
+
+**Data:** the new types in `STARTING_TYPES` and the migration; `SUGGESTED_FACTS` and a new `SUGGESTED_VALUES` in
+`vocabulary.py`.
+
+*Done when* an upgraded world's types page lists *possesses* and *ancestor of*; Isolde's card in chapter 13 says
+`possessed by the Grey Tenant`; the tree centred on Mirelle draws a recorded ancestor 600 years back as a long dashed
+link labelled `about 600 years` and lists her as *ancestor*, with no cousins worked out through it; and a place's
+type field offers *plane* and *reef* in a world that has never used them.
+
+### 13.6 Data model, in one place
+
+```sql
+worlds          + time_unit, time_units                                   -- §13.1; 'year' / 'years'
+chapters        + time_at, time_end, time_label, time_approx, told_as     -- §13.1; told_as: flashback | tale
+facts           + from_time, from_approx, until_time, until_approx        -- §13.1; a bound is a chapter or a time
+relationships   + from_time, from_approx, until_time, until_approx        -- §13.1
+relationships   + role NULL                                               -- §13.4
+relation_types  + has_role bool                                           -- §13.4
+roles           (id, world_id, role, one_at_a_time)                       -- §13.4; only roles with the switch set
+entities        + time_at, time_end, time_label, time_approx, time_chapter_id   -- §13.2; events
+entities.kind   + 'species'                                               -- §13.3
+tellings        (id, world_id, event_id, chapter_id NULL, passage, created_by, created_at)   -- §13.2
+relation_types  + species types, possesses, ancestor of                   -- §13.3, §13.5; every existing world
+```
+
+Endpoints: `GET /timeline` gains each chapter's time, mark, set time and clock place (§13.1); `GET /chronology`
+(§13.2); `POST /events/record` (§13.2); `PATCH /chapters/<id>` takes the time and mark; facts and relationships take
+time bounds; relationships take `role`; `/labels` gains roles (§13.4). Happened order, set times, history, ages,
+lanes, species beside a name and kin across an ancestor link are worked out when read, never stored.
+
+**Phase 12 is done when** each part's *done when* above holds, and the demo world (The Ninefold Delta) shows it:
+its chapters set in years (the book in year 412, Ash Season a year on), a short tale chapter set forty years before,
+in which a character recorded dead in the present appears without a finding; a few events of history, one of them
+recorded from a passage with its telling, and an era; births for some of the family, so ages show; species (human,
+dog, and one made up for the delta) with an *is a*, an *appears as* and a *native to*; the Warden-Captain as a role
+on the River Wardens marked one at a time, with one clash planted; and an ancestor link in the family.
+
+### 13.7 One phase or two
+
+The parts split cleanly, and building them as two phases is suggested:
+
+- **12a, time and the timeline** (§13.1, §13.2): the clock, chapter times and marks, time bounds, the checks on the
+  clock, event times, the Timeline page, *Record as event*, *Set born/died here*, ages and an entry's own timeline.
+  This is the larger part, it touches the checks and *as of* everywhere, and it fixes a finding that is wrong today.
+- **12b, species, roles and vocabulary** (§13.3–§13.5): one kind, one field with a switch, one small table, a
+  migration of types, and starting values. Small, and useful on its own.
+
+Each works without the other: before 12a, the role check compares in book order and an ancestor link says
+`generations not recorded`; before 12b, the Timeline simply has no species or roles to show. 12a first is suggested,
+since the tale chapters' findings are wrong today; 12b is the quicker win if a short phase is wanted first.
+
+### 13.8 Open questions for phase 12
+
+1. **The kind's name.** *Species* (as spec'd), *Race* or *People*? Species is neutral and covers beasts and spirits
+   as well as peoples; Race carries real-world weight and reads oddly for animals; People is close to Culture
+   ("peoples, religions, traditions") and to characters.
+2. **A tale or flashback with no time** is read as set before the story, and the checks skip it (§13.1.3). Is that
+   the right default, or should it carry on from the chapter before it until a time is set?
+3. **Eras as events** with the type *era* (§13.2.1), rather than a list of their own on the world page. Events give
+   them a page, mentions and relationships for free; is there anything an era needs that an event can't hold?
+4. **One at a time per role across the world** (§13.4): a Captain is one at a time in every group. Is that enough, or
+   does a role need the switch per type (one Captain per ship, many per army)?
+5. **Ages and the age fact.** When a computed age and an *age* fact disagree, should that be a Continuity finding
+   (Talmaara's "impossible ages", research/06 §9)? As spec'd, both are shown and nothing compares them.
+6. **One phase or two** (§13.7), and which first.
+
+## 14. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -912,7 +1424,7 @@ and need no tidying: what is there today is test worlds and the demo, which sets
 - Native apps (the PWA is enough on Android)
 - A git mirror of the content (§8)
 
-## 14. Open questions
+## 15. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?
