@@ -295,8 +295,11 @@ highlighting; the server's result is the one that is stored.
    - *Done when*, writing a scene with two unconnected characters and a new name, the panel offers to record their
      connection and to add the name, each in one click, and a character recorded dead who appears later is listed
      on Checks.
-10. **Later:** in-world dates, map images with pins, and from the research: a cuts bin, named revision passes, a
-    chapter-by-thread grid, scenes below chapters, and a corkboard (research/README.md).
+10. **Revising and salvaging** (a cuts bin, chapter summaries and statuses, changes since a labelled checkpoint, and
+    more) is designed in [SPEC.md](SPEC.md) §11.
+
+**Later:** in-world dates, map images with pins, and from the research: a chapter-by-thread grid, scenes below
+chapters, and a corkboard (research/README.md).
 
 ## 10. Not planned
 
