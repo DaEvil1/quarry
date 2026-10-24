@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
+import { setLabelSwitches } from "../bible";
 import { checks, resolutions, resolve, unresolve, type Check, type Resolution } from "../companion";
 import { useSession } from "../stores/session";
 import NotFoundView from "./NotFoundView.vue";
@@ -41,11 +42,21 @@ const groups = computed(() => {
   }
   return out;
 });
-const intentional = computed(() => settled.value.filter((r) => r.outcome === "intentional" && !["unrecorded", "echo", "long_sentence", "doubled", "where"].includes(r.rule)));
+const intentional = computed(() => settled.value.filter((r) => r.outcome === "intentional" && !["unrecorded", "echo", "long_sentence", "doubled", "where", "missing_label", "crossover"].includes(r.rule)));
 
 async function settle(c: Check, outcome: "intentional" | "later") {
   await resolve(worldSlug.value, c.rule, c.key, outcome);
   await load();
+}
+// a conflict that is two true values (eye colour green and red): the label holds several values for the kind
+async function bothTrue(c: Check) {
+  if (!c.label || !c.kind) return;
+  try {
+    await setLabelSwitches(worldSlug.value, c.kind, c.label, { several: true });
+    await load();
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
 }
 async function reopen(r: Resolution) {
   await unresolve(worldSlug.value, r.id);
@@ -80,6 +91,7 @@ async function reopen(r: Resolution) {
         <li v-for="c in g.items" :key="c.rule + c.key" data-testid="check">
           <span class="grow">{{ c.message }}</span>
           <RouterLink v-for="e in c.entities" :key="e.id" class="kname small" :class="`k-${e.kind}`" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink>
+          <button v-if="c.rule === 'fact_conflict' && c.label && c.kind" type="button" class="btn btn-sm" title="The label holds several values at once for this kind" @click="bothTrue(c)">Both are true (several values)</button>
           <button type="button" class="btn btn-sm" title="Planted on purpose: never flag it again" @click="settle(c, 'intentional')">Intentional</button>
           <button type="button" class="btn btn-sm" @click="settle(c, 'later')">Later</button>
         </li>

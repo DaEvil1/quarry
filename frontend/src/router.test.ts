@@ -11,7 +11,7 @@ const world = (slug: string, projects: string[] = []): World => ({
   name: slug.toUpperCase(),
   slug,
   role: "owner",
-  projects: projects.map((p, i) => ({ id: `${slug}/${p}`, name: p, slug: p, kind: "novel", position: i })),
+  projects: projects.map((p, i) => ({ id: `${slug}/${p}`, name: p, slug: p, kind: "novel", position: i, gap_chapters: 5 })),
 });
 
 describe("homeTarget", () => {

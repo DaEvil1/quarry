@@ -2,11 +2,12 @@
 // within one or two steps of someone, clusters (groups more connected inside than out, by modularity), and the
 // place tree. Pure functions; GraphView draws the result.
 
-import type { EntityKind, Standing } from "../types";
+import type { EntityKind, Gender, Standing } from "../types";
 import { holds, type IndexOf } from "./time";
 
 export interface GraphData {
-  nodes: { id: string; name: string; kind: EntityKind; summary: string }[];
+  /** with each entry's level (a project's slug, or null for the world) and a character's gender */
+  nodes: { id: string; name: string; kind: EntityKind; summary: string; project?: string | null; gender?: Gender | null }[];
   edges: {
     id: string;
     a: string;

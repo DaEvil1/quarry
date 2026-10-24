@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter, type RouteLocationRaw } from "vue-router";
 
-import { addRelationship, createEntity, fixes, getEntity, typeOptions, updateEntity } from "../bible";
+import { addRelationship, createEntity, fixes, getEntity, setLabelSwitches, typeOptions, updateEntity } from "../bible";
 import ChapterSide from "../components/ChapterSide.vue";
 import CompanionPanel from "../components/CompanionPanel.vue";
 import {
@@ -343,10 +343,20 @@ async function loadPresence(chapterId: string) {
     presence.value = [];
   }
 }
+/** Pickers in a chapter list this book's entries and the world's first, other books' after them, labelled with their
+ * book (docs/SPEC.md §12.4). */
+function byLevel(list: EntityRef[]): (EntityRef & { where?: string })[] {
+  const own = chapter.value?.project;
+  const level = (id: string) => cards.byId.get(id)?.project ?? null;
+  const mine = list.filter((n) => !level(n.id) || level(n.id) === own);
+  const others = list.filter((n) => level(n.id) && level(n.id) !== own);
+  const bookName = (slug: string) => world.value?.projects.find((p) => p.slug === slug)?.name ?? slug;
+  return [...mine, ...others.map((n) => ({ ...n, where: bookName(level(n.id)!) }))];
+}
 /** places for "is at…": the ones named in this chapter first, then the rest */
 function placesForChapter(): EntityRef[] {
   const named = new Set((chapter.value?.mentions ?? []).filter((m) => m.entity_kind === "place").map((m) => m.entity_id));
-  const places = cards.names.filter((n) => n.kind === "place");
+  const places = byLevel(cards.names.filter((n) => n.kind === "place"));
   return [...places.filter((p) => named.has(p.id)), ...places.filter((p) => !named.has(p.id))];
 }
 
@@ -359,7 +369,8 @@ const worldHooks: WorldHooks = {
   open: (id) => void router.push({ name: "entity", params: { world: worldSlug.value, id } }),
   addName: (id, word) => worldChange(() => fixes.addSpelling(worldSlug.value, word, id)),
   notATypo: (word) => worldChange(() => fixes.notATypo(worldSlug.value, word)),
-  create: (name, kind) => worldChange(() => createEntity(worldSlug.value, { name, kind })),
+  // a new name made while writing starts in this chapter's book (docs/SPEC.md §12.4)
+  create: (name, kind) => worldChange(() => createEntity(worldSlug.value, { name, kind, project: chapter.value?.project ?? null })),
   exclude: (id, phrase) =>
     worldChange(async () => {
       const { entity } = await getEntity(worldSlug.value, id);
@@ -369,6 +380,7 @@ const worldHooks: WorldHooks = {
     return companionHooks;
   },
   cut: (from, to) => void cutToBin(from, to),
+  several: (kind, label) => cards.several(kind, label),
   isAt: (id) => ({
     here: () => presence.value.find((p) => p.entity_id === id)?.place ?? null,
     places: placesForChapter,
@@ -384,7 +396,7 @@ const worldHooks: WorldHooks = {
     },
   }),
   link: (id) => ({
-    names: () => cards.names,
+    names: () => byLevel(cards.names),
     options: (other) => {
       const from = cards.byId.get(id)?.kind ?? "other";
       return typeOptions(cards.types, from, other.kind).map((o) => ({ key: `${o.type.id}|${o.forward}`, reads: o.reads }));
@@ -436,6 +448,9 @@ function analyseNow() {
     presence: presence.value,
     resolved: resolved.value,
     longSentence: prefs.longSentence,
+    project: ch.project,
+    projectName: (slug) => world.value?.projects.find((p) => p.slug === slug)?.name ?? slug,
+    expected: (kind) => cards.expected(kind),
   }).filter((f) => prefs.editors[f.editor].on);
   // visible in the browser's performance tools, and to the performance check (frontend/perf)
   performance.measure("quarry:analyse", { start: started });
@@ -591,7 +606,7 @@ const panelActions: PanelActions = {
     }
   },
   async create(word, kind) {
-    await worldChange(() => createEntity(worldSlug.value, { name: word, kind }));
+    await worldChange(() => createEntity(worldSlug.value, { name: word, kind, project: chapter.value?.project ?? null }));
     analyseNow();
   },
   async notAName(word) {
@@ -610,6 +625,23 @@ const panelActions: PanelActions = {
     analyseNow();
   },
   open: (entity) => void router.push({ name: "entity", params: { world: worldSlug.value, id: entity.id } }),
+  async share(entity) {
+    await worldChange(async () => {
+      const { entity: e } = await getEntity(worldSlug.value, entity.id);
+      await updateEntity(worldSlug.value, e, { project: null });
+    });
+    analyseNow();
+  },
+  addLabel: (entity, label) => void router.push({ name: "entity", params: { world: worldSlug.value, id: entity.id }, query: { add: label } }),
+  async several(kind, label) {
+    try {
+      await setLabelSwitches(worldSlug.value, kind, label, { several: true });
+      await cards.refresh(worldSlug.value);
+      await afterWorldChange();
+    } catch (e) {
+      error.value = (e as Error).message;
+    }
+  },
   saveNote(text) {
     nextNote.value = text.trim();
     keepPlace();

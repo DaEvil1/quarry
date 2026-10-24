@@ -4,6 +4,7 @@
 
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "../types";
 import type { Card } from "../world/cards";
+import { isPronunciation } from "../world/labels";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -29,6 +30,8 @@ function chip(label: string, onClick: () => unknown, cls = ""): HTMLButtonElemen
 }
 
 const kindLabel = (k: string) => ENTITY_KINDS.find((x) => x.value === k)?.label ?? k;
+/** A name in a picker, with the book whose bible it is in when that isn't this chapter's (docs/SPEC.md §12.4). */
+const labelled = (n: EntityRef & { where?: string }) => (n.where ? `${n.name} · ${n.where}` : n.name);
 
 /** A name's card: the one-liner, a few facts and relationships, and two actions. */
 /** Recording a relationship from a name's card: who or what with, then how. */
@@ -49,7 +52,7 @@ export interface IsAtActions {
 
 export function cardDom(
   card: Card | undefined,
-  actions: { open: () => void; notHere?: () => unknown; link?: LinkActions; isAt?: IsAtActions },
+  actions: { open: () => void; notHere?: () => unknown; link?: LinkActions; isAt?: IsAtActions; several?: (kind: string, label: string) => boolean },
 ): HTMLElement {
   const root = el("div", "qcard");
   root.setAttribute("role", "tooltip");
@@ -59,13 +62,32 @@ export function cardDom(
     return root;
   }
   const head = el("div", "qcard-head");
-  head.append(el("strong", "", card.name), el("span", `qkind k-${card.kind}`, kindLabel(card.kind)));
+  // after the name, small: how it is said, and a character's gender when set (an unset field adds nothing)
+  const said = card.facts.find((f) => isPronunciation(f.label) && f.value.trim());
+  const who = el("span", "qcard-name");
+  who.append(el("strong", "", card.name));
+  if (said) who.append(el("span", "qcard-said", said.value));
+  if (card.kind === "character" && card.gender) who.append(el("span", "qcard-gender", card.gender));
+  head.append(who, el("span", `qkind k-${card.kind}`, kindLabel(card.kind)));
   root.append(head);
   if (card.summary) root.append(el("div", "qcard-summary", card.summary));
   if (card.aliases.length) root.append(el("div", "qcard-also", `also ${card.aliases.join(", ")}`));
-  if (card.facts.length) {
+  // the first few facts; a label that holds several values shows them as chips side by side
+  const facts: { label: string; values: string[]; several: boolean }[] = [];
+  for (const f of card.facts) {
+    if (isPronunciation(f.label)) continue;
+    const several = !!actions.several?.(card.kind, f.label);
+    const row = several ? facts.find((x) => x.several && x.label.toLowerCase() === f.label.toLowerCase()) : undefined;
+    if (row) row.values.push(f.value);
+    else facts.push({ label: f.label, values: [f.value], several });
+  }
+  if (facts.length) {
     const dl = el("dl", "qcard-facts");
-    for (const f of card.facts.slice(0, 4)) dl.append(el("dt", "", f.label), el("dd", "", f.value || "—"));
+    for (const f of facts.slice(0, 4)) {
+      const dd = el("dd", "", f.several ? "" : f.values[0] || "—");
+      if (f.several) for (const v of f.values) dd.append(el("span", "qcard-chip", v || "—"));
+      dl.append(el("dt", "", f.label), dd);
+    }
     root.append(dl);
   }
   if (card.relations.length) {
@@ -109,7 +131,7 @@ function isAtFlow(row: HTMLElement, card: Card, isAt: IsAtActions) {
         .filter((p) => !q || p.name.toLowerCase().includes(q))
         .slice(0, 6)
         .map((p) =>
-          chip(p.name, async () => {
+          chip(labelled(p), async () => {
             await isAt.set(p);
             row.replaceChildren(el("span", "qcard-also", `${card.name} is at ${p.name} in this chapter.`));
           }, `k-${p.kind}`),
@@ -157,7 +179,7 @@ function linkFlow(row: HTMLElement, card: Card, link: LinkActions) {
         .names()
         .filter((n) => n.id !== card.id && (!q || n.name.toLowerCase().includes(q)))
         .slice(0, 6)
-        .map((n) => chip(n.name, () => pickName(n), `k-${n.kind}`)),
+        .map((n) => chip(labelled(n), () => pickName(n), `k-${n.kind}`)),
     );
   };
   box.addEventListener("input", render);

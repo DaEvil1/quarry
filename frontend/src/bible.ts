@@ -1,13 +1,15 @@
 // Bible calls, and a copy of each world's names kept on the device so tagging a capture works offline.
 
-import { ApiError, del, get, patch, post } from "./api";
+import { ApiError, del, get, patch, post, put } from "./api";
 import { localDb } from "./localdb";
+import type { LabelsPage } from "./world/cards";
 import type {
   Entity,
   EntityDetail,
   EntityKind,
   EntityRef,
   Fact,
+  Gender,
   NearMissGroup,
   RelationType,
   Relationship,
@@ -25,8 +27,15 @@ export async function listEntities(world: string): Promise<Entity[]> {
 
 export const getEntity = (world: string, id: string) => get<EntityDetail>(`${base(world)}/entities/${id}`);
 
-export const createEntity = (world: string, body: { name: string; kind: EntityKind; aliases?: string[]; body?: string }) =>
+/** A new entry; `project` is the project of the chapter it was made from (it starts in that book's bible). */
+export const createEntity = (world: string, body: { name: string; kind: EntityKind; aliases?: string[]; body?: string; project?: string | null }) =>
   post<Entity>(`${base(world)}/entities`, body);
+
+/** What can be changed on an entry. */
+export type EntityChanges = Partial<Pick<Entity, "name" | "kind" | "aliases" | "body" | "summary" | "match_case" | "first_name_alias" | "exclusions">> & {
+  project?: string | null;
+  gender?: Gender | null;
+};
 
 /** The entry changed on another device since it was loaded here; `current` is the server's copy. */
 export class EntityConflict extends Error {
@@ -38,7 +47,7 @@ export class EntityConflict extends Error {
 export async function updateEntity(
   world: string,
   entity: Pick<Entity, "id" | "version">,
-  changes: Partial<Pick<Entity, "name" | "kind" | "aliases" | "body" | "summary" | "match_case" | "first_name_alias" | "exclusions">>,
+  changes: EntityChanges,
 ): Promise<Entity> {
   try {
     return await patch<Entity>(`${base(world)}/entities/${entity.id}`, { base_version: entity.version, ...changes });
@@ -114,11 +123,18 @@ export function sourceLink(world: string, table: SourceTable, id: string) {
 
 // ---- the world model: facts, relationship types, relationships ----
 
-export const factSuggestions = (world: string) => get<Record<string, string[]>>(`${base(world)}/fact-suggestions`);
+/** Per kind: the labels to offer (common and suggested first), which are common, and each label's values. */
+export interface KindSuggestions {
+  labels: string[];
+  common: string[];
+  /** by label as compared (lower case): the values used for it on this kind, most used first */
+  values: Record<string, { value: string; count: number }[]>;
+}
+export const factSuggestions = (world: string) => get<Record<string, KindSuggestions>>(`${base(world)}/fact-suggestions`);
 export const addFact = (
   world: string,
   entityId: string,
-  body: { label: string; value: string; standing?: Standing; evidence?: string | null; established_in_chapter_id?: string | null },
+  body: { label: string; value: string; standing?: Standing; evidence?: string | null; established_in_chapter_id?: string | null; from_chapter_id?: string | null },
 ) => post<Fact>(`${base(world)}/entities/${entityId}/facts`, body);
 export const updateFact = (world: string, fact: Pick<Fact, "id" | "version">, changes: Partial<Omit<Fact, "id" | "version">>) =>
   patch<Fact>(`${base(world)}/facts/${fact.id}`, { base_version: fact.version, ...changes });
@@ -158,3 +174,22 @@ export function typeOptions(types: RelationType[], from: string, to: string): { 
   // the specific ones first, "linked to" last
   return out.sort((a, b) => Number(a.type.a_kind === "*" && a.type.b_kind === "*") - Number(b.type.a_kind === "*" && b.type.b_kind === "*"));
 }
+
+// ---- labels and values (docs/SPEC.md §12.6) ----
+
+export const listLabels = (world: string) => get<LabelsPage>(`${base(world)}/labels`);
+
+/** What a rename or merge changed, for its Undo. */
+export interface Renamed {
+  changes: { id: string; field: "label" | "value"; before: string; after: string; version: number }[];
+  rows: { kind: string; before: string; after: string; merged: boolean }[];
+  message: string;
+}
+export const renameLabel = (world: string, body: { kind: EntityKind; old: string; new: string; everywhere?: boolean }) =>
+  post<Renamed>(`${base(world)}/labels/rename`, body);
+export const renameValue = (world: string, body: { kind: EntityKind; label: string; old: string; new: string }) =>
+  post<Renamed>(`${base(world)}/labels/values/rename`, body);
+export const undoRename = (world: string, done: Renamed) =>
+  post<{ restored: number; skipped: number }>(`${base(world)}/labels/undo`, { changes: done.changes, rows: done.rows });
+export const setLabelSwitches = (world: string, kind: EntityKind, label: string, switches: { several?: boolean; expected?: boolean; asked?: boolean }) =>
+  put(`${base(world)}/labels/${kind}/${encodeURIComponent(label)}`, switches);

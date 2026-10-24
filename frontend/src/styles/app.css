@@ -676,3 +676,99 @@ g:hover > .word-up { fill: color-mix(in srgb, var(--accent) 75%, var(--text)); }
   .chapter-row .chapter-name { flex-basis: calc(100% - 60px); }
   .chapter-row .chapter-name + .pill { margin-left: 46px; }
 }
+
+/* ---- phase 11: more views of the bible ---- */
+/* the mentions strip: one cell per chapter, filled in three steps; a bar under point-of-view chapters; gaps below */
+.mention-strip { margin: 6px 0 14px; }
+.strip-line { margin: 0 0 6px; }
+.strip-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+.strip-project { flex: none; width: 110px; padding-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip-cells { display: flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
+.strip-cell { display: flex; flex-direction: column; align-items: stretch; width: 14px; min-width: 14px; text-decoration: none; }
+.strip-cell .box { height: 16px; border-radius: 3px; border: 1px solid color-mix(in srgb, var(--k, var(--accent)) 45%, var(--border)); }
+.strip-cell.s1 .box { background: color-mix(in srgb, var(--k, var(--accent)) 30%, transparent); }
+.strip-cell.s2 .box { background: color-mix(in srgb, var(--k, var(--accent)) 62%, transparent); }
+.strip-cell.s3 .box { background: var(--k, var(--accent)); }
+.strip-cell .pov { height: 3px; margin-top: 2px; border-radius: 2px; }
+.strip-cell .pov.on { background: var(--text); }
+.strip-cell .bracket { position: relative; height: 14px; }
+.strip-cell.gap .bracket { border-top: 1px solid var(--muted); margin-top: 3px; height: 11px; }
+.gap-label { position: absolute; left: 0; top: 1px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.strip-cell.later { opacity: .35; }
+.strip-cell.asof .box { outline: 2px solid var(--accent); outline-offset: 1px; }
+.strip-cell:hover .box { outline: 2px solid var(--accent-soft); }
+.strip-tip { margin: 2px 0 0; min-height: 1.3em; }
+@media (max-width: 767px) { .strip-row { flex-direction: column; gap: 2px; } .strip-project { width: auto; } .strip-cell { width: 16px; min-width: 16px; } }
+/* the entry page: how a name is said, gender and level beside the kind, kin worked out (dimmed), its own findings */
+.pronunciation { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 10px; font-style: italic; }
+.gender-pick { display: inline-flex; align-items: center; gap: 6px; }
+.family-worked-out { opacity: .78; }
+.family-worked-out .plain-list li { justify-content: flex-start; display: block; }
+.kin-word { color: var(--muted); }
+.findings-card { display: flex; flex-direction: column; gap: 8px; }
+.findings-card .finding { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; padding-bottom: 0; border: 0; }
+/* facts: values offered as you type, several values as chips, the one-time question, the "Add:" line */
+.value-filter { margin-left: 6px; color: var(--muted); text-decoration: none; opacity: .6; }
+.value-filter:hover { opacity: 1; color: var(--accent); }
+.value-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.value-chip { padding: 3px 8px; gap: 6px; }
+.value-chip.off { opacity: .4; text-decoration: line-through; }
+.value-chip.planned, .value-chip.rumour { border-style: dashed; }
+.label-prompt { margin: 8px 0 0; padding: 6px 10px; background: var(--accent-soft); border-radius: 6px; }
+.add-line { margin: 8px 0 0; }
+/* the bible's table: a book's own entries first, the rest dimmed under "Elsewhere"; values filter; group heads */
+.th-sort { font: inherit; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; }
+.th-sort:hover { color: var(--accent); }
+.bible-table tbody.elsewhere tr.dim td, .rows li.dim { opacity: .6; }
+.bible-table .section-head th { background: var(--surface-2); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.bible-table .section-head .linkish { text-transform: none; letter-spacing: 0; font-size: 13px; }
+.where-used { color: var(--muted); font-style: italic; }
+.value-link { font: inherit; background: none; border: 0; padding: 0 6px 0 0; color: inherit; cursor: pointer; text-align: left; }
+.value-link:hover { color: var(--accent); text-decoration: underline; }
+.fact-cell .value-link + .value-link::before { content: ""; }
+.filter-chips { margin: -4px 0 12px; }
+/* the Labels page */
+.labels-kind h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.label-row { border-bottom: 1px solid var(--border); padding: 8px 0; }
+.label-row:last-of-type { border-bottom: 0; }
+.label-row summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.label-body { padding: 8px 0 4px 18px; }
+.label-body .rename { margin: 8px 0; align-items: center; }
+.label-values .value-name { min-width: 120px; }
+.small-input { max-width: 180px; }
+/* the family tree */
+.family-card { padding: 0; }
+.family-card > .family { padding: 10px 12px; }
+.family-scroll { overflow: auto; max-height: 70vh; touch-action: pan-x pan-y; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+svg.family-tree { display: block; }
+.fline { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+.fline.married { stroke: var(--k-character); }
+.fline.dashed { stroke-dasharray: 5 4; }
+.fline.unknown { stroke-dasharray: 2 3; }
+.fline-label { font-size: 10.5px; fill: var(--muted); }
+.funknown circle { fill: var(--surface-2); stroke: var(--muted); }
+.funknown text { font-size: 12px; fill: var(--muted); }
+.fperson rect { fill: var(--surface); stroke: var(--border); cursor: pointer; }
+.fperson.centre rect { stroke: var(--k-character); stroke-width: 2; }
+.fperson .fname { font-size: 13px; font-weight: 600; fill: var(--k-character); cursor: pointer; }
+.fperson .dagger { fill: var(--muted); font-weight: 400; }
+.fperson .fhow { font-size: 11px; fill: var(--muted); }
+.fperson .fopen text { font-size: 12px; fill: var(--muted); }
+.centre-pick.narrow { max-width: 220px; }
+/* the grid of entries across chapters */
+.where-tools { flex-wrap: wrap; gap: 6px; align-items: center; }
+.where-add { position: relative; min-width: 180px; }
+.share-line { margin: 0 0 10px; }
+.where-grid .pov-head { display: block; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--k-character); font-size: 11px; }
+.where-grid .row-head { display: inline-flex; align-items: center; gap: 6px; }
+.where-grid .cell .shade { display: block; min-height: 32px; padding: 6px; text-align: center; font-weight: 600; }
+.where-grid tr .cell.s1 .shade { background: color-mix(in srgb, var(--k, var(--accent)) 22%, transparent); }
+.where-grid tr .cell.s2 .shade { background: color-mix(in srgb, var(--k, var(--accent)) 48%, transparent); }
+.where-grid tr .cell.s3 .shade { background: color-mix(in srgb, var(--k, var(--accent)) 80%, transparent); color: var(--surface); }
+.where-grid .people { font-size: 12px; }
+.hidden-rows { margin-top: -6px; }
+/* the name's card: how it is said and the gender, small after the name; several values as chips */
+.qcard-name { display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.qcard-said { font-style: italic; color: var(--muted); font-size: 12px; }
+.qcard-gender { color: var(--muted); font-size: 12px; }
+.qcard-chip { display: inline-block; padding: 0 6px; margin-right: 4px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }

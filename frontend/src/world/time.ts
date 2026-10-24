@@ -13,16 +13,25 @@ export function holds(span: Span, at: number, indexOf: IndexOf): boolean {
   return (from === undefined || from <= at) && (until === undefined || at <= until);
 }
 
-/** The facts true at chapter index `at`: those whose span holds, the latest-starting one per label. */
-export function factsAsOf<F extends Span & { label: string }>(facts: F[], at: number, indexOf: IndexOf): F[] {
+/** A label or value as it is compared: whatever the capitals, spaces trimmed (docs/SPEC.md §12.6). */
+export const norm = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
+/** The facts true at chapter index `at`: those whose span holds, the latest-starting one per label. A label that
+ * holds several values at once (`several`) keeps every value whose span holds: each ends only with its own "until". */
+export function factsAsOf<F extends Span & { label: string }>(facts: F[], at: number, indexOf: IndexOf, several?: (label: string) => boolean): F[] {
   const best = new Map<string, F>();
+  const keep = new Set<F>();
   for (const f of facts) {
     if (!holds(f, at, indexOf)) continue;
-    const key = f.label.toLowerCase();
+    if (several?.(f.label)) {
+      keep.add(f);
+      continue;
+    }
+    const key = norm(f.label);
     const prev = best.get(key);
     if (!prev || (indexOf(f.from_chapter_id) ?? -1) >= (indexOf(prev.from_chapter_id) ?? -1)) best.set(key, f);
   }
-  const keep = new Set(best.values());
+  for (const f of best.values()) keep.add(f);
   return facts.filter((f) => keep.has(f));
 }
 

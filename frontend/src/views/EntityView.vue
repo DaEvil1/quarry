@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { get } from "../api";
 import {
   deleteEntity,
   EntityConflict,
@@ -12,15 +13,22 @@ import {
   relationTypes,
   sourceLink,
   updateEntity,
+  type EntityChanges,
+  type KindSuggestions,
 } from "../bible";
+import { resolutions, resolve, type Resolution } from "../companion";
 import FactsPanel from "../components/FactsPanel.vue";
 import InlineText from "../components/InlineText.vue";
+import MentionStrip from "../components/MentionStrip.vue";
 import RelationsPanel from "../components/RelationsPanel.vue";
 import UndoToast from "../components/UndoToast.vue";
 import { readLastUsed } from "../lastUsed";
 import { useSession } from "../stores/session";
-import { ENTITY_KINDS, type Entity, type EntityDetail, type EntityKind, type RelationType, type SourceRef } from "../types";
+import { ENTITY_KINDS, GENDERS, type EntityDetail, type EntityKind, type Gender, type RelationType, type SourceRef } from "../types";
 import { useCards } from "../world/cards";
+import { Family, familyLinks, kinOf, kinText, readType } from "../world/family";
+import type { GraphData } from "../world/graph";
+import { isPronunciation, missingKey, missingLabels } from "../world/labels";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
@@ -33,7 +41,7 @@ const world = computed(() => session.world(worldSlug.value));
 const id = computed(() => String(route.params.id));
 const detail = ref<EntityDetail | null>(null);
 const types = ref<RelationType[]>([]);
-const suggestions = ref<Record<string, string[]>>({});
+const suggestions = ref<Record<string, KindSuggestions>>({});
 const missing = ref(false);
 
 // "as of chapter …": what is true at that point in the story (kept in the address, so it survives a reload)
@@ -81,19 +89,24 @@ watch(worldSlug, (w) => void cards.load(w, true), { immediate: true });
 watch(
   worldSlug,
   async (w) => {
-    [types.value, suggestions.value] = await Promise.all([relationTypes(w), factSuggestions(w)]).catch(() => [[], {}] as [RelationType[], Record<string, string[]>]);
+    [types.value, suggestions.value] = await Promise.all([relationTypes(w), factSuggestions(w)]).catch(() => [[], {}] as [RelationType[], Record<string, KindSuggestions>]);
   },
   { immediate: true },
 );
+const refreshSuggestions = async () => {
+  suggestions.value = await factSuggestions(worldSlug.value).catch(() => suggestions.value);
+};
 
 /** After any change: this page, and the cards the editor colours names from. */
 async function changed() {
   await load();
   void cards.refresh(worldSlug.value);
   void session.refreshNearMisses(worldSlug.value);
+  void refreshSuggestions();
+  void loadFamily();
 }
 
-async function save(changes: Partial<Pick<Entity, "name" | "kind" | "aliases" | "body" | "summary" | "match_case" | "first_name_alias" | "exclusions">>) {
+async function save(changes: EntityChanges) {
   const e = detail.value?.entity;
   if (!e) return;
   error.value = "";
@@ -193,6 +206,66 @@ const fixSpelling = (w: string, token: string, entityId: string) => fixes.addSpe
 const fixIgnore = fixes.notATypo;
 
 const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, id.value), "Tagged.");
+
+// ---- phase 11: more views of the bible (docs/SPEC.md §12) ----
+
+// the level (world or one project) is shown only in a world with more than one project
+const levels = computed(() => (world.value && world.value.projects.length > 1 ? world.value.projects : []));
+// said after the name, in small type
+const pronunciation = computed(() => detail.value?.facts.find((f) => isPronunciation(f.label) && f.value.trim())?.value ?? "");
+
+// the mentions strip: how often each chapter names the entry
+const chapterCounts = computed(() => new Map((detail.value?.mentions ?? []).filter((m) => m.source_table === "chapter").map((m) => [m.source_id, m.count])));
+
+// the family: recorded parents, children and marriages make a tree; kin worked out from them, dimmed, as of the page's
+// chapter (docs/SPEC.md §12.2)
+const graph = ref<GraphData | null>(null);
+async function loadFamily() {
+  if (detail.value?.entity.kind !== "character") return;
+  try {
+    graph.value = await get<GraphData>(`/api/worlds/${encodeURIComponent(worldSlug.value)}/graph`);
+  } catch {
+    graph.value = null;
+  }
+}
+watch(() => detail.value?.entity.id, () => void loadFamily());
+const hasFamily = computed(() => detail.value?.entity.kind === "character" && detail.value.relationships.some((r) => r.a.kind === "character" && r.b.kind === "character" && readType(r.label, r.reverse_label)?.kind !== "sibling" && !!readType(r.label, r.reverse_label)));
+const kin = computed(() => {
+  const g = graph.value;
+  const e = detail.value?.entity;
+  if (!g || !e || e.kind !== "character") return [];
+  const fam = new Family(familyLinks(g, { asOf: asOf.value, indexOf: cards.indexOf, standings: new Set(["canon", "planned", "rumour"]) }));
+  const node = new Map(g.nodes.map((n) => [n.id, n]));
+  return kinOf(fam, e.id)
+    .filter((k) => !k.recorded)
+    .map((k) => ({ ...k, who: node.get(k.id)!, word: kinText(k, node.get(k.id)?.gender), path: k.via.map((x) => node.get(x)?.name ?? "?") }))
+    .sort((a, b) => a.who.name.localeCompare(b.who.name));
+});
+
+// labels expected on every entry of this kind that it hasn't got: the Archivist's findings, on its own page
+const resolved = ref<Resolution[]>([]);
+watch(worldSlug, async (w) => (resolved.value = await resolutions(w).catch(() => [])), { immediate: true });
+const missingHere = computed(() => {
+  const e = detail.value?.entity;
+  const c = e ? cards.byId.get(e.id) : undefined;
+  if (!e || !c) return [];
+  const done = new Set(resolved.value.filter((r) => r.rule === "missing_label").map((r) => r.key));
+  return missingLabels({ ...c, labels: detail.value!.facts.map((f) => f.label.trim().toLowerCase()) }, cards.expected(e.kind)).filter((l) => !done.has(missingKey(e.id, l)));
+});
+const plural = (k: string) => ENTITY_KINDS.find((x) => x.value === k)?.plural.toLowerCase() ?? k;
+function addIt(label: string) {
+  void router.replace({ query: { ...route.query, add: label } });
+}
+async function notForThisOne(label: string) {
+  const e = detail.value?.entity;
+  if (!e) return;
+  try {
+    await resolve(worldSlug.value, "missing_label", missingKey(e.id, label), "intentional");
+    resolved.value = await resolutions(worldSlug.value);
+  } catch (err) {
+    error.value = (err as Error).message;
+  }
+}
 </script>
 
 <template>
@@ -205,7 +278,7 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
             {{ ENTITY_KINDS.find((k) => k.value === detail!.entity.kind)?.plural }}
           </RouterLink>
         </div>
-        <h1 class="kname"><InlineText :value="detail.entity.name" label="Name" :maxlength="200" @save="(v) => v && save({ name: v })" /></h1>
+        <h1 class="kname"><InlineText :value="detail.entity.name" label="Name" :maxlength="200" @save="(v) => v && save({ name: v })" /><span v-if="pronunciation" class="pronunciation" data-testid="pronunciation">{{ pronunciation }}</span></h1>
         <p class="entry-summary">
           <InlineText :value="detail.entity.summary" label="One line" placeholder="Add a one-line summary, shown when hovering the name" @save="(v) => save({ summary: v })" />
         </p>
@@ -221,8 +294,18 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
         <RouterLink class="btn btn-sm" :to="{ name: 'entity-read', params: { world: world.slug, id: detail.entity.id } }" data-testid="read-thread">
           Read where {{ detail.entity.name }} appears
         </RouterLink>
+        <RouterLink v-if="hasFamily" class="btn btn-sm" :to="{ name: 'graph', params: { world: world.slug }, query: { view: 'family', centre: detail.entity.id, ...(asOfId ? { asof: asOfId } : {}) } }" data-testid="family-tree-link">Family tree</RouterLink>
         <select class="filter" :value="detail.entity.kind" aria-label="Kind" @change="save({ kind: ($event.target as HTMLSelectElement).value as EntityKind })">
           <option v-for="k in ENTITY_KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
+        </select>
+        <label v-if="detail.entity.kind === 'character'" class="small muted gender-pick">Gender
+          <select class="filter" :value="detail.entity.gender ?? ''" aria-label="Gender" data-testid="gender" @change="save({ gender: (($event.target as HTMLSelectElement).value || null) as Gender | null })">
+            <option v-for="g in GENDERS" :key="g.label" :value="g.value ?? ''">{{ g.label }}</option>
+          </select>
+        </label>
+        <select v-if="levels.length" class="filter" :value="detail.entity.project ?? ''" aria-label="Level" data-testid="level" title="Whose part of the bible it is in" @change="save({ project: ($event.target as HTMLSelectElement).value || null })">
+          <option value="">World</option>
+          <option v-for="p in levels" :key="p.id" :value="p.slug">{{ p.name }}</option>
         </select>
         <button type="button" class="btn btn-sm" @click="remove">Remove</button>
       </div>
@@ -230,6 +313,18 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
 
     <div v-if="notice" class="notice ok" role="status">{{ notice }}</div>
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
+
+    <MentionStrip v-if="cards.timeline.length" :world="world.slug" :entity-id="detail.entity.id" :timeline="cards.timeline" :counts="chapterCounts" :as-of="asOf" :class="`k-${detail.entity.kind}`" />
+
+    <section v-if="missingHere.length" class="card findings-card" data-testid="entity-findings">
+      <div v-for="l in missingHere" :key="l" class="finding" data-rule="missing_label">
+        <span class="small">{{ detail.entity.name }} has no {{ l }} (expected for {{ plural(detail.entity.kind) }}).</span>
+        <span class="qrow">
+          <button type="button" class="qchip primary" @click="addIt(l)">Add it</button>
+          <button type="button" class="qchip quiet" @click="notForThisOne(l)">Not for this one</button>
+        </span>
+      </div>
+    </section>
 
     <div v-if="cards.timeline.length" class="as-of">
       <label for="as-of" class="small muted">As of</label>
@@ -258,7 +353,8 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
       :world="world.slug"
       :entity="detail.entity"
       :facts="detail.facts"
-      :suggestions="suggestions[detail.entity.kind] ?? []"
+      :suggestions="suggestions[detail.entity.kind] ?? { labels: [], common: [], values: {} }"
+      :several="(label: string) => cards.several(detail!.entity.kind, label)"
       :chapter-titles="detail.chapter_titles"
       :timeline="cards.timeline"
       :as-of="asOf"
@@ -279,6 +375,20 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
       @changed="changed"
       @error="(m) => (error = m)"
     />
+
+    <section v-if="kin.length" class="card family-worked-out" data-testid="family-worked-out">
+      <div class="card-head">
+        <h2>Family, worked out</h2>
+        <span class="muted small">From the recorded parents, children and marriages{{ asOf !== null ? ", as of this chapter" : "" }}. To make one a relationship, record it above.</span>
+      </div>
+      <ul class="plain-list">
+        <li v-for="k in kin" :key="k.id + k.relation" :class="`k-${k.who.kind}`">
+          <span class="kin-word">{{ k.word }}</span> ·
+          <RouterLink class="kname" :to="{ name: 'entity', params: { world: world.slug, id: k.id }, query: asOfId ? { asof: asOfId } : {} }">{{ k.who.name }}</RouterLink>
+          <span v-if="k.path.length" class="muted small"> (via {{ k.path.join(" → ") }})</span>
+        </li>
+      </ul>
+    </section>
 
     <section class="card">
       <div class="card-head">

@@ -5,10 +5,13 @@ import { useRoute, useRouter } from "vue-router";
 
 import { get } from "../api";
 import EntityPicker from "../components/EntityPicker.vue";
+import FamilyTree from "../components/FamilyTree.vue";
 import { useSession } from "../stores/session";
 import { ENTITY_KINDS, type EntityRef } from "../types";
 import { useCards } from "../world/cards";
+import { familyLinks } from "../world/family";
 import { clusters, neighbourhood, placeTree, visibleLinks, type GraphData, type Link, type PlaceNode } from "../world/graph";
+import { norm } from "../world/labels";
 import NotFoundView from "./NotFoundView.vue";
 
 // The world as a graph: entries and their relationships at a point in the story, centred on one entry or all of
@@ -19,7 +22,7 @@ const session = useSession();
 const cards = useCards();
 const worldSlug = computed(() => String(route.params.world));
 const world = computed(() => session.world(worldSlug.value));
-const tab = computed(() => (route.query.view === "places" ? "places" : "graph"));
+const tab = computed(() => (route.query.view === "places" ? "places" : route.query.view === "family" ? "family" : "graph"));
 const data = shallowRef<GraphData | null>(null);
 const withCo = ref(false);
 const error = ref("");
@@ -57,6 +60,10 @@ watch(coMin, (n) => {
   }
 });
 
+// the project filter (docs/SPEC.md §12.4): the world's entries and that book's own, not other books' own entries
+const projects = computed(() => world.value?.projects ?? []);
+const book = computed(() => (typeof route.query.book === "string" && projects.value.some((p) => p.slug === route.query.book) ? route.query.book : ""));
+const outside = computed(() => new Set(book.value ? (data.value?.nodes ?? []).filter((n) => n.project && n.project !== book.value).map((n) => n.id) : []));
 const kindsPresent = computed(() => ENTITY_KINDS.filter((k) => data.value?.nodes.some((n) => n.kind === k.value)));
 const usedTypes = computed(() => {
   const used = new Set(data.value?.edges.map((e) => e.type_id));
@@ -82,7 +89,7 @@ const timelineGroups = computed(() => {
 // ---- what is shown ----
 const links = computed<Link[]>(() =>
   data.value
-    ? visibleLinks(data.value, {
+    ? visibleLinks(outside.value.size ? { ...data.value, nodes: data.value.nodes.filter((n) => !outside.value.has(n.id)), edges: data.value.edges.filter((e) => !outside.value.has(e.a) && !outside.value.has(e.b)), cooccurrence: data.value.cooccurrence.filter((c) => !outside.value.has(c.a) && !outside.value.has(c.b)) } : data.value, {
         asOf: asOf.value,
         indexOf: cards.indexOf,
         kinds: kinds.value,
@@ -98,7 +105,7 @@ const shownNodes = computed(() => {
   const d = data.value;
   if (!d) return [];
   const linked = new Set(shownLinks.value.flatMap((l) => [l.a, l.b]));
-  return d.nodes.filter((n) => kinds.value.has(n.kind) && (near.value ? near.value.has(n.id) : linked.has(n.id) || showLoners.value));
+  return d.nodes.filter((n) => kinds.value.has(n.kind) && !outside.value.has(n.id) && (near.value ? near.value.has(n.id) : linked.has(n.id) || showLoners.value));
 });
 const loners = computed(() => {
   const linked = new Set(links.value.flatMap((l) => [l.a, l.b]));
@@ -238,6 +245,22 @@ const circle = computed(() => {
   return { direct: direct.sort(byName), second: second.sort(byName) };
 });
 
+// ---- the family (docs/SPEC.md §12.2): as of the chosen chapter, with the standings shown ----
+const family = computed(() => (data.value ? familyLinks(data.value, { asOf: asOf.value, indexOf: cards.indexOf, standings: standings.value }) : []));
+// the tab's own picker: everyone in a family (any time in the story)
+const inFamilies = computed(() => {
+  const all = data.value ? familyLinks(data.value, { asOf: null, indexOf: cards.indexOf, standings: new Set(["canon", "planned", "rumour"]) }) : [];
+  const ids = new Set(all.flatMap((l) => [l.a, l.b]));
+  return cards.names.filter((n) => ids.has(n.id));
+});
+const DEAD = /\b(dead|deceased|died|killed|slain|murdered)\b/i;
+/** A † for someone whose status is dead as of the chosen chapter (else at the end of the story). */
+function dead(id: string): boolean {
+  const at = asOfId.value || cards.timeline[cards.timeline.length - 1]?.id || null;
+  const c = cards.asOf(cards.byId.get(id), at);
+  return !!c?.facts.some((f) => norm(f.label) === "status" && DEAD.test(f.value));
+}
+
 // ---- places ----
 const places = computed<PlaceNode[]>(() => (data.value ? placeTree(data.value, asOf.value, cards.indexOf, asOfId.value || null) : []));
 const flatPlaces = computed(() => {
@@ -259,11 +282,12 @@ const flatPlaces = computed(() => {
     <div class="page-head">
       <div>
         <div class="crumbs">{{ world.name }}</div>
-        <h1>{{ tab === "places" ? "Places" : "Graph" }}</h1>
+        <h1>{{ tab === "places" ? "Places" : tab === "family" ? "Family" : "Graph" }}</h1>
       </div>
       <div class="actions tabs">
         <button type="button" class="btn btn-sm" :class="{ 'btn-primary': tab === 'graph' }" @click="setQuery({ view: undefined })">Relationships</button>
         <button type="button" class="btn btn-sm" :class="{ 'btn-primary': tab === 'places' }" data-testid="tab-places" @click="setQuery({ view: 'places' })">Places</button>
+        <button type="button" class="btn btn-sm" :class="{ 'btn-primary': tab === 'family' }" data-testid="tab-family" @click="setQuery({ view: 'family' })">Family</button>
       </div>
     </div>
 
@@ -278,6 +302,17 @@ const flatPlaces = computed(() => {
           </optgroup>
         </select>
       </label>
+      <label v-if="tab === 'graph' && projects.length > 1" class="small muted">Book
+        <select class="filter" :value="book" data-testid="graph-book" @change="setQuery({ book: ($event.target as HTMLSelectElement).value || undefined })">
+          <option value="">every book</option>
+          <option v-for="p in projects" :key="p.id" :value="p.slug">{{ p.name }}</option>
+        </select>
+      </label>
+      <template v-if="tab === 'family'">
+        <span v-for="s in ['canon', 'planned', 'rumour']" :key="s" class="chip static">
+          <label><input type="checkbox" :checked="standings.has(s)" @change="toggle('standings', s)" /> {{ s }}</label>
+        </span>
+      </template>
       <template v-if="tab === 'graph'">
         <label class="small muted">Colour by
           <select v-model="colourBy" class="filter">
@@ -412,6 +447,20 @@ const flatPlaces = computed(() => {
         </aside>
       </div>
     </template>
+
+    <section v-else-if="tab === 'family'" class="card family-card" data-testid="family">
+      <div class="graph-head">
+        <span v-if="centre && nodeById.get(centre)" class="grow">
+          Centred on <strong class="kname k-character">{{ nodeById.get(centre)?.name }}</strong>
+        </span>
+        <div class="grow centre-pick" :class="{ narrow: centre }">
+          <EntityPicker :entities="inFamilies" :placeholder="centre ? 'Someone else…' : 'Whose family?'" @pick="(e) => setQuery({ centre: e.id })" @cancel="() => {}" />
+        </div>
+        <RouterLink v-if="centre" class="btn btn-sm" :to="{ name: 'entity', params: { world: world.slug, id: centre }, query: asOfId ? { asof: asOfId } : {} }">Open the entry</RouterLink>
+      </div>
+      <FamilyTree v-if="data && centre" :world="world.slug" :data="data" :links="family" :centre="centre" :dead="dead" @centre="(id) => setQuery({ centre: id })" />
+      <p v-else-if="data" class="empty">{{ inFamilies.length ? "Pick someone to see their family." : "No parents, children or marriages recorded yet." }}</p>
+    </section>
 
     <section v-else class="card" data-testid="place-tree">
       <p v-if="data && !flatPlaces.length" class="empty">No places in the bible yet.</p>
