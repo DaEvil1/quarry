@@ -40,7 +40,7 @@ export interface LocalRevision {
   version: number;
   title: string;
   body: string;
-  reason: "autosnap" | "checkpoint" | "state" | "restore" | "conflict";
+  reason: "autosnap" | "checkpoint" | "state" | "restore" | "conflict" | "start";
   label: string | null;
   words: number;
   created_at: string;
@@ -67,6 +67,30 @@ export interface PendingRevision {
   body: string;
 }
 
+/** A passage cut to the bin on this device that the server has not confirmed yet (it waits like a capture). */
+export interface PendingCut {
+  /** chosen here, so sending it twice still makes one cut */
+  id: string;
+  world: string;
+  chapterId: string;
+  body: string;
+  /** up to 80 characters either side, to find the place again */
+  before: string;
+  after: string;
+  cutAt: string;
+  /** the server refused it (not a network problem); kept so nothing is lost silently */
+  error?: string;
+}
+
+/** A labelled checkpoint older than the last 30 snapshots, fetched once to show changes since it, then kept. */
+export interface KeptCheckpoint {
+  id: string;
+  chapterId: string;
+  label: string;
+  body: string;
+  created_at: string;
+}
+
 class LocalDb extends Dexie {
   outbox!: EntityTable<PendingCapture, "id">;
   kv!: EntityTable<Kv, "key">;
@@ -74,6 +98,8 @@ class LocalDb extends Dexie {
   revisions!: EntityTable<LocalRevision, "id">;
   drafts!: EntityTable<Draft, "chapterId">;
   pendingRevisions!: EntityTable<PendingRevision, "id">;
+  pendingCuts!: EntityTable<PendingCut, "id">;
+  checkpoints!: EntityTable<KeptCheckpoint, "id">;
 
   constructor() {
     super("quarry");
@@ -86,6 +112,10 @@ class LocalDb extends Dexie {
       revisions: "id, chapterId, created_at",
       drafts: "chapterId, world",
       pendingRevisions: "id, world",
+    });
+    this.version(3).stores({
+      pendingCuts: "id, world, cutAt",
+      checkpoints: "id, chapterId",
     });
   }
 }

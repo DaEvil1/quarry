@@ -3,8 +3,24 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { ApiError, get, patch } from "../api";
+import InlineText from "../components/InlineText.vue";
+import WordHistoryChart from "../components/WordHistory.vue";
 import { age, listItems } from "../items";
-import { createChapter, getManuscript, reorderChapters, type ChapterInfo, type Manuscript } from "../manuscript";
+import {
+  checkpointAll,
+  createChapter,
+  getManuscript,
+  getWordHistory,
+  reorderChapters,
+  setAbout,
+  statusStrength,
+  statuses as statusApi,
+  type ChapterInfo,
+  type ChapterStatus,
+  type Manuscript,
+  type StatusRef,
+  type WordHistory,
+} from "../manuscript";
 import { localManuscript } from "../offline";
 import { useSession } from "../stores/session";
 import { PROJECT_KINDS, firstLine, kindLabel, type Item, type Project, type ProjectKind, type World } from "../types";
@@ -36,6 +52,8 @@ async function load() {
       getManuscript(w.slug, p.slug),
       listItems(w.slug, { project: p.slug, limit: 20 }),
     ]);
+    void loadStatuses();
+    getWordHistory(w.slug, p.slug).then((h) => (history.value = h), () => (history.value = null));
   } catch (e) {
     if (e instanceof ApiError && e.status === 0) {
       manuscript.value = await localManuscript(w.slug, p.slug);
@@ -100,6 +118,96 @@ function drop(targetId: string) {
   void saveOrder(list);
 }
 
+// ---- summaries and statuses (docs/SPEC.md §11.2) ----
+const statusList = ref<ChapterStatus[]>([]);
+const shownStatuses = computed<StatusRef[]>(() => (statusList.value.length ? statusList.value : (manuscript.value?.statuses ?? [])));
+const strength = (s: StatusRef) => statusStrength(s.position, shownStatuses.value.length || s.position + 1);
+const picking = ref<string | null>(null);
+async function loadStatuses() {
+  const w = world.value;
+  const p = project.value;
+  if (!w || !p) return;
+  statusList.value = await statusApi.list(w.slug, p.slug).catch(() => statusList.value);
+}
+async function about(c: ChapterInfo, changes: { summary?: string; status_id?: string | null }) {
+  const w = world.value;
+  if (!w) return;
+  picking.value = null;
+  error.value = "";
+  try {
+    await setAbout(w.slug, c.id, changes);
+    await load();
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+/** "9 raw (31k) · 4 rewritten (14k) · 2 none" */
+const tally = computed(() =>
+  (manuscript.value?.status_tally ?? [])
+    .filter((t) => t.chapters)
+    .map((t) => (t.label === null ? `${t.chapters} none` : `${t.chapters} ${t.label} (${short(t.words)})`))
+    .join(" · "),
+);
+const short = (n: number) => (n < 1000 ? String(n) : `${Math.round(n / 1000)}k`);
+
+async function statusChange(fn: () => Promise<ChapterStatus[]>) {
+  error.value = "";
+  try {
+    statusList.value = await fn();
+    await load();
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+function renameStatus(s: ChapterStatus, label: string) {
+  const w = world.value;
+  if (w && label) void statusChange(() => statusApi.rename(w.slug, s.id, label));
+}
+const newStatus = ref("");
+function addStatus() {
+  const w = world.value;
+  const p = project.value;
+  const label = newStatus.value.trim();
+  newStatus.value = "";
+  if (w && p && label) void statusChange(() => statusApi.add(w.slug, p.slug, label));
+}
+function moveStatus(i: number, by: -1 | 1) {
+  const w = world.value;
+  const p = project.value;
+  if (!w || !p) return;
+  const ids = statusList.value.map((s) => s.id);
+  const [x] = ids.splice(i, 1);
+  ids.splice(i + by, 0, x!);
+  void statusChange(() => statusApi.order(w.slug, p.slug, ids));
+}
+function removeStatus(s: ChapterStatus) {
+  const w = world.value;
+  if (!w) return;
+  if (s.chapters && !confirm(`${s.chapters} ${s.chapters === 1 ? "chapter has" : "chapters have"} “${s.label}”. ${s.chapters === 1 ? "It goes" : "They go"} back to no status. Remove it?`)) return;
+  void statusChange(() => statusApi.remove(w.slug, s.id));
+}
+
+// ---- word history (§11.5) and a checkpoint of every chapter (§11.6) ----
+const history = ref<WordHistory | null>(null);
+const checkpointing = ref(false);
+const checkpointLabel = ref("");
+const notice = ref("");
+async function checkpointEvery() {
+  const w = world.value;
+  const p = project.value;
+  const label = checkpointLabel.value.trim();
+  if (!w || !p || !label) return;
+  error.value = "";
+  try {
+    const r = await checkpointAll(w.slug, p.slug, label);
+    checkpointing.value = false;
+    checkpointLabel.value = "";
+    notice.value = `Checkpoint “${r.label}” kept in ${r.chapters} ${r.chapters === 1 ? "chapter" : "chapters"}.`;
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+
 // ---- rename ----
 const editing = ref(false);
 const name = ref("");
@@ -156,9 +264,19 @@ async function save() {
         <RouterLink class="btn btn-sm" :to="{ name: 'salvage', params: { world: world.slug, project: project.slug } }">
           Salvage<template v-if="manuscript?.retired"> ({{ manuscript.retired }})</template>
         </RouterLink>
+        <RouterLink class="btn btn-sm" :to="{ name: 'replace', params: { world: world.slug, project: project.slug } }">Find and replace</RouterLink>
+        <button type="button" class="btn btn-sm" @click="(checkpointing = !checkpointing), (checkpointLabel = '')">Checkpoint every chapter…</button>
         <button v-if="!editing" type="button" class="btn btn-sm" @click="startEdit">Edit</button>
       </div>
     </div>
+
+    <form v-if="checkpointing" class="card actions" data-testid="checkpoint-all" @submit.prevent="checkpointEvery">
+      <label for="checkpoint-all">Label for a checkpoint of every chapter and experiment</label>
+      <input id="checkpoint-all" v-model="checkpointLabel" class="filter grow" type="text" maxlength="200" placeholder="before the polish" required />
+      <button class="btn btn-sm btn-primary" type="submit">Keep</button>
+      <button class="btn btn-sm" type="button" @click="checkpointing = false">Cancel</button>
+    </form>
+    <div v-if="notice" class="notice ok small" role="status" @click="notice = ''">{{ notice }}</div>
 
     <form v-if="editing" class="card form" @submit.prevent="save">
       <div class="field">
@@ -203,9 +321,24 @@ async function save() {
             <span class="drag" aria-hidden="true">⋮⋮</span>
             <span class="muted small chapter-no">{{ i + 1 }}</span>
             <span class="grow chapter-name">
+              <span class="chapter-head">
               <RouterLink :to="{ name: 'chapter', params: { world: world.slug, id: c.id } }">{{ c.title }}</RouterLink>
+              <span class="status-at">
+                <button type="button" class="status-pill" :class="{ unset: !c.status }" :style="c.status ? { '--strength': strength(c.status) } : {}"
+                  :aria-label="`Status of ${c.title}: ${c.status?.label ?? 'none'}`" data-testid="status-pill" :disabled="offlineCopy"
+                  @click="picking = picking === c.id ? null : c.id">{{ c.status?.label ?? "status" }}</button>
+                <span v-if="picking === c.id" class="status-menu" role="menu" data-testid="status-menu">
+                  <button v-for="s in shownStatuses" :key="s.id" type="button" role="menuitem" class="status-pill" :style="{ '--strength': strength(s) }" @click="about(c, { status_id: s.id })">{{ s.label }}</button>
+                  <button type="button" role="menuitem" class="status-pill unset" @click="about(c, { status_id: null })">none</button>
+                </span>
+              </span>
+              </span>
               <span v-if="manuscript?.cast?.[c.id]?.length" class="cast small" data-testid="cast">
                 <span v-for="x in manuscript.cast[c.id]" :key="x.id" class="kname" :class="`k-${x.kind}`" :title="`${x.name}: named ${x.count}×`">{{ x.name }}</span>
+              </span>
+              <span class="chapter-summary small muted" data-testid="chapter-summary">
+                <InlineText v-if="!offlineCopy" :value="c.summary" :label="`Summary of ${c.title}`" placeholder="+ one line" :maxlength="300" @save="(v) => about(c, { summary: v })" />
+                <template v-else>{{ c.summary }}</template>
               </span>
             </span>
             <span v-if="c.pov" class="pill">{{ c.pov.name }}</span>
@@ -242,14 +375,44 @@ async function save() {
       </form>
     </section>
 
-    <section v-if="manuscript?.pov_tally.length" class="card">
-      <div class="card-head"><h2>Point of view</h2></div>
-      <ul class="rows" data-testid="pov-tally">
-        <li v-for="p in manuscript.pov_tally" :key="p.name">
-          <span class="grow">{{ p.name }}</span>
-          <span class="muted small">{{ p.chapters }} {{ p.chapters === 1 ? "chapter" : "chapters" }}</span>
+    <div class="tallies">
+      <section v-if="manuscript?.pov_tally.length" class="card">
+        <div class="card-head"><h2>Point of view</h2></div>
+        <ul class="rows" data-testid="pov-tally">
+          <li v-for="p in manuscript.pov_tally" :key="p.name">
+            <span class="grow">{{ p.name }}</span>
+            <span class="muted small">{{ p.chapters }} {{ p.chapters === 1 ? "chapter" : "chapters" }}</span>
+          </li>
+        </ul>
+      </section>
+      <section v-if="manuscript?.chapters.length" class="card">
+        <div class="card-head"><h2>Status</h2></div>
+        <p class="small" data-testid="status-tally">{{ tally }}</p>
+      </section>
+    </div>
+
+    <WordHistoryChart v-if="history" :history="history" />
+
+    <section v-if="statusList.length || !offlineCopy" class="card" data-testid="statuses">
+      <div class="card-head">
+        <h2>Chapter statuses</h2>
+        <span class="muted small">From the first to the last stage; each pill gets stronger along the way.</span>
+      </div>
+      <ul class="rows">
+        <li v-for="(s, i) in statusList" :key="s.id">
+          <span class="status-pill" :style="{ '--strength': strength(s) }" aria-hidden="true">&nbsp;</span>
+          <span class="grow"><InlineText :value="s.label" :label="`Status ${s.label}`" :maxlength="100" @save="(v) => renameStatus(s, v)" /></span>
+          <span class="muted small">{{ s.chapters }} {{ s.chapters === 1 ? "chapter" : "chapters" }}</span>
+          <button type="button" class="icon-btn" :disabled="i === 0" :aria-label="`Move ${s.label} up`" @click="moveStatus(i, -1)">↑</button>
+          <button type="button" class="icon-btn" :disabled="i === statusList.length - 1" :aria-label="`Move ${s.label} down`" @click="moveStatus(i, 1)">↓</button>
+          <button type="button" class="icon-btn" :aria-label="`Remove ${s.label}`" @click="removeStatus(s)">×</button>
         </li>
       </ul>
+      <form class="actions" @submit.prevent="addStatus">
+        <label for="new-status" class="visually-hidden">New status</label>
+        <input id="new-status" v-model="newStatus" class="filter grow" type="text" maxlength="100" placeholder="New status" />
+        <button class="btn btn-sm" type="submit" :disabled="!newStatus.trim()">Add</button>
+      </form>
     </section>
 
     <section class="card">

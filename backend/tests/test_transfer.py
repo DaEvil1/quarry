@@ -49,6 +49,18 @@ def build_world(c: Client) -> None:
     c.put(f"{W}/chapters/{one['id']}/presence/{v['id']}", json={"place_id": harbour["id"], "note": "on the pier"})
     c.post(f"{W}/entities/{v['id']}/facts", json={"label": "status", "value": "dead", "from_chapter_id": one["id"]})
     c.post(f"{W}/decisions", json={"text": "Isolde stays", "decided_on": "2026-10-17", "entities": [isolde["id"]]})
+    # revising: summaries and statuses (renamed and reordered), and the cuts bin
+    statuses = c.get(f"{W}/projects/book-one/statuses").json()
+    c.patch(f"{W}/statuses/{statuses[1]['id']}", json={"label": "second draft"})
+    c.put(f"{W}/projects/book-one/status-order", json={"ids": [statuses[2]["id"], statuses[0]["id"], statuses[1]["id"]]})
+    c.patch(f"{W}/chapters/{one['id']}/about", json={"summary": "Varren waits for the boat.", "status_id": statuses[1]["id"]})
+    c.patch(f"{W}/chapters/{two['id']}/about", json={"summary": "The gull", "status_id": statuses[2]["id"]})
+    c.post(f"{W}/cuts", json={"id": "6f1d3c0e-1111-4c1e-9a7a-0d8e2b3c4d5e", "chapter_id": one["id"], "body": "The lamp went out.",
+                              "before": "Varren waits.", "after": "\n\nThe boat", "cut_at": "2026-10-19T10:00:00+00:00"})
+    kept = "6f1d3c0e-2222-4c1e-9a7a-0d8e2b3c4d5e"
+    c.post(f"{W}/cuts", json={"id": kept, "chapter_id": one["id"], "body": "A gull cried.", "cut_at": "2026-10-20T10:00:00+00:00"})
+    c.post(f"{W}/cuts/{kept}/put-back", json={"chapter_id": one["id"]})
+    c.post(f"{W}/projects/novella/statuses", json={"label": "outline"})
 
 
 def snapshot(c: Client, slug: str) -> dict:
@@ -73,10 +85,15 @@ def snapshot(c: Client, slug: str) -> dict:
     for p in world["projects"]:
         m = c.get(f"{base}/projects/{p['slug']}/chapters").json()
         out[p["slug"]] = {
-            "chapters": [(x["title"], x["position"], x["words"], (x["pov"] or {}).get("name")) for x in m["chapters"]],
+            "chapters": [(x["title"], x["position"], x["words"], (x["pov"] or {}).get("name"), x["summary"],
+                          (x["status"] or {}).get("label")) for x in m["chapters"]],
             "experiments": [x["title"] for x in m["experiments"]],
-            "salvage": [(s["title"], [n["body"] for n in s["harvest_notes"]])
+            "salvage": [(s["title"], [n["body"] for n in s["harvest_notes"]], s["summary"], (s["status"] or {}).get("label"))
                         for s in c.get(f"{base}/projects/{p['slug']}/salvage").json()],
+            "statuses": [s["label"] for s in m["statuses"]],
+            "cuts": [(x["body"], (x["chapter"] or {}).get("title"), x["chapter_title"], x["cut_at"], x["before"], x["after"],
+                      (x["put_back_to"] or {}).get("title"), x["put_back_at"] is not None)
+                     for x in c.get(f"{base}/projects/{p['slug']}/cuts?put_back=true").json()],
         }
         out[p["slug"]]["bodies"] = [c.get(f"{base}/chapters/{x['id']}").json()["body"] for x in m["chapters"]]
     out["items"] = sorted((i["body"], i["kind"], i["status"], i["project"], [e["name"] for e in i["entities"]])
@@ -111,8 +128,16 @@ def test_export_layout(signed_in: Client):
     meta = yaml.safe_load(arrival.split("---\n")[1])
     assert (meta["title"], meta["pov"], meta["state"]) == ("Arrival", "Varren", "current")
     assert arrival.endswith("\n\nVarren waits.\n\nThe boat comes.")
+    assert (meta["summary"], meta["status"]) == ("Varren waits for the boat.", "second draft")
+    project = yaml.safe_load(z.read("coast/Projects/Book One/project.md").decode().split("---\n")[1])
+    assert project["statuses"] == ["polished", "raw", "second draft"]
+    cuts = sorted(n for n in names if n.startswith("coast/Projects/Book One/Cuts/"))
+    assert [n.rsplit("/", 1)[1][:19] for n in cuts] == ["2026-10-19 Arrival ", "2026-10-20 Arrival "]
+    cut_meta, cut_body = z.read(cuts[0]).decode().split("---\n")[1:]
+    assert yaml.safe_load(cut_meta)["chapter"] == meta["id"] and cut_body == "\nThe lamp went out."
     compiled = z.read("coast/Projects/Book One/manuscript.md").decode()
     assert compiled.index("## Arrival") < compiled.index("## Storm") and "Old opening" not in compiled
+    assert "lamp went out" not in compiled and "Varren waits for the boat" not in compiled
     assert "- 2026-10-18 The world has two moons <!-- id=" in z.read("coast/Decisions.md").decode()
 
 

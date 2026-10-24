@@ -10,10 +10,12 @@ the texts as they are now.
     <world>/Journal/<date> <title> (<id>).md          id, date, title, project
     <world>/Decisions.md                              one line per decision
     <world>/Planning/<status>/<date> <text> (<id>).md items for the whole world
-    <world>/Projects/<Name>/project.md                name, slug, kind, position
-    <world>/Projects/<Name>/Manuscript/<NN> <Title>.md
+    <world>/Projects/<Name>/project.md                name, slug, kind, position, statuses (in order)
+    <world>/Projects/<Name>/Manuscript/<NN> <Title>.md id, title, state, position, pov, summary, status
     <world>/Projects/<Name>/Experiments/<Title> (<id>).md
     <world>/Projects/<Name>/Salvage/<Title> (<id>).md retired chapters, with their harvest notes
+    <world>/Projects/<Name>/Cuts/<date> <source title> (<id>).md   the cuts bin: id, chapter, chapter_title, cut_at,
+                                                      put_back_at, put_back_to, before, after; the cut text
     <world>/Projects/<Name>/Planning/<status>/...     items for the project
     <world>/Projects/<Name>/manuscript.md             the current chapters in order (not read back)
 """
@@ -36,7 +38,10 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..mentions import refresh_world
 from ..models import (
+    STARTING_STATUSES,
     Chapter,
+    ChapterStatus,
+    Cut,
     Decision,
     DecisionLink,
     Entity,
@@ -55,6 +60,7 @@ from ..models import (
     WorldMember,
 )
 from ..margin import without_margin_notes
+from .manuscript import snapshot
 from .world import seed_relation_types
 from .deps import current_user
 from .worlds import WorldOut, _unique, _world_out, member_world, slugify
@@ -213,14 +219,19 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
         notes[n.chapter_id].append(n.body)
     for p in world.projects:
         d = project_dir[p.id]
-        files[f"{d}/project.md"] = _doc({"name": p.name, "slug": p.slug, "kind": p.kind, "position": p.position}, "")
+        statuses = list(db.scalars(select(ChapterStatus).where(ChapterStatus.project_id == p.id)
+                                   .order_by(ChapterStatus.position, ChapterStatus.created_at)))
+        status_label = {s.id: s.label for s in statuses}
+        files[f"{d}/project.md"] = _doc({"name": p.name, "slug": p.slug, "kind": p.kind, "position": p.position,
+                                         "statuses": [s.label for s in statuses]}, "")
         chapters = list(db.scalars(select(Chapter).where(Chapter.project_id == p.id)
                                    .order_by(Chapter.position, Chapter.created_at)))
         compiled = [f"# {p.name}", ""]
         n = 0
         for ch in chapters:
             meta = {"id": str(ch.id), "title": ch.title, "state": ch.state, "position": ch.position,
-                    "pov": names.get(ch.pov_entity_id) if ch.pov_entity_id else None}
+                    "pov": names.get(ch.pov_entity_id) if ch.pov_entity_id else None,
+                    "summary": ch.summary, "status": status_label.get(ch.status_id) if ch.status_id else None}
             if ch.state == "current":
                 n += 1
                 path = f"{d}/Manuscript/{n:02d} {_safe(ch.title, 60)}.md"
@@ -234,6 +245,12 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                 path = f"{d}/Salvage/{_safe(ch.title, 60)} ({str(ch.id)[:8]}).md"
             files[path] = _doc(meta, ch.body)
         files[f"{d}/manuscript.md"] = "\n".join(compiled) + "\n"
+        for c in db.scalars(select(Cut).where(Cut.project_id == p.id).order_by(Cut.cut_at)):
+            files[f"{d}/Cuts/{c.cut_at:%Y-%m-%d} {_safe(c.chapter_title, 50)} ({str(c.id)[:8]}).md"] = _doc(
+                {"id": str(c.id), "chapter": str(c.chapter_id) if c.chapter_id else None,
+                 "chapter_title": c.chapter_title, "cut_at": _iso(c.cut_at), "put_back_at": _iso(c.put_back_at),
+                 "put_back_to": str(c.put_back_to) if c.put_back_to else None, "before": c.before,
+                 "after": c.after}, c.body)
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -322,6 +339,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
 
     project_ids: dict[str, uuid.UUID] = {}
     project_dirs: dict[str, str] = {}
+    # each project's statuses by label: the export's (in order), or the starting ones for exports made before phase 10
+    status_ids: dict[uuid.UUID, dict[str, uuid.UUID]] = {}
     for rel, meta, _ in under(f"{root}/Projects/"):
         if rel.count("/") == 1 and rel.endswith("/project.md"):
             folder = rel.split("/", 1)[0]
@@ -336,6 +355,28 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
             db.flush()
             project_ids[str(meta.get("slug") or pslug)] = p.id
             project_dirs[folder] = str(meta.get("slug") or pslug)
+            labels = meta["statuses"] if isinstance(meta.get("statuses"), list) else list(STARTING_STATUSES)
+            status_ids[p.id] = {}
+            for label in labels:
+                label = " ".join(str(label).split())[:100]
+                if label and label not in status_ids[p.id]:
+                    st = ChapterStatus(project_id=p.id, label=label, position=len(status_ids[p.id]))
+                    db.add(st)
+                    db.flush()
+                    status_ids[p.id][label] = st.id
+
+    def status_of(project_id: uuid.UUID, label) -> uuid.UUID | None:  # type: ignore[no-untyped-def]
+        """A status a chapter names that project.md doesn't list is added at the end."""
+        label = " ".join(str(label or "").split())[:100]
+        if not label:
+            return None
+        known = status_ids[project_id]
+        if label not in known:
+            st = ChapterStatus(project_id=project_id, label=label, position=len(known))
+            db.add(st)
+            db.flush()
+            known[label] = st.id
+        return known[label]
 
     def project_of(slug_or_none) -> uuid.UUID | None:  # type: ignore[no-untyped-def]
         return project_ids.get(str(slug_or_none)) if slug_or_none else None
@@ -397,22 +438,38 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                              position=int(meta.get("position") or 0), pov_entity_id=pov,
                              experiment_item_id=item_by_old.get(str(meta.get("item"))) if meta.get("item") else None,
                              retired_at=_when(meta.get("retired_at")) if state == "retired" else None,
+                             summary=" ".join(str(meta.get("summary") or "").split())[:300],
+                             status_id=status_of(pid, meta.get("status")),
                              created_by=user.id, updated_by=user.id)
                 if state == "retired" and ch.retired_at is None:
                     ch.retired_at = datetime.now(UTC)
                 db.add(ch)
                 db.flush()
+                if ch.body.strip():
+                    # restored text is where the chapter starts, not a day's writing
+                    snapshot(db, ch, "start", user)
                 if meta.get("id"):
                     chapter_by_old[str(meta["id"])] = ch.id
                 if meta.get("replaces"):
                     pending_replaces.append((ch, str(meta["replaces"])))
                 for note in meta.get("harvest_notes") or []:
                     db.add(HarvestNote(world_id=world.id, chapter_id=ch.id, body=str(note), created_by=user.id))
+    def chapter(old) -> uuid.UUID | None:  # type: ignore[no-untyped-def]
+        return chapter_by_old.get(str(old)) if old else None
+
     for ch, old in pending_replaces:
         ch.replaces_id = chapter_by_old.get(old)
 
-    def chapter(old) -> uuid.UUID | None:  # type: ignore[no-untyped-def]
-        return chapter_by_old.get(str(old)) if old else None
+    # the cuts bin, each relinked to its source chapter (and the one it was put back into) by id
+    for folder, pslug in project_dirs.items():
+        for _rel, meta, body in under(f"{root}/Projects/{folder}/Cuts/"):
+            if not body:
+                continue
+            db.add(Cut(world_id=world.id, project_id=project_ids[pslug], chapter_id=chapter(meta.get("chapter")),
+                       chapter_title=str(meta.get("chapter_title") or "")[:300], body=body,
+                       before=str(meta.get("before") or ""), after=str(meta.get("after") or ""),
+                       cut_at=_when(meta.get("cut_at")) or datetime.now(UTC), put_back_at=_when(meta.get("put_back_at")),
+                       put_back_to=chapter(meta.get("put_back_to")), created_by=user.id))
 
     standings = ("canon", "planned", "rumour")
     for e, meta in world_model:

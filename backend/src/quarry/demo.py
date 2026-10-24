@@ -1,6 +1,7 @@
 """The demo world: a small, made-up story that uses every part of Quarry, so it can be tried without inventing
 anything. It is written as the files of an export and loaded with the same code as Restore, then given the few
-things an export doesn't carry (a thought stashed in a chapter, where the writer stopped).
+things an export doesn't carry (a thought stashed in a chapter, where the writer stopped, a few days of word history).
+Its chapters have summaries and statuses, and a passage waits in the cuts bin.
 
 The text is planted with what the writing companion looks for: a misspelled name (twice, so it is offered as another
 spelling), a name the bible doesn't know yet, a doubled word, a TK, a margin note, a character named after their
@@ -10,11 +11,15 @@ values of a fact at once, and characters who share sentences with no recorded re
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .api.manuscript import words
 from .api.transfer import FORMAT, KIND_FOLDERS, _doc, restore_files
-from .models import Chapter, Item, ItemLink, Project, SessionNote, User, World
+from .models import Chapter, Item, ItemLink, Project, Revision, SessionNote, User, World
+from .wordhistory import word_changes
 from .vocabulary import STARTING_TYPES
 
 ROOT = "ninefold-delta-demo"
@@ -231,7 +236,7 @@ BOOK_TWO = "Ash Season"
 
 CHAPTERS: list[dict] = [
     {
-        "id": "b1-c1", "project": BOOK_ONE, "title": "The Crossing", "position": 0, "pov": "Tamsin Vey",
+        "id": "b1-c1", "summary": 'The Wardens come for the toll; Oskar gives Tamsin the compass.', "status": 'polished', "project": BOOK_ONE, "title": "The Crossing", "position": 0, "pov": "Tamsin Vey",
         "body": _p(
             "The tidecall went out over the water at first light, three long notes that set the herons lifting "
             "from the reeds. Tamsin Vey let the last one fade before she cast off, the way her father had taught "
@@ -256,7 +261,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b1-c2", "project": BOOK_ONE, "title": "Lanterns on the Water", "position": 1, "pov": "Tamsin Vey",
+        "id": "b1-c2", "summary": 'The Flood of Lanterns, and the night Oskar goes out on the water.', "status": 'rewritten', "project": BOOK_ONE, "title": "Lanterns on the Water", "position": 1, "pov": "Tamsin Vey",
         "body": _p(
             "The Flood of Lanterns came early that year. By dusk the water stood knee-deep in the lower lanes of "
             "Carrow Ferry, and every house had a lantern ready on its step, one for each of the drowned the "
@@ -275,7 +280,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b1-c3", "project": BOOK_ONE, "title": "What the River Kept", "position": 2, "pov": "Tamsin Vey",
+        "id": "b1-c3", "summary": 'Tamsin at Saltreach Abbey with Brother Cade and the compass.', "status": 'rewritten', "project": BOOK_ONE, "title": "What the River Kept", "position": 2, "pov": "Tamsin Vey",
         "body": _p(
             "They never found Oskar. A boatman called Rook found the boat, upside down against the reeds below "
             "Marrow Locks, and towed it back without a word and without asking to be paid. Pell said that was "
@@ -294,7 +299,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b1-c4", "project": BOOK_ONE, "title": "The Locks", "position": 3, "pov": "Ilse Marrow",
+        "id": "b1-c4", "summary": 'Ilse writes the report, and hears of a cartographer.', "status": 'raw', "project": BOOK_ONE, "title": "The Locks", "position": 3, "pov": "Ilse Marrow",
         # planted: told from Ilse's point of view, but she is never named in it
         "body": _p(
             "She wrote the report by lamplight in the gatehouse at Marrow Locks, while the water below the gates "
@@ -309,7 +314,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b1-x1", "project": BOOK_ONE, "title": "Lanterns on the Water (from the water)", "state": "experiment",
+        "id": "b1-x1", "summary": 'Chapter two from the boat.', "status": 'raw', "project": BOOK_ONE, "title": "Lanterns on the Water (from the water)", "state": "experiment",
         "position": 4, "pov": "Tamsin Vey", "replaces": "b1-c2", "item": "item-experiment",
         "body": _p(
             "From the boat, the lanterns did not look like a field of fires. They looked like eyes. Her father "
@@ -318,7 +323,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b1-s1", "project": BOOK_ONE, "title": "Prologue: The Delta Remembers", "state": "retired",
+        "id": "b1-s1", "summary": 'The delta as an open hand.', "status": 'raw', "project": BOOK_ONE, "title": "Prologue: The Delta Remembers", "state": "retired",
         "position": 5,
         "harvest_notes": ["The nine channels as the fingers of an open hand.", "Keep: lanterns as prayers nobody says aloud."],
         "body": _p(
@@ -328,7 +333,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b2-c1", "project": BOOK_TWO, "title": "Ash Season", "position": 0, "pov": "Tamsin Vey",
+        "id": "b2-c1", "summary": 'A year on: ash on the river, Tamsin running the ferry alone.', "status": 'draft', "project": BOOK_TWO, "title": "Ash Season", "position": 0, "pov": "Tamsin Vey",
         "body": _p(
             "A year later the mountains burned, and the ash came down the river for a month, grey on the water, "
             "grey on the reeds, grey in the folds of every sail. Tamsin ran the ferry alone now. She blew the "
@@ -341,7 +346,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b2-c2", "project": BOOK_TWO, "title": "The Cartographer", "position": 1, "pov": "Hesper Quill",
+        "id": "b2-c2", "summary": 'Hesper Quill comes to Carrow Ferry with her maps.', "status": 'sketch', "project": BOOK_TWO, "title": "The Cartographer", "position": 1, "pov": "Hesper Quill",
         "body": _p(
             "Hesper Quill had been told the ferry at Carrow Ferry was run by a girl who knew the channels better "
             "than any chart. She had been told this by three different people in Greywater, each of whom "
@@ -357,9 +362,31 @@ CHAPTERS: list[dict] = [
 ]
 
 PROJECTS = [
-    {"name": BOOK_ONE, "slug": "the-ferrymans-daughter", "kind": "novel", "position": 0},
-    {"name": BOOK_TWO, "slug": "ash-season", "kind": "novella", "position": 1},
+    {"name": BOOK_ONE, "slug": "the-ferrymans-daughter", "kind": "novel", "position": 0,
+     "statuses": ["raw", "rewritten", "polished"]},
+    # each book names its own stages
+    {"name": BOOK_TWO, "slug": "ash-season", "kind": "novella", "position": 1, "statuses": ["sketch", "draft", "clean"]},
 ]
+
+# ---- revising: a passage in the cuts bin, and a few days of word history ------------------------------------------
+
+# cut from "The Crossing" a week ago, between Oskar at the stern and the Wardens' boats
+CUT = {
+    "id": "cut-buoy", "chapter": "b1-c1", "after_paragraph": 1, "days_ago": 7,
+    "body": "Upstream a bell-buoy knocked against its chain, the way it did when the tide turned early. Tamsin "
+            "counted the knocks and lost count at nine, which her father said was the river's way of telling her "
+            "to stop counting.",
+}
+
+# how the chapters grew: (days ago, paragraphs there were); the first is where the chapter's history starts, the
+# last is the chapter as it is now. "The Crossing" also had the cut passage until the day it was cut.
+HISTORY: dict[str, list[tuple[int, int]]] = {
+    "b1-c1": [(12, 3), (10, 7), (9, 99)],
+    "b1-c2": [(9, 2), (8, 99)],
+    "b1-c3": [(6, 3), (5, 5), (3, 99)],
+    "b1-c4": [(2, 1), (1, 99)],
+    "b2-c1": [(4, 1), (3, 99)],
+}
 
 # ---- planning: the inbox, decisions and the journal ---------------------------------------------------------------
 
@@ -439,7 +466,8 @@ def demo_files() -> dict[str, str]:
         files[f"{folders[p['name']]}/project.md"] = _doc(p, "")
     for ch in CHAPTERS:
         state = ch.get("state", "current")
-        meta = {"id": ch["id"], "title": ch["title"], "state": state, "position": ch["position"], "pov": ch.get("pov")}
+        meta = {"id": ch["id"], "title": ch["title"], "state": state, "position": ch["position"], "pov": ch.get("pov"),
+                "summary": ch.get("summary", ""), "status": ch.get("status")}
         sub = {"current": "Manuscript", "experiment": "Experiments", "retired": "Salvage"}[state]
         if state == "experiment":
             meta |= {"replaces": ch.get("replaces"), "item": ch.get("item")}
@@ -464,12 +492,58 @@ def demo_files() -> dict[str, str]:
     for j in JOURNAL:
         files[f"{ROOT}/Journal/{j['date']} {j['title'].replace('?', '')}.md"] = _doc(
             {"id": j["id"], "date": j["date"], "title": j["title"], "project": j["project"]}, j["body"])
+
+    source = next(c for c in CHAPTERS if c["id"] == CUT["chapter"])
+    paragraphs = _paragraphs(source["body"])
+    before = "\n\n".join(paragraphs[:CUT["after_paragraph"] + 1]) + "\n\n"
+    after = "\n\n".join(paragraphs[CUT["after_paragraph"] + 1:])
+    files[f"{folders[source['project']]}/Cuts/{CUT['id']}.md"] = _doc({
+        "id": CUT["id"], "chapter": source["id"], "chapter_title": source["title"],
+        "cut_at": (datetime.now(UTC) - timedelta(days=CUT["days_ago"])).isoformat(), "put_back_at": None,
+        "before": before[-80:], "after": after[:80]}, CUT["body"] + "\n\n")
     return files
+
+
+def _paragraphs(body: str) -> list[str]:
+    return body.rstrip("\n").split("\n\n")
+
+
+def _history(db: Session, world: World, user: User) -> None:
+    """A few days of word history: each chapter's start moved back to where its history begins, with the text it
+    had then, and a revision for each day it grew (and the day the passage now in the bin was cut)."""
+    by_title = {c.title: c for c in db.scalars(select(Chapter).join(Project, Project.id == Chapter.project_id)
+                                                .where(Project.world_id == world.id))}
+    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    for cid, steps in HISTORY.items():
+        spec = next(c for c in CHAPTERS if c["id"] == cid)
+        ch = by_title[spec["title"]]
+        paragraphs = _paragraphs(ch.body)
+        if cid == CUT["chapter"]:
+            paragraphs.insert(CUT["after_paragraph"] + 1, CUT["body"])
+        texts = ["\n\n".join(paragraphs[:n]) + "\n" for _, n in steps]
+        days = [d for d, _ in steps]
+        if cid == CUT["chapter"]:
+            texts.append(ch.body)
+            days.append(CUT["days_ago"])
+        start = db.scalars(select(Revision).where(Revision.doc_table == "chapter", Revision.doc_id == ch.id,
+                                                  Revision.reason == "start")).one()
+        start.body = texts[0]
+        start.created_at = now - timedelta(days=days[0], hours=3)
+        start.meta = {**start.meta, "words": words(texts[0])}
+        previous = texts[0]
+        for day, text in zip(days[1:], texts[1:]):
+            added, removed = word_changes(previous, text)
+            db.add(Revision(doc_table="chapter", doc_id=ch.id, version=ch.version, title=ch.title, body=text,
+                            meta={"state": ch.state, "words": words(text), "added": added, "removed": removed},
+                            reason="autosnap", created_by=user.id, created_at=now - timedelta(days=day, hours=1)))
+            previous = text
+    db.flush()
 
 
 def create_demo(db: Session, user: User) -> World:
     """Load the demo world for `user`, plus what an export doesn't carry. Flushed, not committed."""
     world = restore_files(db, user, demo_files())
+    _history(db, world, user)
     chapters = {c.title: c for c in db.scalars(select(Chapter).join(Project, Project.id == Chapter.project_id)
                                                 .where(Project.world_id == world.id))}
     third = chapters["What the River Kept"]

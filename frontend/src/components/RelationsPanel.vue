@@ -84,6 +84,8 @@ function add() {
             </select>
             <SpanPicker :span="r" :timeline="props.timeline" @save="(sp) => setSpan(r, sp)" />
             <span v-if="r.note" class="muted small">— {{ r.note }}</span>
+            <RouterLink class="small read-together" :to="{ name: 'entity-read', params: { world: props.world, id: props.entity.id }, query: { with: r.other?.id } }"
+              :title="`Read the paragraphs that name both ${props.entity.name} and ${r.other?.name}`">Read together</RouterLink>
             <button type="button" class="icon-btn small" :aria-label="`Remove ${reads} ${r.other?.name}`" @click="run(() => deleteRelationship(props.world, r.id))">×</button>
           </span>
         </dd>

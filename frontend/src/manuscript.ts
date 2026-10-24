@@ -12,12 +12,26 @@ export interface ChapterInfo {
   state: "current" | "experiment" | "retired";
   position: number;
   pov: { id: string; name: string } | null;
+  /** one optional line about the chapter, and where it stands in the project's statuses */
+  summary: string;
+  status: StatusRef | null;
   experiment_item_id: string | null;
   replaces_id: string | null;
   words: number;
   version: number;
   updated_at: string;
   retired_at: string | null;
+}
+
+export interface StatusRef {
+  id: string;
+  label: string;
+  position: number;
+}
+
+export interface ChapterStatus extends StatusRef {
+  /** chapters that have it (current, experiments and retired) */
+  chapters: number;
 }
 
 export interface HarvestNote {
@@ -40,6 +54,10 @@ export interface Manuscript {
   pov_tally: { name: string; chapters: number }[];
   words: number;
   retired: number;
+  /** the project's statuses in order (in a copy kept offline: only those its chapters have) */
+  statuses?: StatusRef[];
+  /** chapters and words per status, in order, then those with none (label null) */
+  status_tally?: { id: string | null; label: string | null; chapters: number; words: number }[];
   /** per chapter: the characters and places named in it, most named first (missing in a copy kept offline) */
   cast?: Record<string, { id: string; name: string; kind: EntityKind; count: number }[]>;
 }
@@ -48,7 +66,7 @@ export interface RevisionInfo {
   id: string;
   version: number;
   title: string;
-  reason: "autosnap" | "checkpoint" | "state" | "restore" | "conflict";
+  reason: "autosnap" | "checkpoint" | "state" | "restore" | "conflict" | "start";
   label: string | null;
   words: number;
   created_at: string;
@@ -65,6 +83,7 @@ export const REASON_LABELS: Record<RevisionInfo["reason"], string> = {
   state: "Before a change of state",
   restore: "Before a restore",
   conflict: "Conflict copy",
+  start: "The text it started with",
 };
 
 const project = (world: string, p: string) => `${base(world)}/projects/${encodeURIComponent(p)}`;
@@ -124,6 +143,70 @@ export const closeExperiment = (
   outcome: "accepted" | "rejected" | "harvested",
   opts: { note?: string; decision?: string; decided_on?: string },
 ) => post<Chapter>(`${base(world)}/chapters/${id}/close-experiment`, { outcome, ...opts });
+
+// ---- revising and salvaging (docs/SPEC.md §11) ----
+
+/** A chapter's summary and status: labels, not text, so no version check. */
+export const setAbout = (world: string, id: string, about: { summary?: string; status_id?: string | null }) =>
+  patch<ChapterInfo>(`${base(world)}/chapters/${id}/about`, about);
+
+export const statuses = {
+  list: (world: string, p: string) => get<ChapterStatus[]>(`${project(world, p)}/statuses`),
+  add: (world: string, p: string, label: string) => post<ChapterStatus[]>(`${project(world, p)}/statuses`, { label }),
+  rename: (world: string, id: string, label: string) => patch<ChapterStatus[]>(`${base(world)}/statuses/${id}`, { label }),
+  remove: (world: string, id: string) => del<ChapterStatus[]>(`${base(world)}/statuses/${id}`),
+  order: (world: string, p: string, ids: string[]) => put<ChapterStatus[]>(`${project(world, p)}/status-order`, { ids }),
+};
+
+/** How strongly a status pill is drawn: the first status faint, the last the strongest (0.25 … 1). */
+export function statusStrength(position: number, count: number): number {
+  return count <= 1 ? 1 : 0.25 + (0.75 * Math.min(position, count - 1)) / (count - 1);
+}
+
+export const checkpointAll = (world: string, p: string, label: string) =>
+  post<{ chapters: number; label: string }>(`${project(world, p)}/checkpoint`, { label });
+
+export interface WordHistory {
+  revisions: { at: string; chapter_id: string; added: number; removed: number }[];
+  /** the working text against each chapter's last revision: counts for today */
+  pending: { chapter_id: string; added: number; removed: number }[];
+  chapters: Record<string, string>;
+}
+export const getWordHistory = (world: string, p: string) => get<WordHistory>(`${project(world, p)}/word-history`);
+
+export interface FindOptions {
+  find: string;
+  match_case: boolean;
+  whole_words: boolean;
+  scope: "project" | "world";
+}
+export interface FoundChapter {
+  id: string;
+  title: string;
+  state: "current" | "experiment";
+  project: string;
+  project_name: string;
+  version: number;
+  hits: { start: number; end: number; before: string; match: string; after: string }[];
+}
+export interface Replaced {
+  replaced: number;
+  label: string;
+  chapters: { id: string; title: string; replaced: number; version: number; revision_id: string }[];
+  skipped: { id: string; title: string; reason: string }[];
+}
+export const findInChapters = (world: string, p: string, opts: FindOptions) =>
+  post<{ chapters: FoundChapter[]; total: number }>(`${project(world, p)}/find`, opts);
+export const replaceInChapters = (
+  world: string,
+  p: string,
+  opts: FindOptions & { replace: string; chapters: { id: string; version: number; hits: number[] }[] },
+) => post<Replaced>(`${project(world, p)}/replace`, opts);
+export const undoReplace = (world: string, p: string, done: Replaced) =>
+  post<{ restored: { id: string; title: string }[]; skipped: { id: string; title: string; reason: string }[] }>(
+    `${project(world, p)}/replace/undo`,
+    { chapters: done.chapters.map((c) => ({ id: c.id, revision_id: c.revision_id, version: c.version })) },
+  );
 
 export const exportUrl = (world: string) => `${base(world)}/export`;
 

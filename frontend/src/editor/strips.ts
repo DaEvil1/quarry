@@ -190,11 +190,12 @@ export function nearMissStripDom(
 export function selectionStripDom(
   text: string,
   names: EntityRef[],
-  actions: { create: (kind: EntityKind) => unknown; addName: (id: string) => unknown; done: () => void },
+  actions: { create: (kind: EntityKind) => unknown; addName: (id: string) => unknown; done: () => void; cut?: () => unknown },
 ): HTMLElement {
   const root = el("div", "qstrip");
   root.dataset.testid = "selection-strip";
   const main = el("div", "qrow");
+  if (actions.cut) main.append(chip("Cut to bin", actions.cut, "quiet"));
   const common: EntityKind[] = ["character", "place", "faction", "object"];
   for (const k of common) main.append(chip(`+ ${kindLabel(k)}`, () => actions.create(k), `k-${k}`));
   const more = chip("More…", () => {
@@ -234,6 +235,23 @@ export function selectionStripDom(
   }, "quiet");
   main.append(more, other);
   root.append(main);
+  return root;
+}
+
+/** A passage selected (on a phone): cut it to the project's bin. */
+export function cutStripDom(cut: () => unknown): HTMLElement {
+  const root = el("div", "qstrip");
+  root.dataset.testid = "cut-strip";
+  root.append(chip("Cut to bin", cut, "primary"));
+  return root;
+}
+
+/** Changes since a checkpoint: what stood here then. */
+export function wasDom(was: string): HTMLElement {
+  const root = el("div", "qstrip qwas");
+  root.dataset.testid = "was";
+  const text = was.trim();
+  root.append(el("span", "qstrip-q", "Was:"), el("span", "qwas-text", text.length > 400 ? `${text.slice(0, 400)}…` : text));
   return root;
 }
 

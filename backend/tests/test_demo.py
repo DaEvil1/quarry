@@ -52,6 +52,21 @@ def test_demo_world(signed_in: Client):
         "How many lanterns does the abbey set out for its own dead?"]
     assert signed_in.get(f"{W}/chapters/{third}/session-note").json()["note"].startswith("Tamsin opens the compass")
 
+    # revising: summaries and statuses, a cut, and a few days of word history (and nothing for the day it loaded)
+    assert all(c["summary"] and c["status"] for c in book["chapters"])
+    assert [t["label"] for t in book["status_tally"]] == ["raw", "rewritten", "polished", None]
+    assert [s["label"] for s in book["statuses"]] == ["raw", "rewritten", "polished"]
+    two = signed_in.get(f"{W}/projects/ash-season/chapters").json()
+    assert [s["label"] for s in two["statuses"]] == ["sketch", "draft", "clean"]
+    cuts = signed_in.get(f"{W}/projects/the-ferrymans-daughter/cuts").json()
+    assert len(cuts) == 1 and cuts[0]["chapter"]["title"] == "The Crossing"
+    crossing = signed_in.get(f"{W}/chapters/{book['chapters'][0]['id']}").json()["body"]
+    assert (cuts[0]["before"] + cuts[0]["after"]) in crossing and cuts[0]["body"] not in crossing
+    history = signed_in.get(f"{W}/projects/the-ferrymans-daughter/word-history").json()
+    days = {r["at"][:10] for r in history["revisions"]}
+    assert len(days) >= 5 and history["pending"] == []
+    assert any(r["removed"] >= 30 for r in history["revisions"])
+
     # a second copy gets its own address
     again = signed_in.post("/api/worlds/demo").json()
     assert again["slug"] != world["slug"]

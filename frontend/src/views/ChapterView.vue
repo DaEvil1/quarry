@@ -19,8 +19,11 @@ import {
 import type { Since } from "../editor/companion";
 import { chapterPresence, setPresence } from "../storytime";
 import HistoryPanel from "../components/HistoryPanel.vue";
+import UndoToast from "../components/UndoToast.vue";
 import { EditorView } from "@codemirror/view";
 
+import { around, chapterCuts, cutLabel, findPlace, listCuts, markPutBack, removeCut, type Cut } from "../cuts";
+import { changesLine, changesSince } from "../editor/changes";
 import { createProse, countWords, type Prose, type WorldHooks } from "../editor/prose";
 import { ChapterSaver, type SaveStatus } from "../editor/saver";
 import {
@@ -30,12 +33,25 @@ import {
   restoreRevision,
   retireChapter,
   saveChapter,
+  setAbout,
   snapshot,
   startExperiment,
+  statuses as statusApi,
   type Chapter,
+  type StatusRef,
 } from "../manuscript";
 import { ApiError } from "../api";
-import { cacheChapter, dropDraft, getDraft, localChapter, queueRevision, saveDraft } from "../offline";
+import {
+  cacheChapter,
+  checkpointBody,
+  dropDraft,
+  getDraft,
+  labelledCheckpoints,
+  localChapter,
+  queueRevision,
+  saveDraft,
+  type Checkpoint,
+} from "../offline";
 import { usePrefs } from "../prefs";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
@@ -116,8 +132,11 @@ function mount(ch: Chapter) {
       saver?.edit({ body: text });
       keepDraft();
       scheduleAnalysis();
+      scheduleChanges();
     },
     onSave: () => void checkpoint(),
+    onFindAll: (text) =>
+      void router.push({ name: "replace", params: { world: worldSlug.value, project: ch.project }, query: text ? { find: text } : {} }),
     world: worldHooks,
   });
   prose.value.setFocusMode(focusMode.value);
@@ -167,11 +186,40 @@ async function load() {
     return;
   }
   chapter.value = ch;
+  toast.value = null;
   void loadPresence(ch.id);
   await nextTick();
   mount(ch);
   await recoverDraft(ch);
   void loadCompanion(ch);
+  void loadStatuses(ch);
+  void loadCuts(ch);
+  void loadSince(ch);
+  await openAt();
+}
+
+/** Opened at a place (from reading an entry's thread, or a find in all chapters), or to put a cut back (Salvage). */
+async function openAt() {
+  const p = prose.value;
+  const ch = chapter.value;
+  if (!p || !ch) return;
+  const at = typeof route.query.at === "string" ? Number(route.query.at) : NaN;
+  if (Number.isFinite(at)) {
+    const pos = Math.max(0, Math.min(at, p.view.state.doc.length));
+    p.view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+    p.view.focus();
+  }
+  const cutId = typeof route.query.putback === "string" ? route.query.putback : null;
+  if (cutId && !readOnly.value) {
+    const from = typeof route.query.from === "string" ? route.query.from : ch.project;
+    void router.replace({ query: { ...route.query, putback: undefined, from: undefined } });
+    try {
+      const cut = (await listCuts(worldSlug.value, from, "", true)).find((c) => c.id === cutId);
+      if (cut) await putBack(cut, "place", true);
+    } catch (e) {
+      error.value = (e as Error).message;
+    }
+  }
 }
 
 /** Text written on this device that never reached the server (a reload, a closed app, no signal). */
@@ -320,6 +368,7 @@ const worldHooks: WorldHooks = {
   get companion() {
     return companionHooks;
   },
+  cut: (from, to) => void cutToBin(from, to),
   isAt: (id) => ({
     here: () => presence.value.find((p) => p.entity_id === id)?.place ?? null,
     places: placesForChapter,
@@ -352,6 +401,7 @@ const mode = ref(prefs.mode);
 watch(mode, (m) => {
   prefs.set("mode", m);
   analyseNow();
+  showChanges();
 });
 const showPanel = ref(prefs.panel);
 watch(showPanel, (on) => {
@@ -604,6 +654,205 @@ watch(title, (t) => {
   if (chapter.value && t.trim() && t !== chapter.value.title) saver?.edit({ title: t });
 });
 
+// ---- summary and status (docs/SPEC.md §11.2) ----
+const statusList = ref<StatusRef[]>([]);
+async function loadStatuses(ch: Chapter) {
+  try {
+    statusList.value = await statusApi.list(worldSlug.value, ch.project);
+  } catch {
+    // offline: the chapter's own status is all there is to show
+    statusList.value = ch.status ? [ch.status] : [];
+  }
+}
+async function setChapterAbout(about: { summary?: string; status_id?: string | null }) {
+  const ch = chapter.value;
+  if (!ch) return;
+  error.value = "";
+  try {
+    const out = await setAbout(worldSlug.value, ch.id, about);
+    if (chapter.value?.id === ch.id) chapter.value = { ...chapter.value, summary: out.summary, status: out.status };
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+
+// ---- the cuts bin (docs/SPEC.md §11.3) ----
+const cuts = ref<Cut[]>([]);
+const toast = ref<{ label: string; undo: (() => Promise<void>) | null } | null>(null);
+/** this chapter's cuts in the bin, and those still waiting on this device to be sent */
+const panelCuts = computed(() => [
+  ...outbox.cuts
+    .filter((c) => c.chapterId === chapter.value?.id && !c.error)
+    .map((c) => ({
+      id: c.id, project: chapter.value?.project ?? null, body: c.body, before: c.before, after: c.after,
+      words: countWords(storyText(c.body)), cut_at: c.cutAt, chapter: null, chapter_title: chapter.value?.title ?? "",
+      put_back_at: null, put_back_to: null, match: null, waiting: true,
+    }))
+    .reverse(),
+  ...cuts.value.filter((c) => !outbox.cuts.some((p) => p.id === c.id)),
+]);
+async function loadCuts(ch: Chapter) {
+  try {
+    const list = await chapterCuts(worldSlug.value, ch.id);
+    if (chapter.value?.id === ch.id) cuts.value = list;
+  } catch {
+    /* reading the bin needs the network */
+  }
+}
+// a cut made offline reached the server: the bin has it now
+watch(
+  () => outbox.cuts.length,
+  (now, before) => {
+    if (now < before && chapter.value) void loadCuts(chapter.value);
+  },
+);
+
+/** Ctrl+Shift+X (or "Cut to bin"): the selection leaves the chapter and becomes a cut in the project's bin. */
+async function cutToBin(from: number, to: number) {
+  const p = prose.value;
+  const ch = chapter.value;
+  if (!p || !ch || readOnly.value) return;
+  const doc = p.view.state.doc.toString();
+  const text = doc.slice(from, to);
+  if (!text.trim()) return;
+  const { before, after } = around(doc, from, to);
+  const id = crypto.randomUUID();
+  p.view.dispatch({ changes: { from, to, insert: "" }, selection: { anchor: from }, userEvent: "delete.cut" });
+  p.view.focus();
+  // where the text was, as the chapter changes after this, for Undo
+  const place = p.since();
+  const sent = await outbox.addCut({ id, world: worldSlug.value, chapterId: ch.id, body: text, before, after });
+  if (sent) void loadCuts(ch);
+  toast.value = {
+    label: cutLabel(countWords(storyText(text))),
+    undo: async () => {
+      const view = prose.value?.view;
+      if (view && chapter.value?.id === ch.id) {
+        const at = Math.min(place.map(from, -1), view.state.doc.length);
+        view.dispatch({ changes: { from: at, insert: text }, selection: { anchor: at, head: at + text.length } });
+      }
+      try {
+        if (!(await outbox.dropCut(id))) await removeCut(worldSlug.value, id);
+      } catch {
+        notice.value = "The text is back. The cut is still in the bin (no connection); you can leave it there.";
+      }
+      cuts.value = cuts.value.filter((c) => c.id !== id);
+    },
+  };
+}
+
+/** Put a cut back: where it was (found by the text around it) or at the cursor. An ordinary edit (Ctrl+Z undoes
+ * it); the cut stays in the bin, marked put back. From Salvage, a place that can't be found means the end. */
+async function putBack(cut: Cut, where: "place" | "cursor", fromSalvage = false) {
+  const p = prose.value;
+  const ch = chapter.value;
+  if (!p || !ch || readOnly.value) return;
+  const doc = p.view.state.doc.toString();
+  const found = where === "place" ? findPlace(doc, cut.before, cut.after) : null;
+  const at = found ?? (fromSalvage ? doc.length : p.view.state.selection.main.head);
+  const text = fromSalvage && found === null && doc && !doc.endsWith("\n") ? `\n\n${cut.body}` : cut.body;
+  p.view.dispatch({
+    changes: { from: at, insert: text },
+    selection: { anchor: at + text.length },
+    effects: EditorView.scrollIntoView(at, { y: "center" }),
+    userEvent: "input.paste",
+  });
+  p.view.focus();
+  notice.value =
+    where === "place" && found === null
+      ? `Couldn't find where it was taken from, so it went in at ${fromSalvage ? "the end" : "the cursor"}.`
+      : "Put back. Ctrl+Z takes it out again; the bin keeps a copy, marked put back.";
+  try {
+    await markPutBack(worldSlug.value, cut.id, ch.id);
+  } catch {
+    notice.value += " (The bin will still list it: no connection.)";
+  }
+  void loadCuts(ch);
+}
+async function copyCut(cut: Cut) {
+  try {
+    await navigator.clipboard.writeText(cut.body.trim());
+    notice.value = "Copied.";
+  } catch {
+    error.value = "Couldn't copy here; select the text in the bin instead.";
+  }
+}
+
+// ---- changes since a checkpoint (docs/SPEC.md §11.6): chosen by label, remembered per project on this device ----
+const sinceLabel = ref("");
+const sinceLabels = ref<string[]>([]);
+const sinceLine = ref("");
+let sinceBase: string | null = null;
+let sinceCheckpoints: Checkpoint[] = [];
+let sinceTimer = 0;
+const sinceKey = (ch: Chapter) => `quarry.since.${worldSlug.value}/${ch.project}`;
+function readSince(ch: Chapter): string {
+  try {
+    return localStorage.getItem(sinceKey(ch)) ?? "";
+  } catch {
+    return "";
+  }
+}
+async function loadSince(ch: Chapter) {
+  sinceLabel.value = readSince(ch);
+  try {
+    sinceCheckpoints = (await labelledCheckpoints(worldSlug.value, ch.id)).list;
+  } catch {
+    sinceCheckpoints = [];
+  }
+  if (chapter.value?.id !== ch.id) return;
+  sinceLabels.value = [...new Set(sinceCheckpoints.map((c) => c.label))];
+  await resolveSince(ch);
+}
+async function resolveSince(ch: Chapter) {
+  sinceBase = null;
+  sinceLine.value = "";
+  const label = sinceLabel.value;
+  const cp = label ? sinceCheckpoints.find((c) => c.label === label) : undefined;
+  if (label && !cp) sinceLine.value = `This chapter has no checkpoint “${label}”.`;
+  if (cp) {
+    const body = await checkpointBody(worldSlug.value, ch.id, cp).catch(() => null);
+    if (chapter.value?.id !== ch.id) return;
+    if (body === null) sinceLine.value = `The checkpoint “${label}” isn't on this device yet; it is fetched when you're online.`;
+    sinceBase = body;
+  }
+  showChanges();
+}
+function chooseSince(label: string) {
+  const ch = chapter.value;
+  if (!ch) return;
+  try {
+    if (label) localStorage.setItem(sinceKey(ch), label);
+    else localStorage.removeItem(sinceKey(ch));
+  } catch {
+    /* not remembered, but shown now */
+  }
+  sinceLabel.value = label;
+  void resolveSince(ch);
+}
+/** Work out the changes since the checkpoint for the text as it is now (only while Revising). */
+function showChanges() {
+  clearTimeout(sinceTimer);
+  const p = prose.value;
+  if (!p) return;
+  if (mode.value !== "revising" || sinceBase === null || readOnly.value) {
+    p.setChanges(null);
+    return;
+  }
+  const started = performance.now();
+  const c = changesSince(sinceBase, p.view.state.doc.toString());
+  performance.measure("quarry:changes", { start: started });
+  p.setChanges(c.changes);
+  sinceLine.value = changesLine(c, sinceLabel.value);
+}
+/** Again when typing pauses, as the Revising findings are; nothing per keystroke. */
+function scheduleChanges() {
+  if (sinceBase === null || mode.value !== "revising") return;
+  clearTimeout(sinceTimer);
+  sinceTimer = window.setTimeout(showChanges, 700);
+}
+const since = computed(() => ({ labels: sinceLabels.value, chosen: sinceLabel.value, line: sinceLine.value, revising: mode.value === "revising" }));
+
 // ---- checkpoint (Ctrl+S) with an optional label ----
 const labelling = ref(false);
 const label = ref("");
@@ -620,6 +869,7 @@ async function keepCheckpoint() {
   await saver?.checkpoint(label.value.trim() || undefined);
   notice.value = label.value.trim() ? `Checkpoint “${label.value.trim()}” kept.` : "Checkpoint kept.";
   prose.value?.view.focus();
+  if (label.value.trim() && chapter.value) void loadSince(chapter.value);
 }
 
 // ---- side panel actions ----
@@ -653,6 +903,7 @@ async function restore(revisionId: string, body: string) {
   title.value = ch.title;
   saver?.rebase(ch);
   notice.value = "Restored. The text it replaced is in History.";
+  void loadSince(ch);
 }
 
 async function experiment(from: "copy" | "scratch") {
@@ -817,12 +1068,20 @@ const CLOSE_TEXT = {
         :names="names"
         :read-only="readOnly"
         :presence="presence"
+        :statuses="statusList"
+        :cuts="panelCuts"
+        :since="since"
         @pov="setPov"
         @checkpoint="checkpoint"
         @experiment="experiment"
         @retire="closing = 'retire'"
+        @about="setChapterAbout"
+        @put-back="(c, where) => putBack(c, where)"
+        @copy="copyCut"
+        @since="chooseSince"
       />
     </CompanionPanel>
+    <UndoToast :label="toast?.label ?? null" :undo="toast?.undo ?? null" @dismiss="toast = null" />
 
     <HistoryPanel
       v-if="showHistory && chapter"

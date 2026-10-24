@@ -224,6 +224,10 @@ def create_project(slug: str, body: ProjectIn, user: User = Depends(current_user
     p = Project(world_id=w.id, name=name, slug=_unique(slugify(name, "project"), taken), kind=body.kind,
                 position=position, created_by=user.id, updated_by=user.id)
     db.add(p)
+    db.flush()
+    from .revising import seed_statuses
+
+    seed_statuses(db, p.id)
     db.commit()
     return _project_out(p)
 

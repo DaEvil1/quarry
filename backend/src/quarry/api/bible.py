@@ -91,6 +91,8 @@ class EntityUpdate(BaseModel):
     match_case: bool | None = None
     first_name_alias: bool | None = None
     exclusions: list[str] | None = Field(default=None, max_length=50)
+    # a rename keeps the old name as another name, so the texts that still say it stay linked
+    keep_old_name: bool = True
 
 
 class EntityOut(BaseModel):
@@ -106,6 +108,8 @@ class EntityOut(BaseModel):
     version: int
     updated_at: datetime
     mention_count: int = 0
+    # after a rename: the old name, if it was kept as another name
+    kept_alias: str | None = None
 
 
 def _clean_aliases(name: str, aliases: list[str]) -> list[str]:
@@ -249,6 +253,9 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
             "detail": "This entry changed on another device. Here is the newer version.",
             "entity": _out(e).model_dump(mode="json")})
     names_changed = False
+    old_name = e.name
+    aliases = _clean_aliases(old_name, body.aliases) if body.aliases is not None else list(e.aliases)
+    kept = None
     if body.name is not None:
         name = " ".join(body.name.split())
         if not name:
@@ -257,8 +264,15 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
             raise HTTPException(409, "The bible already has an entry with that name.")
         names_changed |= name != e.name
         e.name = name
-    if body.aliases is not None:
-        aliases = _clean_aliases(e.name, body.aliases)
+        if name != old_name:
+            # promoting another name ("Varren Hale" over "Varren"): it is the name now, and the old one takes its place
+            at = aliases.index(name) if name in aliases else len(aliases)
+            aliases = [a for a in aliases if a != name]
+            if body.keep_old_name and _keeps(db, world, e, old_name, name, aliases):
+                aliases.insert(at, old_name)
+                kept = old_name
+    if body.aliases is not None or kept is not None or aliases != list(e.aliases):
+        aliases = _clean_aliases(e.name, aliases)
         names_changed |= aliases != list(e.aliases)
         e.aliases = aliases
     if body.kind is not None:
@@ -285,7 +299,24 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
     else:
         refresh_source(db, world.id, "entity", e.id, e.body)
     db.commit()
-    return _out(e)
+    out = _out(e)
+    out.kept_alias = kept
+    return out
+
+
+def _squash(name: str) -> str:
+    return "".join(name.split()).lower()
+
+
+def _keeps(db: Session, world: World, e: Entity, old: str, new: str, aliases: list[str]) -> bool:
+    """Whether a rename keeps the old name as another name: not for a change of capitals or spacing, not when it is
+    one of its other names already, and not when another entry is called that (it would match two entries)."""
+    if _squash(old) == _squash(new) or old.lower() in {a.lower() for a in aliases}:
+        return False
+    for other in db.scalars(select(Entity).where(Entity.world_id == world.id, Entity.id != e.id)):
+        if old.lower() in {f.lower() for f in [other.name, *other.aliases]}:
+            return False
+    return True
 
 
 @router.delete("/entities/{entity_id}", status_code=204)
