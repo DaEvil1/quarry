@@ -2257,8 +2257,8 @@ Events are already related by *caused* / *caused by* (event – anything) and *f
 event). The Timeline can draw them for one event at a time.
 
 - **Picking an event.** One click on an event's mark **picks** it: it is highlighted and its card stays open. Enter,
-  a double-click or the card's title opens it. Moving to a mark with the arrow keys picks it too. Esc or a click on
-  empty space unpicks. This changes §13.2.6's click-through: one click on any mark now picks it (its card stays),
+  a double-click or the card's title opens it. Moving to a mark with the arrow keys picks it too. Esc (before it
+  clears a brushed span) or a click on empty space unpicks. This changes §13.2.6's click-through: one click on any mark now picks it (its card stays),
   and opening takes the second gesture, so marks behave alike.
 - **The arrows.** For a picked event, its direct causes and effects are drawn as arrows from cause to effect, curving
   above the main lane. They are read from event – event relationships by label, as the family tree reads parent types:
