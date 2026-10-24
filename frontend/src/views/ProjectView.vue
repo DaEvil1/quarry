@@ -321,6 +321,7 @@ async function save() {
             <span class="drag" aria-hidden="true">⋮⋮</span>
             <span class="muted small chapter-no">{{ i + 1 }}</span>
             <span class="grow chapter-name">
+              <span class="chapter-head">
               <RouterLink :to="{ name: 'chapter', params: { world: world.slug, id: c.id } }">{{ c.title }}</RouterLink>
               <span class="status-at">
                 <button type="button" class="status-pill" :class="{ unset: !c.status }" :style="c.status ? { '--strength': strength(c.status) } : {}"
@@ -330,6 +331,7 @@ async function save() {
                   <button v-for="s in shownStatuses" :key="s.id" type="button" role="menuitem" class="status-pill" :style="{ '--strength': strength(s) }" @click="about(c, { status_id: s.id })">{{ s.label }}</button>
                   <button type="button" role="menuitem" class="status-pill unset" @click="about(c, { status_id: null })">none</button>
                 </span>
+              </span>
               </span>
               <span v-if="manuscript?.cast?.[c.id]?.length" class="cast small" data-testid="cast">
                 <span v-for="x in manuscript.cast[c.id]" :key="x.id" class="kname" :class="`k-${x.kind}`" :title="`${x.name}: named ${x.count}×`">{{ x.name }}</span>

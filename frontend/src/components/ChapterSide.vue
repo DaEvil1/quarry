@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 
 import type { Cut } from "../cuts";
-import { statusStrength, type Chapter, type StatusRef } from "../manuscript";
+import type { Chapter, StatusRef } from "../manuscript";
 import type { EntityRef, Presence } from "../types";
 import InlineText from "./InlineText.vue";
 
@@ -45,7 +45,6 @@ const inChapter = computed(() => {
 const nearMissCount = computed(() => props.chapter.mentions.filter((m) => m.kind === "near_miss").length);
 const characters = computed(() => props.names.filter((n) => n.kind === "character"));
 const experimentFrom = ref<"copy" | "scratch">("copy");
-const strength = (s: StatusRef) => statusStrength(s.position, props.statuses.length || s.position + 1);
 const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 const open = ref<string | null>(null);
 </script>
@@ -54,17 +53,14 @@ const open = ref<string | null>(null);
   <div class="side-chapter">
     <section data-testid="chapter-about">
       <h3 class="small muted">In one line</h3>
-      <p class="small chapter-summary">
+      <p class="small side-summary">
         <InlineText :value="props.chapter.summary" label="Summary" placeholder="Add a one-line summary" :maxlength="300" @save="(v) => emit('about', { summary: v })" />
       </p>
-      <div class="actions">
-        <label class="small muted" for="chapter-status">Status</label>
-        <select id="chapter-status" class="filter" :value="props.chapter.status?.id ?? ''" @change="emit('about', { status_id: ($event.target as HTMLSelectElement).value || null })">
-          <option value="">none</option>
-          <option v-for="s in props.statuses" :key="s.id" :value="s.id">{{ s.label }}</option>
-        </select>
-        <span v-if="props.chapter.status" class="status-pill" :style="{ '--strength': strength(props.chapter.status) }">{{ props.chapter.status.label }}</span>
-      </div>
+      <h3 class="small muted"><label for="chapter-status">Status</label></h3>
+      <select id="chapter-status" class="filter" :value="props.chapter.status?.id ?? ''" @change="emit('about', { status_id: ($event.target as HTMLSelectElement).value || null })">
+        <option value="">none</option>
+        <option v-for="s in props.statuses" :key="s.id" :value="s.id">{{ s.label }}</option>
+      </select>
     </section>
     <section>
       <h3 class="small muted">Point of view</h3>
@@ -74,7 +70,7 @@ const open = ref<string | null>(null);
       </select>
     </section>
     <section v-if="!props.readOnly" data-testid="changes-since">
-      <label class="small muted" for="changes-since">Show changes since</label>
+      <h3 class="small muted"><label for="changes-since">Show changes since</label></h3>
       <select id="changes-since" class="filter" :value="props.since.chosen" @change="emit('since', ($event.target as HTMLSelectElement).value)">
         <option value="">nothing</option>
         <option v-if="props.since.chosen && !props.since.labels.includes(props.since.chosen)" :value="props.since.chosen">{{ props.since.chosen }}</option>
