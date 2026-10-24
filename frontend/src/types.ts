@@ -97,6 +97,8 @@ export interface Entity extends EntityRef {
   version: number;
   updated_at: string;
   mention_count: number;
+  /** after a rename: the old name, kept as another name (docs/SPEC.md §11.1) */
+  kept_alias?: string | null;
 }
 
 export type Standing = "canon" | "planned" | "rumour";

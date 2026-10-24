@@ -166,7 +166,7 @@ async function signOut() {
     <main>
       <UpdateBar />
       <div v-if="offline" class="notice offline" role="status" data-testid="offline">
-        Offline. Captures are kept on this device and sync when you're back.
+        Offline. Captures and cuts are kept on this device and sync when you're back.
         <template v-if="outbox.waiting"> {{ outbox.waiting }} waiting.</template>
       </div>
       <div v-else-if="outbox.needsSignIn" class="notice warn" role="status">

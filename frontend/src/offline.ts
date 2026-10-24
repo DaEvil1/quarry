@@ -2,7 +2,7 @@
 // every chapter, and the last 30 snapshots of each. The chapter page and History fall back to this copy when the
 // server can't be reached, and text typed but not yet saved is kept here as a draft.
 
-import { ApiError, get, post } from "./api";
+import { ApiError, get, patch, post } from "./api";
 import {
   localDb,
   type Draft,
@@ -109,13 +109,32 @@ export async function localManuscript(world: string, project: string): Promise<M
   const current = all.filter((c) => c.state === "current").sort((a, b) => a.position - b.position).map(strip);
   const tally = new Map<string, number>();
   for (const c of current) if (c.pov) tally.set(c.pov.name, (tally.get(c.pov.name) ?? 0) + 1);
+  // the statuses its chapters have (the full list, with those no chapter has, needs the server)
+  const statuses = [...new Map(all.flatMap((c) => (c.status ? [[c.status.id, c.status] as const] : []))).values()].sort(
+    (a, b) => a.position - b.position,
+  );
+  const group = (id: string | null) => current.filter((c) => (c.status?.id ?? null) === id);
   return {
     chapters: current,
     experiments: all.filter((c) => c.state === "experiment").map(strip),
     pov_tally: [...tally.entries()].sort((a, b) => b[1] - a[1]).map(([name, chapters]) => ({ name, chapters })),
     words: current.reduce((n, c) => n + c.words, 0),
     retired: all.filter((c) => c.state === "retired").length,
+    statuses,
+    status_tally: [...statuses, null].map((s) => {
+      const g = group(s?.id ?? null);
+      return { id: s?.id ?? null, label: s?.label ?? null, chapters: g.length, words: g.reduce((n, c) => n + c.words, 0) };
+    }),
   };
+}
+
+/** Every chapter of a world kept on this device (for reading an entry's thread offline). */
+export async function localChapters(world: string): Promise<LocalChapter[]> {
+  try {
+    return await localDb.chapters.where("world").equals(world).toArray();
+  } catch {
+    return [];
+  }
 }
 
 // ---- one chapter ----
@@ -172,6 +191,79 @@ export async function dropDraft(chapterId: string, body?: string): Promise<void>
     if (d && (body === undefined || d.body === body)) await localDb.drafts.delete(chapterId);
   } catch {
     /* nothing to drop */
+  }
+}
+
+/**
+ * Send the text this device still holds for a world's chapters (drafts the server hasn't confirmed), before a find
+ * and replace looks at them. A draft written on top of an older version becomes a conflict copy, as when the
+ * chapter is opened. Throws when the server can't be reached.
+ */
+export async function sendDrafts(world: string): Promise<void> {
+  const drafts = await localDb.drafts.where("world").equals(world).toArray();
+  for (const d of drafts) {
+    try {
+      await patch(`/api/worlds/${encodeURIComponent(world)}/chapters/${d.chapterId}`, {
+        base_version: d.baseVersion,
+        title: d.title || undefined,
+        body: d.body,
+      });
+      await localDb.drafts.delete(d.chapterId);
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status === 0) throw e;
+      if (e.status === 409) {
+        const current = (e.body as { chapter?: { body: string } } | null)?.chapter;
+        if (current && current.body !== d.body) {
+          await post(`/api/worlds/${encodeURIComponent(world)}/chapters/${d.chapterId}/revisions`, {
+            reason: "conflict",
+            label: "Written on this device while another version was saved",
+            body: d.body,
+          });
+        }
+      }
+      // the chapter is gone, or its text is kept as a conflict copy now
+      await localDb.drafts.delete(d.chapterId);
+    }
+  }
+}
+
+// ---- checkpoints, for showing the changes since one ----
+
+export interface Checkpoint {
+  id: string;
+  label: string;
+  created_at: string;
+}
+
+/** A chapter's labelled checkpoints, newest first: from the server, or (offline) the ones on this device. */
+export async function labelledCheckpoints(world: string, chapterId: string): Promise<{ list: Checkpoint[]; local: boolean }> {
+  const labelled = (rows: { id: string; label: string | null; reason: string; created_at: string }[]) =>
+    rows
+      .filter((r) => r.label && r.reason !== "conflict")
+      .map(({ id, label, created_at }) => ({ id, label: label!, created_at }))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  try {
+    return { list: labelled(await get<RevisionInfo[]>(`/api/worlds/${encodeURIComponent(world)}/chapters/${chapterId}/revisions`)), local: false };
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 0) throw e;
+    const local = await localDb.revisions.where("chapterId").equals(chapterId).toArray();
+    const kept = await localDb.checkpoints.where("chapterId").equals(chapterId).toArray();
+    const seen = new Set(local.map((r) => r.id));
+    return { list: labelled([...local, ...kept.filter((k) => !seen.has(k.id)).map((k) => ({ ...k, reason: "checkpoint" }))]), local: true };
+  }
+}
+
+/** A checkpoint's text: from this device if it is here, else fetched once and kept (older than the last 30). */
+export async function checkpointBody(world: string, chapterId: string, cp: Checkpoint): Promise<string | null> {
+  const here = (await localDb.revisions.get(cp.id)) ?? (await localDb.checkpoints.get(cp.id));
+  if (here) return here.body;
+  try {
+    const r = await get<RevisionInfo & { body: string }>(`/api/worlds/${encodeURIComponent(world)}/revisions/${cp.id}`);
+    await localDb.checkpoints.put({ id: r.id, chapterId, label: cp.label, body: r.body, created_at: r.created_at });
+    return r.body;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 0) return null;
+    throw e;
   }
 }
 

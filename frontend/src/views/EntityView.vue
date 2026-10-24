@@ -16,6 +16,8 @@ import {
 import FactsPanel from "../components/FactsPanel.vue";
 import InlineText from "../components/InlineText.vue";
 import RelationsPanel from "../components/RelationsPanel.vue";
+import UndoToast from "../components/UndoToast.vue";
+import { readLastUsed } from "../lastUsed";
 import { useSession } from "../stores/session";
 import { ENTITY_KINDS, type Entity, type EntityDetail, type EntityKind, type RelationType, type SourceRef } from "../types";
 import { useCards } from "../world/cards";
@@ -96,12 +98,47 @@ async function save(changes: Partial<Pick<Entity, "name" | "kind" | "aliases" | 
   if (!e) return;
   error.value = "";
   try {
-    await updateEntity(worldSlug.value, e, changes);
+    const out = await updateEntity(worldSlug.value, e, changes);
     await changed();
+    if (out.kept_alias) keptName(out.kept_alias, out.name);
   } catch (err) {
     if (err instanceof EntityConflict) await load();
     error.value = (err as Error).message;
   }
+}
+
+// a rename keeps the old name as another name (docs/SPEC.md §11.1): say so, with a way to take it out again, or
+// to replace it in the text
+const toast = ref<{ label: string; actions: { label: string; run: () => unknown }[] } | null>(null);
+function keptName(old: string, now: string) {
+  const w = world.value;
+  const project = w ? (w.projects.find((p) => p.slug === readLastUsed().project) ?? [...w.projects].sort((a, b) => a.position - b.position)[0]) : undefined;
+  toast.value = {
+    label: `Kept “${old}” as another name`,
+    actions: [
+      {
+        label: "Remove",
+        run: async () => {
+          const e = detail.value?.entity;
+          if (!e) return;
+          await updateEntity(worldSlug.value, e, { aliases: e.aliases.filter((a) => a !== old) });
+          notice.value = `“${old}” is no longer one of ${now}'s names.`;
+          await changed();
+        },
+      },
+      ...(project
+        ? [{
+            label: "Replace in the text…",
+            run: () =>
+              router.push({
+                name: "replace",
+                params: { world: worldSlug.value, project: project.slug },
+                query: { find: old, replace: now, scope: (w?.projects.length ?? 0) > 1 ? "world" : undefined },
+              }),
+          }]
+        : []),
+    ],
+  };
 }
 
 // other names and "not in this sense" phrases: chips with an add field
@@ -181,6 +218,9 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
         </div>
       </div>
       <div class="actions">
+        <RouterLink class="btn btn-sm" :to="{ name: 'entity-read', params: { world: world.slug, id: detail.entity.id } }" data-testid="read-thread">
+          Read where {{ detail.entity.name }} appears
+        </RouterLink>
         <select class="filter" :value="detail.entity.kind" aria-label="Kind" @change="save({ kind: ($event.target as HTMLSelectElement).value as EntityKind })">
           <option v-for="k in ENTITY_KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
         </select>
@@ -347,5 +387,6 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
       </ul>
     </section>
     <span class="visually-hidden">{{ kindLabel(detail.entity.kind) }}</span>
+    <UndoToast :label="toast?.label ?? null" :undo="null" :actions="toast?.actions ?? []" :ms="12000" @dismiss="toast = null" />
   </template>
 </template>

@@ -8,7 +8,7 @@
 import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import { getSearchQuery, highlightSelectionMatches, search, searchKeymap, searchPanelOpen } from "@codemirror/search";
 import { Compartment, EditorState, RangeSetBuilder, StateEffect, StateField, type Extension } from "@codemirror/state";
 import {
   Decoration,
@@ -29,8 +29,9 @@ import type { WritingPrefs } from "../prefs";
 import type { EntityKind, EntityRef } from "../types";
 import type { Card } from "../world/cards";
 import type { Hit, Matcher } from "../world/matcher";
+import { changeAt, changesField, setChanges, type Change } from "./changes";
 import { buildMarks, companionExtensions, marksChanged, markedAt, openKbd, Since, type CompanionHooks } from "./companion";
-import { cardDom, findingStripDom, selectionStripDom, nearMissStripDom, type IsAtActions, type LinkActions } from "./strips";
+import { cardDom, cutStripDom, findingStripDom, selectionStripDom, nearMissStripDom, wasDom, type IsAtActions, type LinkActions } from "./strips";
 
 export { countWords } from "../words";
 
@@ -54,7 +55,12 @@ export interface WorldHooks {
   isAt(entityId: string): IsAtActions;
   /** the writing companion; without it the editor shows the world only */
   companion?: Omit<CompanionHooks, "stripAt" | "nextMiss">;
+  /** cut the selection to the project's bin (Ctrl+Shift+X, or "Cut to bin" on the selection strip) */
+  cut?(from: number, to: number): void;
 }
+
+/** A phone or tablet: long selections get a strip with "Cut to bin" (there is no Ctrl+Shift+X there). */
+const coarse = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
 /** Wavy underlines for likely misspellings: a setting, and only while Revising. */
 const underlines = (hooks: WorldHooks) => hooks.prefs().underlines && (hooks.companion?.revising() ?? true);
@@ -181,7 +187,8 @@ function full(hooks: WorldHooks): CompanionHooks | null {
       if (h && (sel.empty || (h.start <= sel.from && sel.to <= h.end))) return { from: h.start, dom: hitDom(view, hooks, h) };
       if (sel.empty) return null;
       const text = view.state.sliceDoc(sel.from, sel.to).trim();
-      if (text.length < 2 || text.length > 80 || text.includes("\n")) return null;
+      const cut = hooks.cut ? () => hooks.cut!(sel.from, sel.to) : undefined;
+      if (text.length < 2 || text.length > 80 || text.includes("\n")) return cut ? { from: sel.from, dom: cutStripDom(cut) } : null;
       return {
         from: sel.from,
         dom: selectionStripDom(text, hooks.names(), {
@@ -194,6 +201,7 @@ function full(hooks: WorldHooks): CompanionHooks | null {
             view.dispatch({ selection: { anchor: sel.to } });
           },
           done: () => view.focus(),
+          cut,
         }),
       };
     },
@@ -220,7 +228,11 @@ function intent(hooks: WorldHooks): Extension[] {
       if (!h) {
         const c = full(hooks);
         const m = c && c.revising() ? markedAt(c, pos) : undefined;
-        if (!m || !c!.drawn(m.finding)) return null;
+        if (!m || !c!.drawn(m.finding)) {
+          // changes since a checkpoint: what was there
+          const ch = changeAt(view.state, pos);
+          return ch ? { pos: ch.from, end: ch.to, above: false, create: () => ({ dom: wasDom(ch.was) }) } : null;
+        }
         return { pos: m.from, end: m.to, above: false, create: (v) => ({ dom: findingStripDom(m.finding.message, c!.findingActions(m, v)) }) };
       }
       return {
@@ -244,7 +256,15 @@ function intent(hooks: WorldHooks): Extension[] {
       const sel = tr.state.selection.main;
       if (sel.empty || tr.state.readOnly) return [];
       const text = tr.state.sliceDoc(sel.from, sel.to).trim();
-      if (text.length < 2 || text.length > 80 || text.includes("\n")) return [];
+      const cut = hooks.cut ? (view: EditorView) => () => {
+        hooks.cut!(sel.from, sel.to);
+        view.focus();
+      } : null;
+      if (text.length < 2 || text.length > 80 || text.includes("\n")) {
+        // a passage selected on a phone: the strip offers to cut it to the bin
+        if (!cut || !text || !coarse()) return [];
+        return [{ pos: sel.to, above: false, strictSide: false, create: (view) => ({ dom: wrap(cutStripDom(cut(view))) }) }];
+      }
       // selecting a marked word (a long-press does that on a phone) shows what resting on it would
       const hit = hitAt(tr.state, hooks, sel.from);
       if (hit && hit.start <= sel.from && sel.to <= hit.end) {
@@ -267,6 +287,7 @@ function intent(hooks: WorldHooks): Extension[] {
                 view.dispatch({ selection: { anchor: sel.to } });
               },
               done: () => view.focus(),
+              cut: cut ? cut(view) : undefined,
             })),
           }),
         },
@@ -363,6 +384,13 @@ const theme = EditorView.theme({
   ".cm-textfield": { backgroundColor: "var(--surface-2)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "4px" },
   ".cm-button": { backgroundImage: "none", backgroundColor: "var(--surface-2)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "4px" },
   ".cm-tooltip": { border: "none", backgroundColor: "transparent" },
+  // changes since a checkpoint: a soft tint, a bar beside the line, a small mark where text was removed
+  ".cm-changed": { backgroundColor: "color-mix(in srgb, var(--ok) 16%, transparent)", borderRadius: "2px" },
+  ".cm-changed-line": { boxShadow: "-10px 0 0 -7px var(--ok)" },
+  ".cm-removed": {
+    display: "inline-block", width: "0.45em", height: "0.45em", margin: "0 1px", verticalAlign: "0.15em",
+    borderRadius: "50%", border: "1.5px solid var(--ok)", cursor: "help",
+  },
 });
 
 const highlight = HighlightStyle.define([
@@ -384,6 +412,8 @@ export interface ProseOptions {
   doc: string;
   onChange: (text: string) => void;
   onSave: () => void;
+  /** find (and replace) in all chapters: Ctrl+Shift+H, or the button in the search panel; with what to look for */
+  onFindAll?: (text: string) => void;
   world: WorldHooks;
   placeholderText?: string;
   readOnly?: boolean;
@@ -404,7 +434,26 @@ export interface Prose {
   setMarks(): void;
   /** start mapping positions in the text as it is now to the text as it will be */
   since(): Since;
+  /** show what changed since a checkpoint (null: nothing) */
+  setChanges(changes: Change[] | null): void;
   destroy(): void;
+}
+
+/** The editor's own search panel gets a way out to every chapter. */
+function findAllButton(onFindAll: (text: string) => void): Extension {
+  return EditorView.updateListener.of((u) => {
+    if (!searchPanelOpen(u.state)) return;
+    const panel = u.view.dom.querySelector(".cm-search");
+    if (!panel || panel.querySelector(".cm-find-all")) return;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "cm-button cm-find-all";
+    b.textContent = "Find in all chapters…";
+    b.addEventListener("click", () => onFindAll(getSearchQuery(u.view.state).search));
+    const br = panel.querySelector("br");
+    if (br) br.before(b);
+    else panel.append(b);
+  });
 }
 
 export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
@@ -429,11 +478,32 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
     namesPlugin(opts.world),
     intentMode.of(opts.readOnly ? [] : intent(opts.world)),
     companion ? companionExtensions(companion) : [],
+    changesField,
+    opts.onFindAll ? findAllButton(opts.onFindAll) : [],
     focusMode.of([]),
     typewriterMode.of([]),
     placeholder(opts.placeholderText ?? "Write…"),
     keymap.of([
       { key: "Mod-s", preventDefault: true, run: () => (opts.onSave(), true) },
+      {
+        key: "Mod-Shift-x",
+        preventDefault: true,
+        run: (v) => {
+          const sel = v.state.selection.main;
+          if (!sel.empty && opts.world.cut && !opts.readOnly) opts.world.cut(sel.from, sel.to);
+          return true;
+        },
+      },
+      {
+        key: "Mod-Shift-h",
+        preventDefault: true,
+        run: (v) => {
+          const sel = v.state.selection.main;
+          const text = v.state.sliceDoc(sel.from, sel.to);
+          opts.onFindAll?.(text.includes("\n") ? "" : text.trim());
+          return true;
+        },
+      },
       ...searchKeymap,
       ...historyKeymap,
       ...defaultKeymap,
@@ -467,6 +537,7 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
       trackers = [...trackers.slice(-3), s];
       return s;
     },
+    setChanges: (changes) => view.dispatch({ effects: setChanges.of(changes) }),
     destroy: () => view.destroy(),
   };
 }
