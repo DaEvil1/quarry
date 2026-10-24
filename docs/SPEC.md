@@ -873,8 +873,8 @@ expected) to show.
 ### 12.8 Open questions for phase 11
 
 None left. Missing labels are findings only for labels marked *expected* (Thomas: "For missing labels your instinct
-is correct."), with a one-time prompt at the third use (§12.6.5). Existing entries all start in the world's bible and need no tidying: what is there today is test worlds and the
-demo, which sets its own levels.
+is correct."), with a one-time prompt at the third use (§12.6.5). Existing entries all start in the world's bible
+and need no tidying: what is there today is test worlds and the demo, which sets its own levels.
 
 ## 13. Out of scope (for now)
 
