@@ -58,3 +58,6 @@ Dated one-line verdicts. The reasoning lives in the spec and in PR discussions.
 - 2026-10-24: Word history counts words added and removed per revision (diffed once, when the revision is taken, without margin notes), summed per day in the browser's time zone. A new `start` revision marks text a chapter began with; existing chapters' first revisions count as their start. No streaks, goals or judging colours.
 - 2026-10-24: Changes since a checkpoint are chosen by label, remembered per project on the device, and shown only while Revising. "Checkpoint every chapter…" on the project page makes one label cover the book.
 - 2026-10-24: Find and replace across chapters is plain text (no patterns), covers current chapters and experiments (never Salvage), checkpoints every chapter it changes first, skips chapters changed since the preview, and has an Undo that restores those checkpoints. It needs the network.
+- 2026-10-24: Cuts are never thrown away; a big bin stays usable through Salvage's search.
+- 2026-10-24: Chapter statuses are per project, not one set for the whole world: each book can name its own stages.
+- 2026-10-24: Reading one entry's thread can take a second entry (With…, or Read together on a relationship) and then shows only the paragraphs or chapters that name both. Two entries at most.

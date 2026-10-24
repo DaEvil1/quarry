@@ -315,13 +315,20 @@ From an entry's page, **Read where Varren appears** opens the story filtered to 
 - A count at the top: `Varren: 212 paragraphs in 31 chapters`.
 - Each paragraph and chapter title links into the editor at that place, for when a fix is needed.
 - Current chapters only. A switch adds experiments and retired chapters, after the story and labelled as such.
+- **A second entry.** *With…* at the top picks one more entry (any kind). The reading then keeps only the paragraphs,
+  or in *Chapters* the chapters, that name both: `Varren and Isolde: 18 paragraphs in 9 chapters`.
+  - Both entries' names are marked strongly. A margin note is a hit of its own only when it names both.
+  - Each relationship on an entry's page also has *Read together*, which opens this reading for the two of them.
+  - Removing the second entry goes back to reading one. Two is the most; this is a reading, not a query.
 - **Built on the device**, from the offline copy of the chapters and the same matcher that colours names (other
   names, first names and *not in this sense* included), so it works on the phone with no network.
 
-**Data:** none. A route, `/w/<world>/bible/<id>/read`.
+**Data:** none. A route, `/w/<world>/bible/<id>/read`, with `?with=<id>` for a second entry.
 
 *Done when* Varren's page opens a reading of every paragraph that names him (by any of his names), in story order
-across the world's projects, with the margin notes beside them shown, on the phone in airplane mode too.
+across the world's projects, with the margin notes beside them shown, on the phone in airplane mode too; and adding
+Isolde with *With…* (or *Read together* on their relationship) leaves only the paragraphs that name both, and in
+*Chapters* only the chapters that name both.
 
 ### 11.5 Word history
 
@@ -449,6 +456,3 @@ and a few days of word history to show.
 - Is a light theme needed at all, or dark only?
 - Do some bible pages belong to one project only (a character who exists in one novella), or is "world-level, mentioned in project X" always enough?
 - The domain (likely `quarry.daevil1.com`), which fixes the passkey Relying Party ID.
-- Phase 10: should cuts ever be thrown away, or stay forever as specced?
-- Phase 10: statuses per project (as specced) or one set for the whole world?
-- Phase 10: should reading one entry's thread also take a second entry ("where Varren and Isolde both appear")?
