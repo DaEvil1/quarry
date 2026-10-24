@@ -196,7 +196,7 @@ quarry/                      # public GitHub repo (code only)
 6–9. **The world model**: the bible as data, relationships, story time, graphs and the writing companion. Designed in [WORLD-MODEL.md](WORLD-MODEL.md), with the phases and their *done when* in its §9.
 
 10. **Revising and salvaging**: renames that keep the old name, chapter summaries and statuses, a cuts bin, reading one entry's thread, word history, changes since a checkpoint, and find and replace across chapters. Designed in §11, with a *done when* per part.
-11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, world entries and project entries, and the *witnessed* type and *pronunciation* and *gender* facts. Designed in §12, with a *done when* per part.
+11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, world entries and project entries, the *witnessed* type and *pronunciation* and *gender* facts, and labels and values (value suggestions, filtering by a value, a Labels page, labels with several values, expected labels). Designed in §12, with a *done when* per part.
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -446,8 +446,9 @@ and a few days of word history to show.
 
 Phase 10 served the manuscript. Phase 11 goes back to the bible, with new ways to look at what Quarry already
 stores: mentions, relationships, "is at" and the story order. Nothing new has to be filled in: the two new fields
-have defaults (a project's gap length, §12.1, and an entry's level, §12.4, which is set for you), and §12.5 adds one
-relationship type and two suggested facts.
+have defaults (a project's gap length, §12.1, and an entry's level, §12.4, which is set for you), §12.5 adds one
+relationship type and two suggested facts, and §12.6 makes the facts typed so far easier to keep consistent, with
+one small table of per-label switches.
 The ideas come from the second round of research ([research/README.md](research/README.md#second-round-competitors),
 "Cheap additions" and "Later"). The principles hold: nothing here writes or suggests story content, and anything
 worked out (gaps, kin, shared chapters) is shown, never stored.
@@ -695,26 +696,173 @@ keeps each entry's level.
 "Varren witnessed the Burning of the Quay" reads back as "witnessed by Varren" on the event; and a character's fact
 picker offers *pronunciation* and *gender*, and a pronunciation then shows beside the name on the card.
 
-### 12.6 Data model, in one place
+### 12.6 Labels and values
+
+Classification stays free-form. There are no fixed lists, no required fields, no forms per kind and no category
+trees: an event's type, a character's gender or a place's climate is a fact like any other, typed when it comes up
+while writing. What builds up that way already has a shape: the same labels come back for the same kind, with the
+same handful of values. These parts make that shape pay off without asking for anything up front.
+
+Labels and values are always read **per kind**: *type* for events (festival, battle) and *type* for places (city,
+fen) are different things, and mixing them would mix domains. Labels and values match **whatever the capitals**
+(and with spaces trimmed), as the Continuity check already compares them. A value is shown in its most-used spelling.
+
+#### 12.6.1 Value suggestions
+
+Typing a fact's value on an entry page offers the values already used for that label on entries of the same kind,
+so spellings stay the same.
+
+- Today, typing a fact's **label** already offers the kind's suggested labels plus every label the world uses for
+  that kind (`fact_suggestions` in `api/world.py` merges `SUGGESTED_FACTS` with the labels in use). The **value**
+  works the same way: with *type* as the label on an event, the value field lists the events' types, most used
+  first, each with its count: `Festival (4) · Battle (2) · Wedding (1)`.
+  - Matching ignores capitals: typing `fest` offers *Festival*. Places' types aren't offered for an event.
+  - Picking one fills it in. Typing something new is fine: it is a new value, offered next time.
+- **Only on the entry page** (and wherever its fact form is used, such as recording a fact from a passage). Never in
+  the prose, never while typing in a chapter.
+
+**Data:** none. `GET /fact-suggestions` returns, per kind, the labels (as now) and for each label its values with
+counts.
+
+*Done when* typing `fest` as an event's type offers *Festival (4)* from the other events and nothing from the places'
+types, and picking it saves *Festival* with that spelling.
+
+#### 12.6.2 Filtering and grouping a kind's table by a value
+
+Each kind's bible table already shows up to three fact labels that at least two of its entries have, as columns.
+
+- **Filter.** Clicking a value in a fact column (or on an entry page, a fact's value) filters the table to entries
+  with that value: clicking *Festival* in the events' *type* column shows every festival. The filter shows as a chip
+  (`type: Festival ×`) and is kept in the address, so it can be bookmarked; several chips narrow further.
+- **Group.** *Group by* picks any label the kind uses (not only the three shown). The table splits into one group per
+  value, with counts, in order of size, and *no type* last. A group's heading filters to it when clicked.
+- **Which value.** The table reads each entry's facts as they stand at the end of the story (the latest that holds,
+  as *as of* the last chapter would show). A label with several values (§12.6.4) puts the entry in each of its
+  values' groups, and a filter matches any of them.
+- **Columns.** A fact column the filter or grouping uses is shown even if it isn't among the three.
+
+**Data:** none; worked out in the browser from the cards (which carry every entry's facts).
+
+*Done when* clicking *Festival* in the Events table's *type* column leaves only the festivals, with the filter in
+the address, and *Group by type* splits the events into Festival, Battle and *no type* with their counts.
+
+#### 12.6.3 The Labels page
+
+A page for the world's fact labels, like the relationship types editor: `/w/<world>/bible/labels`, linked from the
+bible pages next to *Relationship types*.
+
+- **Per kind.** One card per kind, listing its labels by how many entries have them: `type: 6 of 9 events`. Opening a
+  label lists its values with counts (`Festival 4 · Battle 2`) and the entries with each. The same label on another
+  kind is its own row under that kind; a line says `also used for places (3)`, with a link.
+- **Rename or merge a label** within a kind: renaming *colour of eyes* to *eye colour* changes the label on every
+  character's facts. Renaming it to a label the kind already uses merges the two; an entry that had both keeps both
+  facts (the Continuity check then shows where they disagree). A tick extends a rename to the other kinds that use
+  the label.
+- **Rename or merge a value** within a label and kind: merging *Feast* into *Festival* for events changes those facts
+  and leaves any place's *Feast* alone. Values that differ only in capitals are one value here, and a rename makes
+  them all the chosen spelling.
+- **One step back.** Each rename or merge says what it changed (`Changed 5 facts on 5 events`) with **Undo**, which
+  puts back the old label or value on each fact that hasn't changed since. Facts keep their version check, so an
+  entry page open elsewhere gets the usual conflict instead of overwriting.
+- The per-label switches of §12.6.4 and §12.6.5 (*several values*, *expected*) live here too.
+
+**Data:**
+
+```sql
+fact_labels  (id, world_id, kind, label, several bool default false, expected bool default false)
+             -- unique (world_id, kind, lower(label)); a row exists only once a switch has been set
+```
+
+Labels and values themselves are not stored separately: they are read from the facts. A renamed label carries its
+`fact_labels` row with it. Endpoints: `GET /labels` (per kind: labels, counts, values with counts, switches),
+`POST /labels/rename` and `POST /labels/values/rename` (kind, old, new; answering with the changed facts for Undo),
+`PUT /labels/<kind>/<label>` for the switches. Export writes the rows into `world.md` (`fact_labels:`); Restore reads
+them back, and an older export has none.
+
+*Done when* the Labels page lists *type* under events with Festival 4 and Battle 2 and separately under places with
+City 3, merging *Feast* into *Festival* for events changes only the events' facts, and Undo puts them back.
+
+#### 12.6.4 Labels that hold several values
+
+Some labels hold more than one value at a time: eye colour *green* and *red*, languages, titles.
+
+- **The switch.** *Several values* per label and kind, on the Labels page (off to start, as today). Also offered
+  where the conflict shows up: a *conflicting facts* finding gets **Both are true (several values)**, which sets the
+  switch for that label and kind.
+- **What changes when it is on.**
+  - Values that hold at the same time are not a Continuity conflict: Varren's eye colour can be green and red from
+    chapter 1.
+  - *As of* keeps every value whose span holds, instead of letting the latest-starting one take over. A value ends
+    only with its own *until*.
+  - The values show as chips side by side: on the entry page, on the name's card, and in the bible table's column.
+- **When it is off**, nothing changes from phase 9: a later value takes over from an open-ended earlier one, and two
+  values that start in the same chapter, or overlap through an explicit *until*, are a conflict.
+
+**Data:** `fact_labels.several` (§12.6.3). The check in `api/companion.py` skips labels with it set for the entry's
+kind; `factsAsOf` in `world/time.ts` keeps all holding values for them.
+
+*Done when*, with *several values* on for characters' *eye colour*, Varren's *green* and *red* from chapter 1 show as
+two chips on his page and card and Checks lists no conflict; switched off, Checks lists the conflict as before.
+
+#### 12.6.5 Suggestions that grow with use, and expected labels
+
+- **New starting suggestions**: *type* for events, *pronouns* for characters (next to *gender* and *pronunciation*
+  from §12.5), both optional like every suggestion. `SUGGESTED_FACTS` is a list in the code, not stored per world, so
+  existing and new worlds offer them at once, with no migration.
+- **Growing with use.** Every label in use is already offered for its kind. A label on **at least three** entries of
+  a kind now counts as *common* for that kind:
+  - it is listed with the starting suggestions, at the top of the label field, before labels used only once or
+    twice;
+  - an entry of that kind without it gets a quiet `Add: eye colour · age` line under its facts, one click to start the
+    fact. It is an offer on the page, not a warning, and appears nowhere else.
+- **Expected labels.** On the Labels page, a label can be marked **expected** for a kind (*every character should have
+  an eye colour*). Only then do entries without it become findings:
+  - The page points out candidates (`31 of 37 characters have it`) for labels most entries of a kind already have,
+    but never marks one by itself.
+  - The findings are the **Archivist's**: `Varren has no eye colour (expected for characters)`. Like every finding
+    they are silent while Drafting. In the editor they cover the entries named in the chapter; the entry page shows
+    its own; the Labels page lists every entry missing it. They never become inbox items.
+  - Each is resolved per entry: **Add it** opens the fact on the entry, with its value suggestions; **Not for this
+    one** is stored as a resolution (`intentional`), so it never comes back for that entry and label.
+  - Unmarking *expected* removes the findings; the resolutions stay, in case it is marked again.
+
+**Data:** `fact_labels.expected` (§12.6.3). The finding's rule is `missing_label`, keyed by entry and label, using the
+existing `resolutions` table.
+
+*Done when* an existing world's fact picker offers *type* for events and *pronouns* for characters; a label put on a
+third character is listed among the common ones and offered as `Add:` on characters without it, with no finding
+anywhere; and marking *eye colour* expected for characters makes the Archivist (while Revising) list a named character
+without one, where *Not for this one* silences it for that character only.
+
+### 12.7 Data model, in one place
 
 ```sql
 projects        + gap_chapters int default 5                         -- §12.1
 entities        + project_id NULL                                    -- §12.4; ON DELETE SET NULL; NULL is the world
 relation_types  + "witnessed" / "witnessed by" (character – event)   -- §12.5; added to every existing world
+fact_labels     (id, world_id, kind, label, several, expected)       -- §12.6; only labels with a switch set
 ```
 
 Endpoints: `GET /timeline` gains each chapter's POV and each project's gap length (§12.1); `GET /where` takes kinds,
-entries and a project (§12.3); `PATCH /entities/<id>` takes `project` (§12.4). The mentions strip, the family tree,
-kin and shared chapters are worked out when read, never stored.
+entries and a project (§12.3); `PATCH /entities/<id>` takes `project` (§12.4); `GET /fact-suggestions` gains values,
+and `/labels` lists, renames and switches labels (§12.6). The mentions strip, the family tree, kin, shared chapters,
+common labels and missing-label findings are worked out when read, never stored.
 
 **Phase 11 is done when** each part's *done when* above holds, and the demo world has a family of three
 generations (with a cousin worked out, and *gender* facts for the words), an entry in each of its two projects'
-bibles, a *witnessed* and a pronunciation to show.
+bibles, a *witnessed* and a pronunciation, and events with a *type* (one label with several values, one marked
+expected) to show.
 
-### 12.7 Open questions for phase 11
+### 12.8 Open questions for phase 11
 
-None left. Existing entries all start in the world's bible and need no tidying: what is there today is test worlds
-and the demo, which sets its own levels.
+- **Missing labels only when marked expected?** §12.6.5 makes a missing label a finding only for labels marked
+  *expected* on the Labels page; a label on three or more entries is offered on the others (`Add: …`) but never
+  warned about. Inferring warnings from use alone would list 34 characters as missing an eye colour once three have
+  one: the form-filling trap. Is marking by hand right, or should a label most entries of a kind have (say three in
+  four) become expected by itself?
+
+Existing entries all start in the world's bible and need no tidying: what is there today is test worlds and the
+demo, which sets its own levels.
 
 ## 13. Out of scope (for now)
 
