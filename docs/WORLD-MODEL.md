@@ -68,6 +68,7 @@ add or remove types, and every pair also has a plain *linked to* for when you do
 | Character – faction | member of, leads, founded, opposes |
 | Character – culture | belongs to, converted to |
 | Character – object | owns, carries, made, seeks, lost, guards |
+| Character – event | witnessed (from phase 11, [SPEC.md](SPEC.md) §12.5) |
 | Place – place | inside/contains, borders, road to, sea route to |
 | Faction – faction | allied, at war, vassal of/overlord of, splinter of |
 | Faction – place | controls, based in, claims |
@@ -232,7 +233,8 @@ inbox, tagged with the chapter, without leaving the sentence.
 - A POV character who isn't mentioned in their own chapter.
 - A relationship *from* a chapter that comes after its *until*.
 - A place inside itself (cycles in the place tree).
-- Two values of the same fact that hold at the same time (eye colour grey from chapter 1, brown from chapter 4).
+- Two values of the same fact that hold at the same time (eye colour grey from chapter 1, brown from chapter 4),
+  unless the label is marked as holding several values ([SPEC.md](SPEC.md) §12.6.4).
 - Knowing too early: a *knows* that starts after a chapter where the character acts on it is only flagged when
   you have recorded the act; nothing is guessed from prose.
 
@@ -297,6 +299,8 @@ highlighting; the server's result is the one that is stored.
      on Checks.
 10. **Revising and salvaging** (a cuts bin, chapter summaries and statuses, changes since a labelled checkpoint, and
     more) is designed in [SPEC.md](SPEC.md) §11.
+11. **More views of the bible** (a mentions strip per entry, a family tree with kin worked out, a grid of any
+    entries across chapters, world entries and project entries, labels and values) is designed in [SPEC.md](SPEC.md) §12.
 
 **Later:** in-world dates, map images with pins, and from the research: a chapter-by-thread grid, scenes below
 chapters, and a corkboard (research/README.md).

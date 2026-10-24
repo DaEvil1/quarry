@@ -21,7 +21,7 @@ Single-user today; the data model leaves room for co-writers later (§7).
 | **World** | A shared setting. Owns the bible. Holds any number of projects. Carries little else by default. |
 | **Project** | One work in a world: a novel, novella, short story. Owns its manuscript. |
 | **Chapter** | A unit of manuscript prose in a project. State is `current` (in the book), `experiment` (an alternate draft tied to an experiment item) or `retired` (salvage). Ordered by `position` among current chapters. Optional POV entity. |
-| **Entity** | A bible page in a world: character, place, term, faction, object or other. Has a name, aliases and a body. Shared by every project in the world. |
+| **Entity** | A bible page in a world: character, place, term, faction, object or other. Has a name, aliases and a body. Lives at world level (shared by every project) or in one project's part of the bible (§12.4); either way it is matched in every project. |
 | **Item** | Anything that needs attention: `spark`, `question`, `task` or `experiment`. Status is `open`, `accepted`, `rejected`, `harvested` or `deferred`. Belongs to a world and optionally to one project (an idea about the world in general has no project). Can link to entities and chapters. |
 | **Journal entry** | Dated thinking-on-paper (the "What now?" kind of writing). World-level or project-level. Editable, but conceptually append-only. |
 | **Decision** | A dated one-line verdict ("chapter 3 is now told by the sister"), optionally tied to the item it closes. World-level or project-level. |
@@ -157,6 +157,7 @@ Bible pages show:
 - **Backups.** The Postgres server's own backups are the disaster-recovery path. Every revision lives in the database, so restoring the database restores the full history.
 - **Export now.** Downloads a zip with one folder per world: `world.md`, `Bible/<Kind>/<Name>.md`, `Journal/`, `Decisions.md`, `Planning/<status>/` (items for the whole world), and per project `Projects/<Name>/` with `Manuscript/` (numbered in order), `Experiments/`, `Salvage/`, `Planning/` and a compiled `manuscript.md`. YAML frontmatter carries ids, state, POV, tags and aliases; the layout is documented in `backend/src/quarry/api/transfer.py`.
   From phase 10, chapters also carry their summary and status, `project.md` the project's statuses, and each project has a `Cuts/` folder (§11).
+  From phase 11, bible entries also carry the project they belong to (`project:`, §12.4).
 - **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. Revision history stays in the database and is not part of an export.
 - **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
@@ -195,6 +196,7 @@ quarry/                      # public GitHub repo (code only)
 6–9. **The world model**: the bible as data, relationships, story time, graphs and the writing companion. Designed in [WORLD-MODEL.md](WORLD-MODEL.md), with the phases and their *done when* in its §9.
 
 10. **Revising and salvaging**: renames that keep the old name, chapter summaries and statuses, a cuts bin, reading one entry's thread, word history, changes since a checkpoint, and find and replace across chapters. Designed in §11, with a *done when* per part.
+11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, world entries and project entries, the *witnessed* type, a *gender* field on characters and a *pronunciation* fact, and labels and values (value suggestions, filtering by a value, a Labels page, labels with several values, expected labels). Designed in §12, with a *done when* per part.
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -440,7 +442,468 @@ Renames, reading one entry, changes since a checkpoint, and find and replace add
 **Phase 10 is done when** each part's *done when* above holds, and the demo world has summaries, statuses, a cut
 and a few days of word history to show.
 
-## 12. Out of scope (for now)
+## 12. More views of the bible (phase 11)
+
+Phase 10 served the manuscript. Phase 11 goes back to the bible, with new ways to look at what Quarry already
+stores: mentions, relationships, "is at" and the story order. Nothing new has to be filled in: the new fields have
+defaults (a project's gap length, §12.1; an entry's level, §12.4, which is set for you; a character's gender, §12.5,
+not set until chosen), §12.5 also adds one relationship type and one suggested fact, and §12.6 makes the facts typed
+so far easier to keep consistent, with one small table of per-label switches.
+The ideas come from the second round of research ([research/README.md](research/README.md#second-round-competitors),
+"Cheap additions" and "Later"). The principles hold: nothing here writes or suggests story content, and anything
+worked out (gaps, kin, shared chapters) is shown, never stored.
+
+Examples use made-up names: Varren is the father of Isolde and Oswin, Oswin the father of Mirelle, and Varren
+marries Seyla in chapter 3.
+
+### 12.1 A mentions strip on each entry page
+
+Under the head of every entry page (any kind), a strip shows where in the story the entry is named, so a character
+who vanishes for ten chapters is seen at a glance.
+
+- **The strip.** One small cell per current chapter, in story order (project order, then chapter order, as
+  everywhere). With more than one project, each project is its own row, with its name before it.
+  - A chapter that names the entry is filled; the more often, the stronger, in three steps by thirds of the entry's
+    own busiest chapter, so a minor object's strip still shows its peaks. A chapter that doesn't is an empty outline.
+  - A chapter told from the entry's point of view (its POV) has a small bar under its cell.
+  - Resting on a cell (long-press on the phone) shows the chapter's number and title and `named 4 times` or
+    `not named`. Clicking opens the chapter.
+- **Gaps.** A run of chapters without the entry, between two that name it, is a gap once it reaches the project's
+  *gap length*: a quiet bracket under the run says `10 chapters`.
+  - The gap length is a setting on the project page, 5 chapters to start, since a novella of short chapters and a
+    novel of long ones need different lengths.
+  - Gaps cross from one project into the next, since the story does; such a gap uses the length of the project it
+    starts in.
+- **A line above the strip** sums it up:
+  `In 31 of 48 chapters · first in 2 · last in 45 · longest gap: 10 chapters (12–21) · not named in the last 3`.
+  The last part shows only when the entry isn't named in the book's last chapters.
+- **As of.** With the page's *as of chapter …* set, that chapter is marked on the strip and the chapters after it
+  are dimmed: they are later in the story.
+- **What counts.** The mentions Quarry already stores for chapters: any of the entry's names, first names included,
+  margin notes left out. Experiments and retired chapters are outside the story order, so not in the strip; the
+  Mentions list below still has them.
+- **On the phone**, cells keep a minimum width and a project's row wraps onto more lines; nothing scrolls sideways.
+
+**Data:** the entry page already gets each chapter that names the entry with a count, and the cards keep the story
+order on the device. `GET /timeline` gains each chapter's POV entry, for the bar, and each project's gap length.
+
+```sql
+projects  + gap_chapters int default 5
+```
+
+Export writes it into `project.md` (`gap_chapters: 5`); Restore reads it back, and an older export gets 5.
+
+*Done when* Isolde, named in chapters 1–3 and 14–20 of 20, has a strip filled at 1–3 and 14–20 with a gap labelled
+`10 chapters` under 4–13 and the line saying so, her POV chapters are marked, and setting *as of* chapter 10 dims
+11–20.
+
+### 12.2 A family tree
+
+A tree drawn from the parent/child and *married* relationships already recorded. Kin that follows from them
+(siblings, grandparents, cousins …) is worked out and shown dimmed, never stored.
+
+- **Where.** A third tab on the Graph page, *Family*, next to *Relationships* and *Places*
+  (`/w/<world>/graph?view=family&centre=<id>`). A character's page with any parent, child or married relationship
+  gets a *Family tree* link, centred on them. The tab's own picker lists everyone in a family.
+- **What counts as family.** Character–character types read as parenthood or marriage, the way the place tree reads
+  *inside* (so renamed or added types still count):
+  - **parent**: a label ending in `parent of`, `father of` or `mother of` (so *adoptive parent of* counts), or a
+    reverse label ending in `child of`, `son of` or `daughter of`;
+  - **married**: `married to`, `spouse of`, `husband of`, `wife of` or `wed to`;
+  - a recorded **sibling of** is drawn too.
+
+  Every other type is left out of the tree.
+- **The drawing.** Everyone connected to the centred character through those links, generations top to bottom.
+  - Couples sit side by side, joined by a double line; a couple who are both recorded parents of a child but not
+    married are joined by a single line. Children hang from their parents, or from one parent when only one is
+    recorded.
+  - Recorded siblings with no recorded parent hang together from a small `?`.
+  - A parent type other than the plain one (*adoptive parent of*) shows its label on the line, lighter.
+  - *Planned* and *rumour* relationships are dashed, and the graph's standing switches hide them (a rumoured father
+    is a plot, so they show by default).
+  - Each person shows their name (coloured as a character), a `†` when their *status* is *dead* as of the chosen
+    chapter, and, small and dimmed under the name, how they are related to the centre: `granddaughter`, `cousin`,
+    `stepmother`. Resting on a name shows the one-liner; clicking it centres the tree on them; a link opens the
+    entry.
+- **Kin worked out** from the recorded links:
+  - **sibling** (a shared parent; *half-sibling* when each also has a parent the other doesn't);
+  - **grandparent / grandchild**, and *great-* for each generation further, up to four; beyond that, *ancestor* and
+    *descendant*;
+  - **parent's sibling / sibling's child**, and **cousin** (children of siblings); more distant blood relatives are
+    just *relative*;
+  - by marriage: **parent-in-law / child-in-law**, **sibling-in-law** (a spouse's sibling or a sibling's spouse), and
+    **step-parent / stepchild** (a spouse's child who isn't their own).
+- **The words** follow the relative's *gender* field (§12.5), never a fact:
+  - *female*: mother, daughter, sister, half-sister, grandmother, granddaughter, aunt, niece, mother-in-law,
+    daughter-in-law, sister-in-law, stepmother, stepdaughter, wife;
+  - *male*: father, son, brother, half-brother, grandfather, grandson, uncle, nephew, father-in-law, son-in-law,
+    brother-in-law, stepfather, stepson, husband;
+  - *nonbinary* or *not set*: the general word, one per relation: parent, child, sibling, half-sibling, grandparent,
+    grandchild, parent's sibling, sibling's child, parent-in-law, child-in-law, sibling-in-law, step-parent,
+    stepchild, spouse.
+
+  *Cousin*, *relative*, *ancestor* and *descendant* are the same for everyone, and *great-* is added to any of the
+  grand- words. Recorded relationships keep their own labels. Free-text facts such as *pronouns* stay for nuance;
+  the tree doesn't read them.
+
+  Two people related in two ways (cousins who marry) show both. A recorded relationship wins: if Isolde and Oswin
+  have a recorded *sibling of*, the worked-out *sibling* isn't shown again.
+- **As of a chapter.** The Graph page's *as of* applies: only relationships that hold at that chapter count, for
+  the drawing and for the kin worked out. If Varren marries Seyla from chapter 3, as of chapter 2 she isn't in his
+  family and isn't anyone's step-parent. Parenthood is read as recorded: a *parent of* with an *until* ends there.
+- **On the entry page.** Under the recorded relationships, a dimmed group *Family, worked out* lists each relative
+  with the path, following the page's *as of*: `cousin · Mirelle (via Varren → Oswin)`. It is read-only; to make one
+  a recorded relationship, record it as any other.
+- **Odd data.** More than two parents are all drawn, and any shared parent makes a sibling. Someone recorded as their
+  own ancestor is drawn once, with a note above the tree naming the loop, and the Checks page lists it under
+  Continuity (*their own ancestor*), as it lists a place inside itself.
+- **Drawn in the browser**, from what the Graph page already loads: generations from parent links, a married couple
+  on one row, and a few sweeps to keep couples together and children under their parents. Plain SVG, laid out once
+  (nothing moves, as with the graph). A big family scrolls inside its card; on the phone it pans by dragging.
+
+**Data:** none. `GET /graph` already carries every relationship with its type, standing and span; *status* as of a
+chapter comes from the cards.
+
+*Done when* the tree centred on Mirelle shows three generations, with Varren and Seyla as a couple, Varren labelled
+*grandfather* and Isolde *aunt* (their gender is set to male and female); Isolde's page lists *brother: Oswin*,
+*niece: Mirelle* and *stepmother: Seyla*, dimmed and with their paths, while a relative whose gender is nonbinary or
+not set gets the general word (*sibling*, *parent's sibling*); none of them reads a fact; none of them adds a relationship row; and as of chapter 2 Seyla is in neither the tree nor Isolde's
+list.
+
+### 12.3 Entries across chapters
+
+The Where-everyone-is grid (characters × chapters) becomes a grid of **any entries** × chapters. Characters stay
+its default, so the grid that exists today is still one click away.
+
+- **The page** keeps its name and place: *Where everyone is*, at `/w/<world>/where`, opening with characters as
+  before.
+- **Rows** are chosen at the top:
+  - **kinds**: a chip per kind adds every entry of that kind named in the chapters shown (*Characters* is on by
+    default), in order of first appearance, as today;
+  - **entries**: *Add…* picks one entry of any kind (Varren, Isolde, the logbook, the Lamp Guild);
+  - a row's `×` hides it; hidden rows are listed under the grid, to show again.
+
+  The choice is kept in the address, so a set can be bookmarked, and the last one used is remembered per world on
+  the device.
+- **Columns** are the current chapters in story order, with the project filter as today. Each chapter head also
+  shows its POV character, small.
+- **Cells.**
+  - **Characters**, as today: the place recorded with *is at*, else the place named in the same paragraph (fainter,
+    with `?`), else a dot for named there. Clicking still records *is at*.
+  - **Places** are filled when named, and also count the characters recorded *is at* there: the cell shows how
+    many, and resting on it lists them.
+  - **Everything else** is filled when the chapter names it, shaded by how often in the strip's three steps
+    (§12.1), with the count on hover.
+  - The *Events* line at the top stays while events aren't rows of their own.
+- **Do these share a chapter?** Tick two or more rows (a box on each row head), then pick which chapters to show:
+  *all*, *any of them* (hides chapters naming none of them) or *all of them* (only chapters naming every ticked
+  row). With nothing ticked, the choice applies to every row.
+  - A line says what it found: `Varren, Isolde and the logbook are named together in 4 of 48 chapters`.
+  - With two ticked and no chapter shared, it says the nearest miss: `Never in the same chapter. Closest: Isolde in
+    12, the logbook in 13.`
+  - "Named in the same chapter" is all it claims. *Have they met?* stays the companion's question.
+- **On the phone** the first column stays put and the grid scrolls inside its card.
+
+**Data:** none. `GET /where` takes `kinds`, `entities` and `project`, and returns the chapters (with POV) and,
+per row, each cell's count, recorded and derived place, and for places the people there. The share filter is worked
+out in the browser from the cells.
+
+*Done when* choosing Varren, Isolde, the logbook and the Lamp Guild shows four rows across the book, with places for
+the two characters and shaded counts for the logbook and the guild; ticking Varren and the logbook with *all of them*
+leaves only the chapters that name both, and says how many; and the *Characters* chip alone gives today's grid,
+where clicking a cell still records *is at*.
+
+### 12.4 World entries and project entries
+
+This answers the open question "do some bible pages belong to one project only?": **yes**. Every entry lives at one
+of two levels:
+
+- **The world**: shared by every project, as every entry is today. Anything that belongs to the setting, or turns up
+  in more than one book, lives here.
+- **A project**: an entry that so far only matters to one book (a ferryman in one novella). Each project has its own
+  part of the bible, on top of the world's.
+
+The level says where an entry is listed and where it is expected. It doesn't fence anything in: a project's entry is
+still matched, coloured, linkable and in the graph in every project. So there is no "several projects": an entry in
+two books is a world entry, and its mentions strip (§12.1) shows which books name it. Names stay unique within the
+world, so a name always means one entry, whichever book it is read in.
+
+**How entries get their level**, without anything to fill in:
+
+- **New entries made while writing** start in the project of the chapter they were made from: the strip's
+  `+ Character`, the F8 pass, the companion's *Add as…*. New entries made anywhere else (the bible pages, Capture, a
+  world page) start in the world.
+- **A world with one project** keeps everything in the world and shows none of this. So when a second book is
+  started, the first book's entries are already shared, and only the new book's new names start in its own bible.
+- **Moving up.** When a project's entry is named in another project's chapter, the **Archivist** says so,
+  `Mirelle is in The Salt Road's bible and is named here`, with **Share with the world** (one click moves it up) and
+  *Intentional* (leave it where it is; not flagged again for that project).
+- **By hand**, the entry page has the level beside the kind: *World* or one of the projects.
+
+**Where it shows:**
+
+- **Bible lists show everything, the current book first.** Nothing is hidden: the world's entries and every
+  project's are listed in every book. With a project chosen in the switcher, each kind's table has two groups:
+  - **In this book**: entries named in its current chapters, and entries in its own bible even if not named yet;
+  - **Elsewhere**, dimmed below them, each with a small tag for where it is used: `only in The Salt Road`,
+    `in 2 other books`, or `not named yet`.
+
+  Within a group the table sorts as it does now (by name, or by a column clicked). A *Level* column shows *World* or
+  the project. Search covers both groups. With no project chosen, or with one project in the world, there is one
+  group, as today. The counts in the nav stay counts for the whole world.
+- **Pickers** in a chapter (*is at*, *Link to…*, the editor's strips) list the chapter's own project's entries and
+  the world's first, other projects' after them, labelled with their project.
+- **Views.** When the grid (§12.3) is limited to a project, its kind rows leave out other projects' entries (entries
+  added by hand stay). The graph gets the same project filter.
+- **Matching is unchanged**: every entry's names are matched in every project's text. That is what lets the
+  Archivist notice a crossover.
+- **Export and Restore.** Each entry's frontmatter gets `project:` (the project's slug, or `null` for the world), as
+  items and journal entries already do. Files stay in `Bible/<Kind>/`, so moving an entry between levels doesn't move
+  its file. Restore reads `project:` back; a missing or unknown slug (an export from before phase 11) means the world.
+- Projects can't be deleted today; the column is `ON DELETE SET NULL` so that, if they ever can, their entries move
+  up to the world.
+
+**Data:**
+
+```sql
+entities  + project_id NULL                   -- ON DELETE SET NULL; NULL is the world
+```
+
+The cards on the device carry it too, for the Archivist, the pickers and the editor's new entries.
+`PATCH /entities/<id>` takes `project`, and the bible's list of entries gains, per entry, the projects whose current
+chapters name it (from the stored mentions), for the two groups and their tags.
+
+*Done when* Mirelle, added as a new name from a Salt Road chapter, starts in The Salt Road's bible; with The Salt
+Road chosen she is listed under *In this book*, and with Ninefold chosen under *Elsewhere*, tagged
+`only in The Salt Road`; naming her in a Ninefold chapter makes the Archivist offer *Share with the world*,
+which moves her up in one click; a world with one project shows no levels; and exporting and restoring the world
+keeps each entry's level.
+
+### 12.5 Three small additions
+
+- **Witnessed.** A new starting relationship type, character → event: *witnessed* / *witnessed by* (`Varren
+  witnessed the Burning of the Quay`). It is not *took part in*: a witness was there and saw it, which is what "who
+  knows what" turns on. Nothing is worked out from it; the companion doesn't turn it into *knows about*.
+  - **New worlds** and the demo get it with the starting vocabulary.
+  - **Existing worlds** get it from a data migration: it is added, at the end of the Character–event types, to every
+    world that has no character–event type already reading *witnessed* (either way, any capitals).
+  - **Restore** keeps the export's own vocabulary, as now: a world restored from an export made before phase 11 has
+    no *witnessed* until it is added on the types page.
+- **Gender**, a structured field on characters only: a dropdown of *female*, *male*, *nonbinary* and *not set*.
+  - Optional, *not set* to start, edited on the entry page beside the kind. It is not time-bounded: it has no
+    *from* or *until*, unlike facts.
+  - The family tree reads it for its words (§12.2); *nonbinary* and *not set* give the general words.
+  - On the name's card it shows only when set, as one small word after the name, so an unset field adds nothing.
+  - An entry whose kind changes away from character keeps the value but doesn't show or use it.
+  - **Export** writes `gender:` into a character's frontmatter when set; **Restore** reads it back (anything else, or
+    nothing, means not set).
+  - **Existing worlds** start with every character *not set*; nothing is inferred from facts. The demo sets it for
+    some of its characters.
+  - It replaces a *gender* fact suggestion. A free-text *pronouns* fact stays suggested (§12.6.5) for nuance.
+- **Pronunciation.** A suggested fact for characters and places (`VAR-en`).
+  - Suggested facts are a list in the code, not stored per world, so every world, old and new, offers it at once:
+    no migration.
+  - A fact labelled *pronunciation* (any capitals) is shown in small type after the name, on the entry page and on
+    the name's card, and isn't repeated among the card's facts. Otherwise it is a fact like any other, exported as
+    facts are.
+
+**Data:**
+
+```sql
+entities  + gender text NULL CHECK (gender IN ('female', 'male', 'nonbinary'))   -- NULL is not set
+```
+
+One data migration adds the *witnessed* type to existing worlds. `PATCH /entities/<id>` takes `gender`, and the cards
+carry it.
+
+*Done when*, after upgrading, an existing world's types page lists *witnessed* under Character–event; recording
+"Varren witnessed the Burning of the Quay" reads back as "witnessed by Varren" on the event; and a character's fact
+picker offers *pronunciation*, which then shows beside the name on the card; and an existing world's characters show
+*Gender: not set*, setting Varren to *male* shows `male` on his card (a character not set shows nothing there), and
+exporting and restoring the world keeps it.
+
+### 12.6 Labels and values
+
+Classification stays free-form. There are no fixed lists, no required fields, no forms per kind and no category
+trees: an event's type, a character's pronouns or a place's climate is a fact like any other, typed when it comes up
+while writing. What builds up that way already has a shape: the same labels come back for the same kind, with the
+same handful of values. These parts make that shape pay off without asking for anything up front.
+
+Labels and values are always read **per kind**: *type* for events (festival, battle) and *type* for places (city,
+fen) are different things, and mixing them would mix domains. Labels and values match **whatever the capitals**
+(and with spaces trimmed), as the Continuity check already compares them. A value is shown in its most-used spelling.
+
+#### 12.6.1 Value suggestions
+
+Typing a fact's value on an entry page offers the values already used for that label on entries of the same kind,
+so spellings stay the same.
+
+- Today, typing a fact's **label** already offers the kind's suggested labels plus every label the world uses for
+  that kind (`fact_suggestions` in `api/world.py` merges `SUGGESTED_FACTS` with the labels in use). The **value**
+  works the same way: with *type* as the label on an event, the value field lists the events' types, most used
+  first, each with its count: `Festival (4) · Battle (2) · Wedding (1)`.
+  - Matching ignores capitals: typing `fest` offers *Festival*. Places' types aren't offered for an event.
+  - Picking one fills it in. Typing something new is fine: it is a new value, offered next time.
+- **Only on the entry page** (and wherever its fact form is used, such as recording a fact from a passage). Never in
+  the prose, never while typing in a chapter.
+
+**Data:** none. `GET /fact-suggestions` returns, per kind, the labels (as now) and for each label its values with
+counts.
+
+*Done when* typing `fest` as an event's type offers *Festival (4)* from the other events and nothing from the places'
+types, and picking it saves *Festival* with that spelling.
+
+#### 12.6.2 Filtering and grouping a kind's table by a value
+
+Each kind's bible table already shows up to three fact labels that at least two of its entries have, as columns.
+
+- **Filter.** Clicking a value in a fact column (or on an entry page, a fact's value) filters the table to entries
+  with that value: clicking *Festival* in the events' *type* column shows every festival. The filter shows as a chip
+  (`type: Festival ×`) and is kept in the address, so it can be bookmarked; several chips narrow further.
+- **Group.** *Group by* picks any label the kind uses (not only the three shown). The table splits into one group per
+  value, with counts, in order of size, and *no type* last. A group's heading filters to it when clicked.
+- **Which value.** The table reads each entry's facts as they stand at the end of the story (the latest that holds,
+  as *as of* the last chapter would show). A label with several values (§12.6.4) puts the entry in each of its
+  values' groups, and a filter matches any of them.
+- **Columns.** A fact column the filter or grouping uses is shown even if it isn't among the three.
+
+**Data:** none; worked out in the browser from the cards (which carry every entry's facts).
+
+*Done when* clicking *Festival* in the Events table's *type* column leaves only the festivals, with the filter in
+the address, and *Group by type* splits the events into Festival, Battle and *no type* with their counts.
+
+#### 12.6.3 The Labels page
+
+A page for the world's fact labels, like the relationship types editor: `/w/<world>/bible/labels`, linked from the
+bible pages next to *Relationship types*.
+
+- **Per kind.** One card per kind, listing its labels by how many entries have them: `type: 6 of 9 events`. Opening a
+  label lists its values with counts (`Festival 4 · Battle 2`) and the entries with each. The same label on another
+  kind is its own row under that kind; a line says `also used for places (3)`, with a link.
+- **Rename or merge a label** within a kind: renaming *colour of eyes* to *eye colour* changes the label on every
+  character's facts. Renaming it to a label the kind already uses merges the two; an entry that had both keeps both
+  facts (the Continuity check then shows where they disagree). A tick extends a rename to the other kinds that use
+  the label.
+- **Rename or merge a value** within a label and kind: merging *Feast* into *Festival* for events changes those facts
+  and leaves any place's *Feast* alone. Values that differ only in capitals are one value here, and a rename makes
+  them all the chosen spelling.
+- **One step back.** Each rename or merge says what it changed (`Changed 5 facts on 5 events`) with **Undo**, which
+  puts back the old label or value on each fact that hasn't changed since. Facts keep their version check, so an
+  entry page open elsewhere gets the usual conflict instead of overwriting.
+- The per-label switches of §12.6.4 and §12.6.5 (*several values*, *expected*) live here too.
+
+**Data:**
+
+```sql
+fact_labels  (id, world_id, kind, label, several bool default false, expected bool default false,
+              asked bool default false)    -- asked: the "expect it?" prompt of §12.6.5 has been shown
+             -- unique (world_id, kind, lower(label)); a row exists only once a switch has been set or the prompt shown
+```
+
+Labels and values themselves are not stored separately: they are read from the facts. A renamed label carries its
+`fact_labels` row with it. Endpoints: `GET /labels` (per kind: labels, counts, values with counts, switches),
+`POST /labels/rename` and `POST /labels/values/rename` (kind, old, new; answering with the changed facts for Undo),
+`PUT /labels/<kind>/<label>` for the switches. Export writes the rows into `world.md` (`fact_labels:`); Restore reads
+them back, and an older export has none.
+
+*Done when* the Labels page lists *type* under events with Festival 4 and Battle 2 and separately under places with
+City 3, merging *Feast* into *Festival* for events changes only the events' facts, and Undo puts them back.
+
+#### 12.6.4 Labels that hold several values
+
+Some labels hold more than one value at a time: eye colour *green* and *red*, languages, titles.
+
+- **The switch.** *Several values* per label and kind, on the Labels page (off to start, as today). Also offered
+  where the conflict shows up: a *conflicting facts* finding gets **Both are true (several values)**, which sets the
+  switch for that label and kind.
+- **What changes when it is on.**
+  - Values that hold at the same time are not a Continuity conflict: Varren's eye colour can be green and red from
+    chapter 1.
+  - *As of* keeps every value whose span holds, instead of letting the latest-starting one take over. A value ends
+    only with its own *until*.
+  - The values show as chips side by side: on the entry page, on the name's card, and in the bible table's column.
+- **When it is off**, nothing changes from phase 9: a later value takes over from an open-ended earlier one, and two
+  values that start in the same chapter, or overlap through an explicit *until*, are a conflict.
+
+**Data:** `fact_labels.several` (§12.6.3). The check in `api/companion.py` skips labels with it set for the entry's
+kind; `factsAsOf` in `world/time.ts` keeps all holding values for them.
+
+*Done when*, with *several values* on for characters' *eye colour*, Varren's *green* and *red* from chapter 1 show as
+two chips on his page and card and Checks lists no conflict; switched off, Checks lists the conflict as before.
+
+#### 12.6.5 Suggestions that grow with use, and expected labels
+
+- **New starting suggestions**: *type* for events, *pronouns* for characters (next to *pronunciation* from §12.5;
+  gender is a field, not a fact), both optional like every suggestion. `SUGGESTED_FACTS` is a list in the code, not
+  stored per world, so existing and new worlds offer them at once, with no migration.
+- **Growing with use.** Every label in use is already offered for its kind. A label on **at least three** entries of
+  a kind now counts as *common* for that kind:
+  - it is listed with the starting suggestions, at the top of the label field, before labels used only once or
+    twice;
+  - an entry of that kind without it gets a quiet `Add: eye colour · age` line under its facts, one click to start the
+    fact. It is an offer on the page, not a warning, and appears nowhere else.
+- **Expected labels.** A label can be marked **expected** for a kind (*every character should have an eye colour*).
+  Only then do entries without it become findings; nothing is ever inferred from use alone, since three characters
+  with an eye colour would otherwise flag the other thirty-four.
+  - **Asked once, at the third use.** When adding a fact on an entry page brings its label to three entries of the
+    kind, a line appears under the fact just added:
+    `3 characters have "eye colour" now · Expect it on every character? · Not now`.
+    - It is inline, not a dialog: it takes no focus and blocks nothing, and typing on carries on as if it weren't
+      there. It appears on the entry page only (and in its fact form wherever that is used), never in the editor.
+    - It is asked **once per label and kind**. *Not now*, or ignoring it and moving on, means it isn't asked again
+      for that pair; the Labels page stays the place to change it later.
+    - *Expect it* marks the label expected for that kind, and the line says so with a link to the Labels page.
+    - Not asked when the label is already expected, or for a kind's starting suggestions that are already
+      expected.
+  - **On the Labels page**, the switch can be set or unset at any time. The page also points out candidates
+    (`31 of 37 characters have it`) for labels most entries of a kind already have, but never marks one by itself.
+  - The findings are the **Archivist's**: `Varren has no eye colour (expected for characters)`. Like every finding
+    they are silent while Drafting. In the editor they cover the entries named in the chapter; the entry page shows
+    its own; the Labels page lists every entry missing it. They never become inbox items.
+  - Each is resolved per entry: **Add it** opens the fact on the entry, with its value suggestions; **Not for this
+    one** is stored as a resolution (`intentional`), so it never comes back for that entry and label.
+  - Unmarking *expected* removes the findings; the resolutions stay, in case it is marked again.
+
+**Data:** `fact_labels.expected` and `fact_labels.asked` (§12.6.3). Adding a fact answers with the prompt when it
+applies, and the server marks the pair asked in the same save, so a prompt that is ignored, or shown on another
+device, isn't shown again. The finding's rule is `missing_label`, keyed by entry and label, using the existing
+`resolutions` table.
+
+*Done when* an existing world's fact picker offers *type* for events and *pronouns* for characters; a label put on a
+third character is listed among the common ones and offered as `Add:` on characters without it, with no finding
+anywhere; adding *eye colour* to a third character shows `3 characters have "eye colour" now · Expect it on every
+character? · Not now` under the new fact, without taking focus, and a fourth character's *eye colour* doesn't ask
+again after *Not now* or after the line was ignored; and choosing *Expect it* (there, or on the Labels page) makes
+the Archivist (while Revising) list a named character without an eye colour, where *Not for this one* silences it
+for that character only and *Add it* opens the fact on the entry.
+
+### 12.7 Data model, in one place
+
+```sql
+projects        + gap_chapters int default 5                         -- §12.1
+entities        + project_id NULL                                    -- §12.4; ON DELETE SET NULL; NULL is the world
+entities        + gender NULL (female | male | nonbinary)            -- §12.5; characters only; NULL is not set
+relation_types  + "witnessed" / "witnessed by" (character – event)   -- §12.5; added to every existing world
+fact_labels     (id, world_id, kind, label, several, expected, asked)  -- §12.6; only labels with a switch set
+```
+
+Endpoints: `GET /timeline` gains each chapter's POV and each project's gap length (§12.1); `GET /where` takes kinds,
+entries and a project (§12.3); `PATCH /entities/<id>` takes `project` (§12.4); `GET /fact-suggestions` gains values,
+and `/labels` lists, renames and switches labels (§12.6). The mentions strip, the family tree, kin, shared chapters,
+common labels and missing-label findings are worked out when read, never stored.
+
+**Phase 11 is done when** each part's *done when* above holds, and the demo world has a family of three
+generations (with a cousin worked out, and gender set for some of them), an entry in each of its two projects'
+bibles, a *witnessed* and a pronunciation, and events with a *type* (one label with several values, one marked
+expected) to show.
+
+### 12.8 Open questions for phase 11
+
+None left. Missing labels are findings only for labels marked *expected* (Thomas: "For missing labels your instinct
+is correct."), with a one-time prompt at the third use (§12.6.5). Existing entries all start in the world's bible
+and need no tidying: what is there today is test worlds and the demo, which sets its own levels.
+
+## 13. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -449,10 +912,9 @@ and a few days of word history to show.
 - Native apps (the PWA is enough on Android)
 - A git mirror of the content (§8)
 
-## 13. Open questions
+## 14. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?
 - Is a light theme needed at all, or dark only?
-- Do some bible pages belong to one project only (a character who exists in one novella), or is "world-level, mentioned in project X" always enough?
 - The domain (likely `quarry.daevil1.com`), which fixes the passkey Relying Party ID.
