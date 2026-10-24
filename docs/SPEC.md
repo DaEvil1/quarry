@@ -21,7 +21,7 @@ Single-user today; the data model leaves room for co-writers later (§7).
 | **World** | A shared setting. Owns the bible. Holds any number of projects. Carries little else by default. |
 | **Project** | One work in a world: a novel, novella, short story. Owns its manuscript. |
 | **Chapter** | A unit of manuscript prose in a project. State is `current` (in the book), `experiment` (an alternate draft tied to an experiment item) or `retired` (salvage). Ordered by `position` among current chapters. Optional POV entity. |
-| **Entity** | A bible page in a world: character, place, term, faction, object or other. Has a name, aliases and a body. Shared by every project in the world. |
+| **Entity** | A bible page in a world: character, place, term, faction, object or other. Has a name, aliases and a body. Shared by every project in the world; can be tagged as belonging to one of them (§12.4). |
 | **Item** | Anything that needs attention: `spark`, `question`, `task` or `experiment`. Status is `open`, `accepted`, `rejected`, `harvested` or `deferred`. Belongs to a world and optionally to one project (an idea about the world in general has no project). Can link to entities and chapters. |
 | **Journal entry** | Dated thinking-on-paper (the "What now?" kind of writing). World-level or project-level. Editable, but conceptually append-only. |
 | **Decision** | A dated one-line verdict ("chapter 3 is now told by the sister"), optionally tied to the item it closes. World-level or project-level. |
@@ -157,6 +157,7 @@ Bible pages show:
 - **Backups.** The Postgres server's own backups are the disaster-recovery path. Every revision lives in the database, so restoring the database restores the full history.
 - **Export now.** Downloads a zip with one folder per world: `world.md`, `Bible/<Kind>/<Name>.md`, `Journal/`, `Decisions.md`, `Planning/<status>/` (items for the whole world), and per project `Projects/<Name>/` with `Manuscript/` (numbered in order), `Experiments/`, `Salvage/`, `Planning/` and a compiled `manuscript.md`. YAML frontmatter carries ids, state, POV, tags and aliases; the layout is documented in `backend/src/quarry/api/transfer.py`.
   From phase 10, chapters also carry their summary and status, `project.md` the project's statuses, and each project has a `Cuts/` folder (§11).
+  From phase 11, bible entries also carry the project they belong to (`project:`, §12.4).
 - **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. Revision history stays in the database and is not part of an export.
 - **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
@@ -195,6 +196,7 @@ quarry/                      # public GitHub repo (code only)
 6–9. **The world model**: the bible as data, relationships, story time, graphs and the writing companion. Designed in [WORLD-MODEL.md](WORLD-MODEL.md), with the phases and their *done when* in its §9.
 
 10. **Revising and salvaging**: renames that keep the old name, chapter summaries and statuses, a cuts bin, reading one entry's thread, word history, changes since a checkpoint, and find and replace across chapters. Designed in §11, with a *done when* per part.
+11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, entries that belong to one project, and the *witnessed* type and *pronunciation* fact. Designed in §12, with a *done when* per part.
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -440,7 +442,242 @@ Renames, reading one entry, changes since a checkpoint, and find and replace add
 **Phase 10 is done when** each part's *done when* above holds, and the demo world has summaries, statuses, a cut
 and a few days of word history to show.
 
-## 12. Out of scope (for now)
+## 12. More views of the bible (phase 11)
+
+Phase 10 served the manuscript. Phase 11 goes back to the bible, with new ways to look at what Quarry already
+stores: mentions, relationships, "is at" and the story order. Four of the five parts need nothing new filled in;
+the fifth adds one relationship type and one suggested fact. The one new field (§12.4) is optional and starts empty.
+The ideas come from the second round of research ([research/README.md](research/README.md#second-round-competitors),
+"Cheap additions" and "Later"). The principles hold: nothing here writes or suggests story content, and anything
+worked out (gaps, kin, shared chapters) is shown, never stored.
+
+Examples use made-up names: Varren is the father of Isolde and Oswin, Oswin the father of Mirelle, and Varren
+marries Seyla in chapter 3.
+
+### 12.1 A mentions strip on each entry page
+
+Under the head of every entry page (any kind), a strip shows where in the story the entry is named, so a character
+who vanishes for ten chapters is seen at a glance.
+
+- **The strip.** One small cell per current chapter, in story order (project order, then chapter order, as
+  everywhere). With more than one project, each project is its own row, with its name before it.
+  - A chapter that names the entry is filled; the more often, the stronger, in three steps by thirds of the entry's
+    own busiest chapter, so a minor object's strip still shows its peaks. A chapter that doesn't is an empty outline.
+  - A chapter told from the entry's point of view (its POV) has a small bar under its cell.
+  - Resting on a cell (long-press on the phone) shows the chapter's number and title and `named 4 times` or
+    `not named`. Clicking opens the chapter.
+- **Gaps.** A run of five or more chapters without the entry, between two that name it, is a gap: a quiet bracket
+  under the run says `10 chapters`. Gaps cross from one project into the next, since the story does.
+- **A line above the strip** sums it up:
+  `In 31 of 48 chapters · first in 2 · last in 45 · longest gap: 10 chapters (12–21) · not named in the last 3`.
+  The last part shows only when the entry isn't named in the book's last chapters.
+- **As of.** With the page's *as of chapter …* set, that chapter is marked on the strip and the chapters after it
+  are dimmed: they are later in the story.
+- **What counts.** The mentions Quarry already stores for chapters: any of the entry's names, first names included,
+  margin notes left out. Experiments and retired chapters are outside the story order, so not in the strip; the
+  Mentions list below still has them.
+- **On the phone**, cells keep a minimum width and a project's row wraps onto more lines; nothing scrolls sideways.
+
+**Data:** none. The entry page already gets each chapter that names the entry with a count, and the cards keep the
+story order on the device. `GET /timeline` gains each chapter's POV entry, for the bar.
+
+*Done when* Isolde, named in chapters 1–3 and 14–20 of 20, has a strip filled at 1–3 and 14–20 with a gap labelled
+`10 chapters` under 4–13 and the line saying so, her POV chapters are marked, and setting *as of* chapter 10 dims
+11–20.
+
+### 12.2 A family tree
+
+A tree drawn from the parent/child and *married* relationships already recorded. Kin that follows from them
+(siblings, grandparents, cousins …) is worked out and shown dimmed, never stored.
+
+- **Where.** A third tab on the Graph page, *Family*, next to *Relationships* and *Places*
+  (`/w/<world>/graph?view=family&centre=<id>`). A character's page with any parent, child or married relationship
+  gets a *Family tree* link, centred on them. The tab's own picker lists everyone in a family.
+- **What counts as family.** Character–character types read as parenthood or marriage, the way the place tree reads
+  *inside* (so renamed or added types still count):
+  - **parent**: a label ending in `parent of`, `father of` or `mother of` (so *adoptive parent of* counts), or a
+    reverse label ending in `child of`, `son of` or `daughter of`;
+  - **married**: `married to`, `spouse of`, `husband of`, `wife of` or `wed to`;
+  - a recorded **sibling of** is drawn too.
+
+  Every other type is left out of the tree.
+- **The drawing.** Everyone connected to the centred character through those links, generations top to bottom.
+  - Couples sit side by side, joined by a double line; a couple who are both recorded parents of a child but not
+    married are joined by a single line. Children hang from their parents, or from one parent when only one is
+    recorded.
+  - Recorded siblings with no recorded parent hang together from a small `?`.
+  - A parent type other than the plain one (*adoptive parent of*) shows its label on the line, lighter.
+  - *Planned* and *rumour* relationships are dashed, and the graph's standing switches hide them (a rumoured father
+    is a plot, so they show by default).
+  - Each person shows their name (coloured as a character), a `†` when their *status* is *dead* as of the chosen
+    chapter, and, small and dimmed under the name, how they are related to the centre: `grandchild`, `cousin`,
+    `step-parent`. Resting on a name shows the one-liner; clicking it centres the tree on them; a link opens the
+    entry.
+- **Kin worked out** from the recorded links, with plain words, since Quarry records no gender:
+  - **sibling** (a shared parent; *half-sibling* when each also has a parent the other doesn't);
+  - **grandparent / grandchild**, and *great-* for each generation further, up to four; beyond that, *ancestor* and
+    *descendant*;
+  - **parent's sibling / sibling's child**, and **cousin** (children of siblings); more distant blood relatives are
+    just *relative*;
+  - by marriage: **parent-in-law / child-in-law**, **sibling-in-law** (a spouse's sibling or a sibling's spouse), and
+    **step-parent / stepchild** (a spouse's child who isn't their own).
+
+  Two people related in two ways (cousins who marry) show both. A recorded relationship wins: if Isolde and Oswin
+  have a recorded *sibling of*, the worked-out *sibling* isn't shown again.
+- **As of a chapter.** The Graph page's *as of* applies: only relationships that hold at that chapter count, for
+  the drawing and for the kin worked out. If Varren marries Seyla from chapter 3, as of chapter 2 she isn't in his
+  family and isn't anyone's step-parent. Parenthood is read as recorded: a *parent of* with an *until* ends there.
+- **On the entry page.** Under the recorded relationships, a dimmed group *Family, worked out* lists each relative
+  with the path, following the page's *as of*: `cousin · Mirelle (via Varren → Oswin)`. It is read-only; to make one
+  a recorded relationship, record it as any other.
+- **Odd data.** More than two parents are all drawn, and any shared parent makes a sibling. Someone recorded as their
+  own ancestor is drawn once, with a note above the tree naming the loop, and the Checks page lists it under
+  Continuity (*their own ancestor*), as it lists a place inside itself.
+- **Drawn in the browser**, from what the Graph page already loads: generations from parent links, a married couple
+  on one row, and a few sweeps to keep couples together and children under their parents. Plain SVG, laid out once
+  (nothing moves, as with the graph). A big family scrolls inside its card; on the phone it pans by dragging.
+
+**Data:** none. `GET /graph` already carries every relationship with its type, standing and span; *status* as of a
+chapter comes from the cards.
+
+*Done when* the tree centred on Mirelle shows three generations, with Varren and Seyla as a couple, Varren labelled
+*grandparent* and Isolde *parent's sibling*; Isolde's page lists *sibling: Oswin*, *sibling's child: Mirelle* and *step-parent: Seyla*,
+dimmed and with their paths; none of them adds a relationship row; and as of chapter 2 Seyla is in neither the tree
+nor Isolde's list.
+
+### 12.3 Entries across chapters
+
+The Where-everyone-is grid (characters × chapters) becomes a grid of **any entries** × chapters. Characters stay
+its default, so the grid that exists today is still one click away.
+
+- **The page** is *Across the chapters*, at `/w/<world>/grid`, in the nav where *Where everyone is* was.
+  `/w/<world>/where` opens it with characters, as before.
+- **Rows** are chosen at the top:
+  - **kinds**: a chip per kind adds every entry of that kind named in the chapters shown (*Characters* is on by
+    default), in order of first appearance, as today;
+  - **entries**: *Add…* picks one entry of any kind (Varren, Isolde, the logbook, the Lamp Guild);
+  - a row's `×` hides it; hidden rows are listed under the grid, to show again.
+
+  The choice is kept in the address, so a set can be bookmarked, and the last one used is remembered per world on
+  the device.
+- **Columns** are the current chapters in story order, with the project filter as today. Each chapter head also
+  shows its POV character, small.
+- **Cells.**
+  - **Characters**, as today: the place recorded with *is at*, else the place named in the same paragraph (fainter,
+    with `?`), else a dot for named there. Clicking still records *is at*.
+  - **Places** are filled when named, and also count the characters recorded *is at* there: the cell shows how
+    many, and resting on it lists them.
+  - **Everything else** is filled when the chapter names it, shaded by how often in the strip's three steps
+    (§12.1), with the count on hover.
+  - The *Events* line at the top stays while events aren't rows of their own.
+- **Do these share a chapter?** Tick two or more rows (a box on each row head), then pick which chapters to show:
+  *all*, *any of them* (hides chapters naming none of them) or *all of them* (only chapters naming every ticked
+  row). With nothing ticked, the choice applies to every row.
+  - A line says what it found: `Varren, Isolde and the logbook are named together in 4 of 48 chapters`.
+  - With two ticked and no chapter shared, it says the nearest miss: `Never in the same chapter. Closest: Isolde in
+    12, the logbook in 13.`
+  - "Named in the same chapter" is all it claims. *Have they met?* stays the companion's question.
+- **On the phone** the first column stays put and the grid scrolls inside its card.
+
+**Data:** none. `GET /where` becomes `GET /grid?kinds=…&entities=…&project=…`, returning the chapters (with POV) and,
+per row, each cell's count, recorded and derived place, and for places the people there. The share filter is worked
+out in the browser from the cells.
+
+*Done when* choosing Varren, Isolde, the logbook and the Lamp Guild shows four rows across the book, with places for
+the two characters and shaded counts for the logbook and the guild; ticking Varren and the logbook with *all of them*
+leaves only the chapters that name both, and says how many; and the *Characters* chip alone gives today's grid,
+where clicking a cell still records *is at*.
+
+### 12.4 An entry can belong to one project
+
+This answers the open question "do some bible pages belong to one project only?": **yes, optionally**. An entry can
+belong to one project (a character who only exists in one novella); most stay with the whole world. The tag says
+where an entry lives. It doesn't limit where it can be named.
+
+- **Setting it.** On the entry page, beside the kind: *Whole world* or one of the world's projects. Every entry
+  starts as *Whole world*, existing ones and new ones alike (also those made from the editor's strip): nothing has
+  to be filled in. A world with one project shows none of this.
+- **Bible lists.** Each kind's table gets a *Project* column and a filter: *All*, a project (its own entries and the
+  whole world's, without other projects'), or *Whole world only*. *All* is the default, the choice is remembered on
+  the device, and the counts in the nav stay counts for the world.
+- **Matching: unchanged.** Every entry's names are matched in every project's text, because the world is shared: a
+  name from another book may be a deliberate crossover, or a slip worth seeing. Names stay unique within a world.
+  - The **Archivist** gains one finding: *named outside its project*, `Mirelle belongs to The Salt Road but is
+    named here`, with *Move to the whole world* and *Intentional* (a resolution, as for other findings).
+  - **Pickers** in a chapter (*is at*, *Link to…*, the editor's strips) list the chapter's own project's entries and
+    the whole world's first, other projects' after them, labelled with their project.
+- **Views.** When the grid (§12.3) is limited to a project, its kind rows leave out entries that belong to other
+  projects (entries added by hand stay). The graph gets the same project filter, which hides other projects' entries.
+- **Export and Restore.** Each entry's frontmatter gets `project:` (the project's slug, or `null` for the whole
+  world), as items and journal entries already do. Files stay in `Bible/<Kind>/`, so moving an entry between
+  projects doesn't move its file. Restore reads `project:` back; a missing or unknown slug (an export from before
+  phase 11) means the whole world.
+- Projects can't be deleted today; the column is `ON DELETE SET NULL` so that, if they ever can, their entries go
+  back to the whole world.
+
+**Data:**
+
+```sql
+entities  + project_id NULL                   -- ON DELETE SET NULL; NULL is the whole world
+```
+
+The cards on the device carry it too, for the Archivist and the pickers. `PATCH /entities/<id>` takes `project`.
+
+*Done when* Mirelle set to The Salt Road shows under that project's filter and not under Ninefold's, her name is
+still coloured in a Ninefold chapter where the Archivist says she is named outside her project, and exporting and
+restoring the world keeps the tag.
+
+### 12.5 Two small additions
+
+- **Witnessed.** A new starting relationship type, character → event: *witnessed* / *witnessed by* (`Varren
+  witnessed the Burning of the Quay`). It is not *took part in*: a witness was there and saw it, which is what "who
+  knows what" turns on. Nothing is worked out from it; the companion doesn't turn it into *knows about*.
+  - **New worlds** and the demo get it with the starting vocabulary.
+  - **Existing worlds** get it from a data migration: it is added, at the end of the Character–event types, to every
+    world that has no character–event type already reading *witnessed* (either way, any capitals).
+  - **Restore** keeps the export's own vocabulary, as now: a world restored from an export made before phase 11 has
+    no *witnessed* until it is added on the types page.
+- **Pronunciation.** A suggested fact for characters and places (`VAR-en`).
+  - Suggested facts are a list in the code, not stored per world, so every world, old and new, offers it at once:
+    no migration.
+  - A fact labelled *pronunciation* (any capitals) is shown in small type after the name, on the entry page and on
+    the name's card, and isn't repeated among the card's facts. Otherwise it is a fact like any other, exported as
+    facts are.
+
+**Data:** no tables. One data migration adds the *witnessed* type to existing worlds.
+
+*Done when*, after upgrading, an existing world's types page lists *witnessed* under Character–event; recording
+"Varren witnessed the Burning of the Quay" reads back as "witnessed by Varren" on the event; and a character's fact
+picker offers *pronunciation*, which then shows beside the name on the card.
+
+### 12.6 Data model, in one place
+
+```sql
+entities        + project_id NULL                                    -- §12.4; ON DELETE SET NULL
+relation_types  + "witnessed" / "witnessed by" (character – event)   -- §12.5; added to every existing world
+```
+
+Endpoints: `GET /timeline` gains each chapter's POV (§12.1); `GET /grid` replaces `GET /where` (§12.3). The mentions
+strip, the family tree, kin and shared chapters are worked out when read, never stored.
+
+**Phase 11 is done when** each part's *done when* above holds, and the demo world has a family of three
+generations (with a cousin worked out), an entry that belongs to one of its two projects, a *witnessed* and a
+pronunciation to show.
+
+### 12.7 Open questions for phase 11
+
+- **Words for kin.** Quarry records no gender, so the tree says *parent's sibling* and *sibling's child*. Should it
+  read a fact (*gender*, or *pronouns*) and say aunt, uncle, niece and nephew where it can?
+- **One project or several?** §12.4 lets an entry belong to one project. Is a character who exists in two of five
+  books common enough to allow several?
+- **Same name, two books.** Names stay unique in a world, so two minor characters both called Mara in different
+  novellas still can't both be entries. Should the project tag allow that later (each matched only in its own
+  project)?
+- **The nav entry.** *Where everyone is* becomes *Across the chapters*. Keep the old name instead, since characters
+  are the default?
+- **Gaps.** A gap starts at five chapters without the entry. Is five right for chapters of this book's length?
+
+## 13. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -449,10 +686,9 @@ and a few days of word history to show.
 - Native apps (the PWA is enough on Android)
 - A git mirror of the content (§8)
 
-## 13. Open questions
+## 14. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?
 - Is a light theme needed at all, or dark only?
-- Do some bible pages belong to one project only (a character who exists in one novella), or is "world-level, mentioned in project X" always enough?
 - The domain (likely `quarry.daevil1.com`), which fixes the passkey Relying Party ID.

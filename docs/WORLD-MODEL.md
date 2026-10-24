@@ -68,6 +68,7 @@ add or remove types, and every pair also has a plain *linked to* for when you do
 | Character – faction | member of, leads, founded, opposes |
 | Character – culture | belongs to, converted to |
 | Character – object | owns, carries, made, seeks, lost, guards |
+| Character – event | witnessed (from phase 11, [SPEC.md](SPEC.md) §12.5) |
 | Place – place | inside/contains, borders, road to, sea route to |
 | Faction – faction | allied, at war, vassal of/overlord of, splinter of |
 | Faction – place | controls, based in, claims |
@@ -297,6 +298,8 @@ highlighting; the server's result is the one that is stored.
      on Checks.
 10. **Revising and salvaging** (a cuts bin, chapter summaries and statuses, changes since a labelled checkpoint, and
     more) is designed in [SPEC.md](SPEC.md) §11.
+11. **More views of the bible** (a mentions strip per entry, a family tree with kin worked out, a grid of any
+    entries across chapters, entries that belong to one project) is designed in [SPEC.md](SPEC.md) §12.
 
 **Later:** in-world dates, map images with pins, and from the research: a chapter-by-thread grid, scenes below
 chapters, and a corkboard (research/README.md).
