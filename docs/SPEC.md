@@ -769,8 +769,9 @@ bible pages next to *Relationship types*.
 **Data:**
 
 ```sql
-fact_labels  (id, world_id, kind, label, several bool default false, expected bool default false)
-             -- unique (world_id, kind, lower(label)); a row exists only once a switch has been set
+fact_labels  (id, world_id, kind, label, several bool default false, expected bool default false,
+              asked bool default false)    -- asked: the "expect it?" prompt of §12.6.5 has been shown
+             -- unique (world_id, kind, lower(label)); a row exists only once a switch has been set or the prompt shown
 ```
 
 Labels and values themselves are not stored separately: they are read from the facts. A renamed label carries its
@@ -815,10 +816,21 @@ two chips on his page and card and Checks lists no conflict; switched off, Check
     twice;
   - an entry of that kind without it gets a quiet `Add: eye colour · age` line under its facts, one click to start the
     fact. It is an offer on the page, not a warning, and appears nowhere else.
-- **Expected labels.** On the Labels page, a label can be marked **expected** for a kind (*every character should have
-  an eye colour*). Only then do entries without it become findings:
-  - The page points out candidates (`31 of 37 characters have it`) for labels most entries of a kind already have,
-    but never marks one by itself.
+- **Expected labels.** A label can be marked **expected** for a kind (*every character should have an eye colour*).
+  Only then do entries without it become findings; nothing is ever inferred from use alone, since three characters
+  with an eye colour would otherwise flag the other thirty-four.
+  - **Asked once, at the third use.** When adding a fact on an entry page brings its label to three entries of the
+    kind, a line appears under the fact just added:
+    `3 characters have "eye colour" now · Expect it on every character? · Not now`.
+    - It is inline, not a dialog: it takes no focus and blocks nothing, and typing on carries on as if it weren't
+      there. It appears on the entry page only (and in its fact form wherever that is used), never in the editor.
+    - It is asked **once per label and kind**. *Not now*, or ignoring it and moving on, means it isn't asked again
+      for that pair; the Labels page stays the place to change it later.
+    - *Expect it* marks the label expected for that kind, and the line says so with a link to the Labels page.
+    - Not asked when the label is already expected, or for a kind's starting suggestions that are already
+      expected.
+  - **On the Labels page**, the switch can be set or unset at any time. The page also points out candidates
+    (`31 of 37 characters have it`) for labels most entries of a kind already have, but never marks one by itself.
   - The findings are the **Archivist's**: `Varren has no eye colour (expected for characters)`. Like every finding
     they are silent while Drafting. In the editor they cover the entries named in the chapter; the entry page shows
     its own; the Labels page lists every entry missing it. They never become inbox items.
@@ -826,13 +838,18 @@ two chips on his page and card and Checks lists no conflict; switched off, Check
     one** is stored as a resolution (`intentional`), so it never comes back for that entry and label.
   - Unmarking *expected* removes the findings; the resolutions stay, in case it is marked again.
 
-**Data:** `fact_labels.expected` (§12.6.3). The finding's rule is `missing_label`, keyed by entry and label, using the
-existing `resolutions` table.
+**Data:** `fact_labels.expected` and `fact_labels.asked` (§12.6.3). Adding a fact answers with the prompt when it
+applies, and the server marks the pair asked in the same save, so a prompt that is ignored, or shown on another
+device, isn't shown again. The finding's rule is `missing_label`, keyed by entry and label, using the existing
+`resolutions` table.
 
 *Done when* an existing world's fact picker offers *type* for events and *pronouns* for characters; a label put on a
 third character is listed among the common ones and offered as `Add:` on characters without it, with no finding
-anywhere; and marking *eye colour* expected for characters makes the Archivist (while Revising) list a named character
-without one, where *Not for this one* silences it for that character only.
+anywhere; adding *eye colour* to a third character shows `3 characters have "eye colour" now · Expect it on every
+character? · Not now` under the new fact, without taking focus, and a fourth character's *eye colour* doesn't ask
+again after *Not now* or after the line was ignored; and choosing *Expect it* (there, or on the Labels page) makes
+the Archivist (while Revising) list a named character without an eye colour, where *Not for this one* silences it
+for that character only and *Add it* opens the fact on the entry.
 
 ### 12.7 Data model, in one place
 
@@ -840,7 +857,7 @@ without one, where *Not for this one* silences it for that character only.
 projects        + gap_chapters int default 5                         -- §12.1
 entities        + project_id NULL                                    -- §12.4; ON DELETE SET NULL; NULL is the world
 relation_types  + "witnessed" / "witnessed by" (character – event)   -- §12.5; added to every existing world
-fact_labels     (id, world_id, kind, label, several, expected)       -- §12.6; only labels with a switch set
+fact_labels     (id, world_id, kind, label, several, expected, asked)  -- §12.6; only labels with a switch set
 ```
 
 Endpoints: `GET /timeline` gains each chapter's POV and each project's gap length (§12.1); `GET /where` takes kinds,
@@ -855,13 +872,8 @@ expected) to show.
 
 ### 12.8 Open questions for phase 11
 
-- **Missing labels only when marked expected?** §12.6.5 makes a missing label a finding only for labels marked
-  *expected* on the Labels page; a label on three or more entries is offered on the others (`Add: …`) but never
-  warned about. Inferring warnings from use alone would list 34 characters as missing an eye colour once three have
-  one: the form-filling trap. Is marking by hand right, or should a label most entries of a kind have (say three in
-  four) become expected by itself?
-
-Existing entries all start in the world's bible and need no tidying: what is there today is test worlds and the
+None left. Missing labels are findings only for labels marked *expected* (Thomas: "For missing labels your instinct
+is correct."), with a one-time prompt at the third use (§12.6.5). Existing entries all start in the world's bible and need no tidying: what is there today is test worlds and the
 demo, which sets its own levels.
 
 ## 13. Out of scope (for now)
