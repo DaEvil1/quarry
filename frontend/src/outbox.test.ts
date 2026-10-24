@@ -102,6 +102,22 @@ describe("session offline", () => {
     expect(session.me).toEqual(me);
   });
 
+  it("also opens from the copy while the server is restarting, instead of asking to sign in", async () => {
+    await saveMeSnapshot(me);
+    server(() => new Response("<html>Bad Gateway</html>", { status: 502 }));
+    const session = useSession();
+    expect(await session.load()).toBe(true);
+    expect(session.offline).toBe(true);
+    expect(await readMeSnapshot()).toEqual(me);
+  });
+
+  it("keeps captures waiting while the server is restarting", async () => {
+    server(() => new Response("<html>Bad Gateway</html>", { status: 502 }));
+    const outbox = useOutbox();
+    expect(await outbox.add(capture)).toBe(false);
+    expect(outbox.waiting).toBe(1);
+  });
+
   it("refreshes the copy when online and drops it when signed out", async () => {
     server(() => json(200, me));
     const session = useSession();

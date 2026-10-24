@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 
-import { ApiError, post } from "../api";
+import { ApiError, post, unreachable } from "../api";
 import { localDb, type PendingCapture, type PendingCut } from "../localdb";
 
 /**
@@ -82,7 +82,7 @@ export const useOutbox = defineStore("outbox", {
           return true;
         } catch (e) {
           const status = e instanceof ApiError ? e.status : 0;
-          if (status === 0) {
+          if (unreachable(e) || !(e instanceof ApiError)) {
             this.online = false;
             return false;
           }

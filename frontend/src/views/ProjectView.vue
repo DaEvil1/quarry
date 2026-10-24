@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { ApiError, get, patch } from "../api";
+import { get, patch, unreachable } from "../api";
 import InlineText from "../components/InlineText.vue";
 import WordHistoryChart from "../components/WordHistory.vue";
 import { age, listItems } from "../items";
@@ -55,7 +55,7 @@ async function load() {
     void loadStatuses();
     getWordHistory(w.slug, p.slug).then((h) => (history.value = h), () => (history.value = null));
   } catch (e) {
-    if (e instanceof ApiError && e.status === 0) {
+    if (unreachable(e)) {
       manuscript.value = await localManuscript(w.slug, p.slug);
       offlineCopy.value = true;
     } else {

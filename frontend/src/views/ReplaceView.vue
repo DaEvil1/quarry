@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { ApiError } from "../api";
+import { unreachable } from "../api";
 import UndoToast from "../components/UndoToast.vue";
 import { findInChapters, replaceInChapters, undoReplace, type FindOptions, type FoundChapter, type Replaced } from "../manuscript";
 import { sendDrafts } from "../offline";
@@ -63,7 +63,7 @@ async function preview() {
     found.value = r.chapters;
     chosen.value = new Map(r.chapters.map((c) => [c.id, new Set(c.hits.map((h) => h.start))]));
   } catch (e) {
-    if (e instanceof ApiError && e.status === 0) offline.value = true;
+    if (unreachable(e)) offline.value = true;
     else error.value = (e as Error).message;
   } finally {
     busy.value = false;
@@ -109,7 +109,7 @@ async function replace() {
     toast.value = `${replacement.value ? "Replaced" : "Deleted"} ${done.value.replaced} in ${done.value.chapters.length} ${done.value.chapters.length === 1 ? "chapter" : "chapters"}`;
     await preview();
   } catch (e) {
-    if (e instanceof ApiError && e.status === 0) offline.value = true;
+    if (unreachable(e)) offline.value = true;
     else error.value = (e as Error).message;
   } finally {
     busy.value = false;
