@@ -132,7 +132,7 @@ Bible pages show:
 - **Editor.** The chapter in CodeMirror 6, with a side panel showing the entities mentioned in this chapter, linked items, POV, the word count, and History.
 - **Bible.** Entity pages with Markdown bodies, aliases and the mention panels from §5.
 - **Manuscript.** The project's current chapters in drag-to-reorder order, with word counts, POV and a derived POV tally. Experiments appear indented under the chapter they would replace.
-- **Experiments.** Starting an experiment creates an `experiment` item and a draft chapter; it can begin from scratch (the old chapter is hidden while writing) or from a copy. Closing it as *accepted* swaps the draft into the manuscript and retires the old chapter. Closing it as *harvested* or *rejected* retires the draft and asks for a harvest note.
+- **Experiments.** Starting an experiment creates an `experiment` item and a draft chapter; it can begin from scratch (the old chapter is hidden while writing) or from a copy. Closing it as *accepted* swaps the draft into the manuscript and retires the old chapter. Closing it as *harvested* or *rejected* retires the draft and asks for a harvest note. From phase 12 an experiment can replace a range of chapters with several drafts, and retiring reviews what is tied to the chapters first (§13.6).
 - **Salvage.** Retired chapters, each with its harvest notes and full-text search.
 - **Journal** and **Decisions**: chronological lists with search.
 
@@ -200,7 +200,7 @@ quarry/                      # public GitHub repo (code only)
 
 10. **Revising and salvaging**: renames that keep the old name, chapter summaries and statuses, a cuts bin, reading one entry's thread, word history, changes since a checkpoint, and find and replace across chapters. Designed in §11, with a *done when* per part.
 11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, world entries and project entries, the *witnessed* type, a *gender* field on characters and a *pronunciation* fact, and labels and values (value suggestions, filtering by a value, a Labels page, labels with several values, expected labels). Designed in §12, with a *done when* per part.
-12. **Time, history and kinds of being**: in-world time on one axis under the chapters (a sortable number with a free label), chapters set in time and marked as told as a tale or flashback, facts, relationships and the checks read in happened order, a Timeline with happened and told orders, history, recording an event from a passage, ages, Species as a ninth kind, roles in groups with a one-at-a-time check, and more starting vocabulary. Designed in §13, with a *done when* per part; suggested as two phases, 12a and 12b (§13.7).
+12. **Time, history and kinds of being**: in-world time on one axis under the chapters (a sortable number with a free label), chapters set in time and marked as told as a tale or flashback, facts, relationships and the checks read in happened order, a Timeline with happened and told orders, history, recording an event from a passage, ages, Species as a ninth kind, roles in groups with a one-at-a-time check, more starting vocabulary, and restructuring (experiments across several chapters, and a review of everything tied to chapters before they are retired). Designed in §13, with a *done when* per part; suggested as three phases, 12a–12c (§13.8).
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -914,8 +914,9 @@ book told forwards and wrong for one that isn't. A tale told by a character, set
 Continuity checks (someone recorded dead in the present is flagged when they are alive in the tale), and there is
 nowhere for the world's history to live: wars, foundings and births long before chapter 1. Phase 12 adds **in-world
 time on one axis** under the chapters, a **Timeline** with a happened order and a told order, a way to **record
-history from the prose**, a ninth kind for **kinds of being**, **roles** inside groups, and a little more starting
-vocabulary.
+history from the prose**, a ninth kind for **kinds of being**, **roles** inside groups, a little more starting
+vocabulary, and **restructuring**: experiments that replace several chapters at once, and a review of everything tied
+to chapters before they leave the book.
 
 The principles hold: nothing here writes or suggests story content; times are optional everywhere, and a world that
 sets none works exactly as today; times are plain numbers with free labels, never a calendar (no months, moons or
@@ -1022,6 +1023,20 @@ The rule: **told order is the reader's; happened order is the world's.**
     counts as inside. A chapter with no set time ignores time bounds (as it ignores a retired chapter), so in a world
     with no chapter times a time-bounded fact simply holds throughout.
   - Spans shown in text: `from year 278`, `year 0 – chapter 9`, `about year −800 – year 0`.
+- **A chapter or a time: what each is for.** A chapter bound says *where in the book* something changes; a time bound
+  says *when in the world*. A chapter bound moves with its chapter, and has to be dealt with when the chapter is
+  retired (§13.6.2). A time bound outlives any reshuffle: *dead from year 312* stays true whatever happens to chapter
+  9; *dead from chapter 9* does not. **Anchoring to time is what survives restructuring.** A time is only as fine as
+  its number, so decimals (`312.4`) order things within a year where that matters.
+- **How the two combine.** Each side of a span is one or the other, and the two sides may differ (`from chapter 3
+  until year 400`). Both sit on the one clock:
+  - a chapter bound at its chapter's place in happened order (its set time, then book order);
+  - a time bound at its number: a *from* just before the chapters set at that time, an *until* just after them. So
+    *from year 312* takes in every chapter set in year 312, while *until chapter 9* stops at chapter 9 even among
+    chapters set in the same year;
+  - which of two facts started latest, and whether two spans overlap, are decided on the same clock;
+  - a chapter with no set time can't be placed against a time bound, so for that chapter the bound counts as no bound,
+    and the Continuity checks leave out what they can't compare rather than guess.
 - **Saving.** "From must come before until" is checked on the clock. Setting or changing a chapter's time can make an
   existing span run backwards; Checks lists it, as it lists one after chapters are reordered today.
 
@@ -1231,8 +1246,7 @@ the Founding, her marriage from chapter 3 and her death.
 ### 13.3 Species
 
 A ninth kind, for kinds of being: peoples, beasts, spirits, ancient races. It is not Culture: Culture is what people
-share (faith, customs, language); Species is what they are. Spec'd as **Species**; the name is the first open
-question (§13.8).
+share (faith, customs, language); Species is what they are. The kind is called **Species** (settled with Thomas).
 
 - **In the nav and the bible** like every kind: a page with its table, its own colour in both themes, the strip's
   `+ Species` under *More…*, and the F8 pass and the companion's *Add as…*.
@@ -1247,8 +1261,17 @@ question (§13.8).
   | Faction – species | *made up of* / *makes up* |
 
   Event, term and *linked to* types already reach every kind.
-- **Suggested facts**: *form* (humanoid, beast, spirit …), *lifespan*, *habitat*, *appearance*, *pronunciation*, and
-  *name meaning* (§13.5). Free text, as all facts; lifespan isn't checked against ages.
+- **Describing a species** is done with suggested facts and value suggestions (§12.6), not structured fields, since
+  there are more ways to qualify a species than humanoid or not:
+  - *form* (humanoid, beast, aquatic, amorphous, spirit …), *sapient* (yes, no, partly), *size*, *lifespan*,
+    *habitat*, *diet*, *reproduction*, plus *appearance*, *pronunciation* and *name meaning* (§13.5);
+  - each offers the values used on other species, after a short starting list (§13.5), and takes anything typed;
+  - each can be marked *expected* for Species on the Labels page (§12.6.5), like any label, so the Archivist asks
+    for it on every species only once that is wanted;
+  - a label that holds several values (§12.6.4) works here too (*habitat: reef* and *river*).
+
+  Free text, as all facts: nothing reads them, so lifespan isn't checked against ages. A species attribute becomes a
+  structured field only once something reads it, as gender did (§12.5).
 - **Beside a character's name.** The species a character *is* as of the chapter (from *is a*, found by label as the
   family tree finds parent types) shows as one small word after the name on the card and the entry page, as gender
   does: `Seyla · selkie`. While an *appears as* holds, it is added: `Seyla · selkie · appears as human`. Several show
@@ -1346,7 +1369,8 @@ on Checks, and *End Varren's before Isolde's* clears it.
     village, district, building, room;
   - an event's *type*: era, war, battle, founding, treaty, betrayal, birth, death, festival, wedding, coronation
     (*era*, *birth* and *death* are read by the Timeline, §13.2);
-  - a species' *form*: humanoid, beast, bird, fish, spirit, plant.
+  - a species' *form*: humanoid, beast, aquatic, amorphous, spirit, plant; *sapient*: yes, no, partly; *size*: tiny,
+    small, human-sized, large, huge; *diet*: plants, meat, anything, none.
 - **Existing worlds** get the new types from the same data migration as Species, by the same rule (unless the world
   has one reading the same).
 
@@ -1358,7 +1382,149 @@ on Checks, and *End Varren's before Isolde's* clears it.
 link labelled `about 600 years` and lists her as *ancestor*, with no cousins worked out through it; and a place's
 type field offers *plane* and *reef* in a world that has never used them.
 
-### 13.6 Data model, in one place
+### 13.6 Restructuring
+
+A new beginning that moves characters around leaves chapters already written that may no longer happen, or not in
+that order or that way, but still hold much worth keeping. Quarry already has single-chapter experiments, retiring
+to Salvage with harvest notes, the cuts bin, reading an entry's thread with retired chapters included, drag
+reordering and chapters that are only a summary. This part adds experiments across several chapters, and makes
+sure that retiring a chapter never quietly changes what the bible says.
+
+#### 13.6.1 Experiments across several chapters
+
+- **One experiment, several drafts.** An experiment (*New beginning*) holds any number of draft chapters, meant to
+  replace a chosen **range** of current chapters (chapters 1–5, say). A single-chapter experiment, as today, is the
+  case of one draft replacing one chapter.
+- **Starting.** On the manuscript list, *Start an experiment…* on a chapter, or on a range picked with Shift-click,
+  asks for a title and how to begin: *from scratch* (one empty draft) or *from copies* (a draft copied from each
+  chapter in the range, each with a `start` revision, §11.5). Starting from the editor, as today, is a range of one.
+  The range is a run of current chapters in one project.
+- **Writing alongside the book.** The drafts are written beside the current book without changing it: the current
+  chapters stay current, in the book, the compiled manuscript and every count. The drafts are outside the story
+  order, as experiments are today.
+  - In the experiment, drafts are added (*New draft*, *Copy a chapter in*: any chapter, current or retired, including
+    from Salvage), reordered by dragging, renamed, given summaries, statuses, times and marks, and removed (a removed
+    draft is retired like any chapter, §13.6.2).
+  - A draft is read as if it stood where its range stands: in the editor, *as of*, the cards and the companion treat it
+    as being at the range's place in the book, and on the clock a draft with no time of its own carries on from the
+    chapter before the range.
+  - Hiding the replaced chapters while writing (*from scratch*, today's "the old chapter is hidden") hides the whole
+    range in the editor's chapter switcher; they are still in the book.
+- **On the manuscript list** the range gets a quiet bracket, and the experiment shows under its last chapter as the
+  alternative to it: `↳ New beginning · replaces 1–5 (14.2k words) · 3 drafts (9.4k)`, opening to its drafts in order,
+  each with its summary and status. *Read as if accepted* opens the book read-only with the drafts in place of the
+  range (the reading of §11.4 takes the same switch).
+- **Several experiments** may cover the same chapters. When one is accepted, any other whose range has lost
+  chapters says so (`2 of its chapters were replaced by "New beginning"`) and can be given a new range.
+- **Accepting** (from the experiment): the dependency review (§13.6.2) for the replaced chapters, with *move* set to
+  the drafts where it can be; then the drafts become current chapters in their order, at the place of the range's
+  first chapter still current; the replaced chapters are retired, and one prompt asks for harvest notes, one line per
+  chapter, each skippable, as today. Chapters of the range retired or moved out of it since the experiment started
+  are left where they are, and the accept says so.
+- **Harvesting or rejecting** retires the drafts, after the dependency review for what was recorded in them (facts
+  established while writing a draft, a telling recorded from one), and asks for a harvest note, as today.
+- Closing an experiment closes its item, with the optional decision line, as today.
+
+**Data:**
+
+```sql
+experiment_ranges  (item_id, chapter_id, position)    -- the current chapters an experiment would replace, in order
+chapters           - replaces_id                       -- moved into experiment_ranges by the migration
+                   -- a draft's position is its place among its experiment's drafts
+```
+
+The migration turns each existing experiment's `replaces_id` into a range of one. **Export** writes the experiment
+item's `replaces:` (a list of chapter ids) and each draft's `item:` and `position:`; **Restore** reads them back, and a
+draft in an older export with `replaces: <id>` gives its experiment a range of that one chapter.
+
+*Done when* an experiment *New beginning* for chapters 1–5 starts from copies, gets a sixth draft and a new order,
+shows on the manuscript list as the alternative to 1–5 while the book, its word count and `manuscript.md` are
+unchanged; *Read as if accepted* shows the drafts in place of 1–5; accepting it puts the six drafts at the start of
+the book and the five old chapters in Salvage, after the review and the harvest-note prompt; and an existing
+single-chapter experiment still accepts as before.
+
+#### 13.6.2 A review before anything is retired
+
+Whenever chapters leave the book (retiring one, retiring several at once from the manuscript list, accepting an
+experiment, or retiring its drafts), Quarry first lists everything tied to them, and nothing is changed until it has
+been seen.
+
+- **What is tied** to a chapter, grouped:
+  - facts and relationships *from* or *until* it, or *established in* it, with their evidence passages;
+  - "is at" records in it;
+  - events that happen in it (§13.2.1) and tellings recorded from it (§13.2.3);
+  - items linked to it;
+  - the note for next time left in it.
+
+  With nothing tied, there is no review and the chapter retires as today.
+- **The choices**, per row or for a whole group at once, each row showing only those that apply:
+  - **Keep**: the default for every row. A *from* or *until* bound becomes the chapter's set time (§13.1.3: its own,
+    or the one it carries on; the row says which, `from year 312`); if it has none, that bound goes and the row holds
+    throughout on that side (the row says so: `will hold from the start`). When other chapters of the book share that
+    set time, the bound would take them in too, so the row says so (`chapters 1–13 are all set in year 312`) and
+    starts on *move* instead. An event in the chapter takes its time, or
+    becomes *not placed yet*. Evidence, tellings, item links, "is at" and the note stay pointing at the chapter, which
+    is still there, in Salvage.
+  - **Move to another chapter**: pick one; the bound, evidence or link points at it instead. The pick is set for you
+    where there is a likely one: when accepting an experiment, the draft where the row's passage is found (by its
+    text), else the first draft for a *from* and the last for an *until*; otherwise the chapter after the retired one
+    for a *from* and the one before it for an *until*, so "dead from chapter 9" moves to chapter 10 in one click.
+  - **Mark as planned** (facts and relationships): kept as *keep* would, with the standing set to *planned*: true in
+    your head, not on the page any more.
+  - **Drop**: the fact, relationship, "is at", item link or telling is removed; an event that happened in the chapter
+    is kept, unplaced.
+- **One step back.** The review is applied in one transaction with the retirement, and the toast offers **Undo**
+  (as find and replace does, §11.7): it puts back each row that hasn't changed since, and the chapters. Later, the
+  retired chapter's page in Salvage shows what its review did (`14 kept, 3 moved, 1 dropped`), and **Reinstate**
+  offers to put those rows back as they were.
+- **Offline**, retiring needs the network, as it does today.
+- **This replaces** the rule that a span bounded by a retired chapter simply ignores that bound (DECISIONS,
+  2026-10-22). After the review nothing is bounded by a retired chapter. Spans bounded by an experiment's draft are
+  still ignored while the experiment is open (the draft isn't in the book yet), and are reviewed when it closes.
+- **Existing data.** Nothing is changed by the migration. Bounds that already point at retired chapters keep being
+  read as today (the bound is ignored) until they are reviewed: each such chapter's page in Salvage shows `Still
+  tied: 4 facts, 1 relationship · Review…`, which opens the same review, and the Archivist lists the evidence
+  (§13.6.3).
+
+**Data:**
+
+```sql
+retire_reviews  (id, world_id, chapter_ids uuid[], changes jsonb,      -- each row changed or dropped, as it was
+                 created_by, created_at)                                -- for Undo and Reinstate
+```
+
+`GET /chapters/ties?ids=…` lists what is tied; retiring and closing an experiment take the review's choices. Reviews
+are bookkeeping, like resolutions, and are not exported (an export never has a bound into a retired chapter that
+hasn't been through one, or the old rule reads it as before).
+
+*Done when* retiring chapter 9 lists Seyla's *status: dead from chapter 9*, Varren's *married until chapter 9*, two
+"is at" records and an item linked to it; with chapter 9 the only chapter set in year 312, *keep* turns the first
+into `from year 312` and her page still shows her alive in chapter 8 and dead in chapter 10, while with chapters 1–13
+all set in year 312 the row warns and starts on *move*; *move* on the second preselects chapter 8; *drop* on one "is at"
+removes it; nothing else changes; Undo puts everything back with the chapter; retiring three chapters at once gives
+one review for all three; and a chapter retired before phase 12 shows `Still tied…` in Salvage until reviewed.
+
+#### 13.6.3 Evidence in Salvage
+
+- An **Archivist** finding for evidence that points into a retired chapter: a fact's or a relationship's *established
+  in* and passage, or a telling. `Seyla: "status: dead" rests on a passage in a retired chapter, *The Storm*.`
+- **Resolved** by:
+  - **Re-anchor…**: pick a chapter; current chapters where the passage's text is found are offered first (a copy in a
+    new draft is found this way). The evidence then points there.
+  - **Dismiss**: stored as a resolution (`intentional`), never shown again for that row. The evidence stays as it is,
+    readable in Salvage.
+- Like every finding it is silent while Drafting. It shows in the editor for the entries named in the chapter, on the
+  entry page, and on the retired chapter's page in Salvage. It is the same check for evidence kept by a review and for
+  evidence left from before phase 12.
+
+**Data:** none; the rule `evidence_retired`, keyed by the fact, relationship or telling, uses the existing
+`resolutions` table.
+
+*Done when* a fact whose evidence is in a retired chapter is listed by the Archivist (while Revising) on its entry's
+page; *Re-anchor…* offers the draft where the passage now is and moves the evidence there; and *Dismiss* keeps it out
+for good.
+
+### 13.7 Data model, in one place
 
 ```sql
 worlds          + time_unit, time_units                                   -- §13.1; 'year' / 'years'
@@ -1372,48 +1538,61 @@ entities        + time_at, time_end, time_label, time_approx, time_chapter_id   
 entities.kind   + 'species'                                               -- §13.3
 tellings        (id, world_id, event_id, chapter_id NULL, passage, created_by, created_at)   -- §13.2
 relation_types  + species types, possesses, ancestor of                   -- §13.3, §13.5; every existing world
+experiment_ranges (item_id, chapter_id, position)                         -- §13.6.1; replaces chapters.replaces_id
+retire_reviews  (id, world_id, chapter_ids, changes, created_by, created_at)   -- §13.6.2; for Undo and Reinstate
 ```
 
 Endpoints: `GET /timeline` gains each chapter's time, mark, set time and clock place (§13.1); `GET /chronology`
 (§13.2); `POST /events/record` (§13.2); `PATCH /chapters/<id>` takes the time and mark; facts and relationships take
-time bounds; relationships take `role`; `/labels` gains roles (§13.4). Happened order, set times, history, ages,
-lanes, species beside a name and kin across an ancestor link are worked out when read, never stored.
+time bounds; relationships take `role`; `/labels` gains roles (§13.4); experiments take a range and drafts; `GET
+/chapters/ties` lists what is tied to chapters, and retiring and closing an experiment take the review's choices
+(§13.6). Happened order, set times, history, ages, lanes, species beside a name, kin across an ancestor link and the
+ties of a chapter are worked out when read, never stored.
 
 **Phase 12 is done when** each part's *done when* above holds, and the demo world (The Ninefold Delta) shows it:
 its chapters set in years (the book in year 412, Ash Season a year on), a short tale chapter set forty years before,
 in which a character recorded dead in the present appears without a finding; a few events of history, one of them
 recorded from a passage with its telling, and an era; births for some of the family, so ages show; species (human,
 dog, and one made up for the delta) with an *is a*, an *appears as* and a *native to*; the Warden-Captain as a role
-on the River Wardens marked one at a time, with one clash planted; and an ancestor link in the family.
+on the River Wardens marked one at a time, with one clash planted; an ancestor link in the family; an experiment
+across two chapters of Ash Season; and a retired chapter with a fact still tied to it and an evidence passage in it.
 
-### 13.7 One phase or two
+### 13.8 One phase or three
 
-The parts split cleanly, and building them as two phases is suggested:
+With restructuring, phase 12 is too big for one go. Three phases are suggested, in this order:
 
-- **12a, time and the timeline** (§13.1, §13.2): the clock, chapter times and marks, time bounds, the checks on the
-  clock, event times, the Timeline page, *Record as event*, *Set born/died here*, ages and an entry's own timeline.
-  This is the larger part, it touches the checks and *as of* everywhere, and it fixes a finding that is wrong today.
-- **12b, species, roles and vocabulary** (§13.3–§13.5): one kind, one field with a switch, one small table, a
-  migration of types, and starting values. Small, and useful on its own.
+- **12a, time and restructuring** (§13.1, §13.6): the clock, chapter times and marks, time bounds, the checks on the
+  clock, experiments across several chapters, the review before retiring, and evidence in Salvage. This is what a new
+  beginning needs before it is written: times to anchor facts to, and a review so that retiring the old chapters
+  changes nothing quietly. It also fixes the tale chapters' findings, which are wrong today.
+- **12b, history and the timeline** (§13.2): event times and eras, the Timeline page with History and lanes, *Record
+  as event*, *Set born/died here*, ages and an entry's own timeline. It builds on 12a's clock.
+- **12c, species, roles and vocabulary** (§13.3–§13.5): one kind, one field with a switch, one small table, a
+  migration of types and starting values. Small, and it doesn't need the others.
 
-Each works without the other: before 12a, the role check compares in book order and an ancestor link says
-`generations not recorded`; before 12b, the Timeline simply has no species or roles to show. 12a first is suggested,
-since the tale chapters' findings are wrong today; 12b is the quicker win if a short phase is wanted first.
+What a part needs from a later one waits quietly: before 12b, the review has no events or tellings to list and the
+Archivist no tellings; before 12c, the Timeline has no species or roles to show. 12c can go first if a short phase is
+wanted; 12a then 12b otherwise. If restructuring is not needed soon, §13.6 can move into 12b instead, leaving 12a as
+time alone.
 
-### 13.8 Open questions for phase 12
+### 13.9 Open questions for phase 12
 
-1. **The kind's name.** *Species* (as spec'd), *Race* or *People*? Species is neutral and covers beasts and spirits
-   as well as peoples; Race carries real-world weight and reads oddly for animals; People is close to Culture
-   ("peoples, religions, traditions") and to characters.
-2. **A tale or flashback with no time** is read as set before the story, and the checks skip it (§13.1.3). Is that
+Settled: the kind is called **Species**.
+
+1. **A tale or flashback with no time** is read as set before the story, and the checks skip it (§13.1.3). Is that
    the right default, or should it carry on from the chapter before it until a time is set?
-3. **Eras as events** with the type *era* (§13.2.1), rather than a list of their own on the world page. Events give
+2. **Eras as events** with the type *era* (§13.2.1), rather than a list of their own on the world page. Events give
    them a page, mentions and relationships for free; is there anything an era needs that an event can't hold?
-4. **One at a time per role across the world** (§13.4): a Captain is one at a time in every group. Is that enough, or
+3. **One at a time per role across the world** (§13.4): a Captain is one at a time in every group. Is that enough, or
    does a role need the switch per type (one Captain per ship, many per army)?
-5. **Ages and the age fact.** When a computed age and an *age* fact disagree, should that be a Continuity finding
+4. **Ages and the age fact.** When a computed age and an *age* fact disagree, should that be a Continuity finding
    (Talmaara's "impossible ages", research/06 §9)? As spec'd, both are shown and nothing compares them.
-6. **One phase or two** (§13.7), and which first.
+5. **Keep without a time** (§13.6.2): a bound on a retired chapter with no set time goes, so the row holds throughout
+   on that side. Is that the right *keep*, or should *keep* rather mean the neighbouring chapter (which *move*
+   preselects)?
+6. **An experiment that only adds** chapters, replacing none (a prologue before chapter 1), isn't covered: today that
+   is just writing a new chapter. Is a range of none, placed before or after a chapter, wanted?
+7. **Three phases** (§13.8), and in which order.
 
 ## 14. Out of scope (for now)
 

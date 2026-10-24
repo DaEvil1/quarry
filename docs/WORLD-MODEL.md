@@ -122,7 +122,8 @@ The **chapter is the clock**, and from phase 12 the chapters can be set in **in-
   did before phase 12.
 - Facts and relationships hold *from* and *until* chapters, read in **happened** order, or *from* and *until* an
   in-world time, for history before the book. So someone recorded dead in chapter 9 is alive in a tale set centuries
-  earlier, wherever the tale sits in the book.
+  earlier, wherever the tale sits in the book. A time bound outlives restructuring, where a chapter bound has to be
+  reviewed when its chapter is retired ([SPEC.md](SPEC.md) §13.6).
 - Every entry page has an **"as of chapter …"** selector that shows what is true at that point; once the world uses
   times, it also takes a time.
 - The rule for which order is used: **told order is the reader's** (the manuscript, the mentions strip and its gaps,
@@ -285,7 +286,7 @@ presence          (id, entity_id, place_id, chapter_id, note)                   
 decision_links    (decision_id, entity_id)
 resolutions       (world_id, rule, key, outcome, note)                            -- intentional / later / not connected
 session_notes     (chapter_id, user_id, note, cursor, updated_at)                 -- getting back in
-chapters          + time_at, time_end, time_label, time_approx, told_as             -- phase 12, SPEC.md §13.6
+chapters          + time_at, time_end, time_label, time_approx, told_as             -- phase 12, SPEC.md §13.7
 map_images, map_pins                                                              -- later
 ```
 
@@ -328,8 +329,8 @@ highlighting; the server's result is the one that is stored.
 11. **More views of the bible** (a mentions strip per entry, a family tree with kin worked out, a grid of any
     entries across chapters, world entries and project entries, labels and values) is designed in [SPEC.md](SPEC.md) §12.
 12. **Time, history and kinds of being** (in-world time under the chapters, happened and told order, the Timeline and
-    history, recording an event from a passage, ages, Species, roles in groups, more starting vocabulary) is designed
-    in [SPEC.md](SPEC.md) §13.
+    history, recording an event from a passage, ages, Species, roles in groups, more starting vocabulary, and
+    restructuring across several chapters) is designed in [SPEC.md](SPEC.md) §13.
 
 **Later:** map images with pins, and from the research: a chapter-by-thread grid, scenes below
 chapters, and a corkboard (research/README.md).
