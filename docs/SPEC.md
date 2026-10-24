@@ -1743,9 +1743,7 @@ the end of the story (or as of the chosen point, §13.7.4).
   · rooms), and the standing switches of the graph (planned and rumoured relationships dashed or hidden).
 - **On the phone**, pinch and drag; dragging a place to pin it takes a long-press first, so panning doesn't pin.
 - **Smooth** at a few hundred places: the same budget as the graph's.
-- **Brushing on the Timeline**, a small extra, built only when 12b is in place: *Show on the chart* on a brushed span
-  opens the chart with a scrubber over that span, and moving it steps *as of* through the span, so changing borders
-  and control can be watched. It is not part of the chart's core, and not in its *done when*.
+- **From the Timeline**: brushing a span there drives the chart's *as of* (§13.7.5).
 - **Not a drawn map.** The chart doesn't replace an uploaded map image with pinned places, which stays on the later
   list (WORLD-MODEL.md §6; §14).
 
@@ -1773,6 +1771,33 @@ rounded square; dragging Greywick pins it, and it stays there after the page is 
 added to the Iron Vale; *Reset inside the Iron Vale* unpins it, and Undo pins it again; choosing *as of* chapter 4
 shades the places the Lamp Guild controls then and shows Varren's dot where he is recorded; zooming out folds Old
 Harbour to `Old Harbour · 2 places`; and exporting and restoring the world keeps the pins.
+
+#### 13.7.5 From the Timeline
+
+Part of 12d, built on the Timeline of 12b. Nothing else on the chart depends on it: the chart works the same without
+a span brushed, and using it is up to the writer.
+
+- **Side by side.** On the Timeline, *Chart* opens the chart in a panel beside the lanes (under them on the phone),
+  and the chart page has *Follow the Timeline* when opened from there. Either way, the chart follows the Timeline's
+  brushed span.
+- **A span drives *as of*.** With a span brushed (§13.2.6), the chart shows the state at the span's end, and marks
+  what **changed across the span**: places whose controlling faction, container or borders were different at its
+  start are outlined, and a list under the chart says what changed and when, in happened order:
+  `Greywick · controlled by the Lamp Guild → the River Wardens · year 300` ·
+  `the Salt Marches · no longer borders the Iron Vale · chapter 12`.
+- **Stepping through.** A scrubber over the span stops at each change; moving it moves *as of* to that point, and the
+  chart eases between the states (shading fades, a place that changes container glides to its pin in the new one,
+  §13.7.3), so a border or a hold changing hands can be watched. Arrow keys step from change to change.
+- **Clearing** the span on the Timeline leaves the chart at the latest state, or at its own *as of* if one was set.
+- Changes are read from the same relationships as *as of*: *controls*, the place tree's *inside* types and
+  *borders*, with their *from* and *until* on the clock (§13.1). Nothing is stored.
+
+*Done when*, with the Lamp Guild controlling Greywick until year 300 and the River Wardens from then, and the Salt
+Marches bordering the Iron Vale until chapter 12: brushing years 290–312 on the Timeline (chart panel open) shows the
+chart as of year 312 with Greywick in the Wardens' shade and outlined, and lists both changes with their times;
+moving the scrubber to before year 300 shows Greywick in the Guild's shade and the two lands touching; clearing the
+span returns the chart to the end of the story; and with no span brushed, every part of the chart's own *done when*
+(§13.7.4) holds as before.
 
 ### 13.8 Data model, in one place
 
@@ -1832,8 +1857,8 @@ requests**: 12c's off master, 12a's off 12c's branch, 12b's off 12a's, 12d's off
    on 12a's clock.
 4. **12d, the chart** (§13.7): the shapes, nesting, borders, water, routes and directions, the layout and pins, and
    *as of* on the chart. It needs 12c's place types (the starting values) and nothing from 12a or 12b: *as of* takes
-   chapters until 12a adds times, and the Timeline link is an extra built only because 12b is in place by then. It
-   could be built straight after 12c if wanted; the order above stands.
+   chapters until 12a adds times. Its link from the Timeline (§13.7.5) is part of 12d and needs 12b, which is in place
+   by then. The rest of the chart needs only 12c, and could have followed it directly; the order above stands.
 
 What a part needs from a later one waits quietly: until 12a the role check compares in book order; until 12b an
 ancestor link says `generations not recorded` (no birth times are worked out yet), the review has no events or
