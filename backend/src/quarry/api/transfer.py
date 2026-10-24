@@ -7,15 +7,17 @@ the texts as they are now.
 
     <world>/world.md                                  name, slug, words marked "not a typo", relationship types
                                                       (with has_role), the per-label switches (fact_labels), the
-                                                      one-at-a-time roles (roles)
+                                                      one-at-a-time roles (roles), the unit of time (time_unit,
+                                                      time_units)
     <world>/Bible/<Kind>/<Name>.md                    id, name, kind, aliases, project (its level; null for the
                                                       world), gender (when set); the notes
     <world>/Journal/<date> <title> (<id>).md          id, date, title, project
     <world>/Decisions.md                              one line per decision
     <world>/Planning/<status>/<date> <text> (<id>).md items for the whole world
     <world>/Projects/<Name>/project.md                name, slug, kind, position, statuses (in order), gap_chapters
-    <world>/Projects/<Name>/Manuscript/<NN> <Title>.md id, title, state, position, pov, summary, status
-    <world>/Projects/<Name>/Experiments/<Title> (<id>).md
+    <world>/Projects/<Name>/Manuscript/<NN> <Title>.md id, title, state, position, pov, summary, status, time (at,
+                                                      end, label, approx, or "outside"), told_as
+    <world>/Projects/<Name>/Experiments/<Title> (<id>).md  drafts: item and position among the item's drafts
     <world>/Projects/<Name>/Salvage/<Title> (<id>).md retired chapters, with their harvest notes
     <world>/Projects/<Name>/Cuts/<date> <source title> (<id>).md   the cuts bin: id, chapter, chapter_title, cut_at,
                                                       put_back_at, put_back_to, before, after; the cut text
@@ -49,6 +51,7 @@ from ..models import (
     Decision,
     DecisionLink,
     Entity,
+    ExperimentRange,
     Fact,
     FactLabel,
     HarvestNote,
@@ -115,6 +118,60 @@ def _gap(v) -> int:  # type: ignore[no-untyped-def]
     return n if 1 <= n <= 999 else 5
 
 
+def _bound_meta(x) -> dict:  # type: ignore[no-untyped-def]
+    """A fact's or relationship's time bounds and outside time in its frontmatter (only those set)."""
+    out: dict = {}
+    if x.outside_time:
+        out["outside_time"] = True
+    for side in ("from", "until"):
+        t = getattr(x, f"{side}_time")
+        if t is not None:
+            out[f"{side}_time"] = float(t)
+            if getattr(x, f"{side}_approx"):
+                out[f"{side}_approx"] = True
+    return out
+
+
+def _num(v) -> float | None:  # type: ignore[no-untyped-def]
+    try:
+        return None if v is None or v == "" else float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bounds_in(d: dict) -> dict:
+    """Time bounds and outside time read back from a fact's or relationship's frontmatter."""
+    if d.get("outside_time") is True:
+        return {"outside_time": True}
+    return {"outside_time": False, "from_time": _num(d.get("from_time")), "from_approx": d.get("from_approx") is True,
+            "until_time": _num(d.get("until_time")), "until_approx": d.get("until_approx") is True}
+
+
+def _time_in(meta: dict) -> dict:
+    """A chapter's time and mark read back from its frontmatter."""
+    t = meta.get("time")
+    out: dict = {"told_as": meta.get("told_as") if meta.get("told_as") in ("flashback", "tale") else None}
+    if t == "outside":
+        out["outside_time"] = True
+    elif isinstance(t, dict) and _num(t.get("at")) is not None:
+        out |= {"time_at": _num(t.get("at")), "time_end": _num(t.get("end")),
+                "time_label": (" ".join(str(t.get("label") or "").split()) or None),
+                "time_approx": t.get("approx") is True}
+    return out
+
+
+def _spans_in(d: dict, chapter) -> dict:  # type: ignore[no-untyped-def]
+    """A span read back: each side a chapter (relinked by id) or a time; outside time has none."""
+    b = _bounds_in(d)
+    if b["outside_time"]:
+        return {"outside_time": True, "from_approx": False, "until_approx": False}
+    out = {**b}
+    for side in ("from", "until"):
+        ch = chapter(d.get(side))
+        out[f"{side}_chapter_id"] = ch if out[f"{side}_time"] is None else None
+    return out
+
+
 def _iso(v: datetime | date | None) -> str | None:
     return v.isoformat() if v is not None else None
 
@@ -166,7 +223,8 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                             "has_role": t.has_role} for t in types],
         "fact_labels": [{"kind": r.kind, "label": r.label, "several": r.several, "expected": r.expected,
                          "asked": r.asked} for r in switches],
-        "roles": [{"role": r.role, "one_at_a_time": r.one_at_a_time} for r in roles]}, "")
+        "roles": [{"role": r.role, "one_at_a_time": r.one_at_a_time} for r in roles],
+        "time_unit": world.time_unit, "time_units": world.time_units}, "")
 
     facts: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for f in db.scalars(select(Fact).where(Fact.world_id == world.id).order_by(Fact.entity_id, Fact.position)):
@@ -174,7 +232,8 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                                    "evidence": f.evidence, "note": f.note,
                                    "established_in": str(f.established_in_chapter_id) if f.established_in_chapter_id else None,
                                    "from": str(f.from_chapter_id) if f.from_chapter_id else None,
-                                   "until": str(f.until_chapter_id) if f.until_chapter_id else None})
+                                   "until": str(f.until_chapter_id) if f.until_chapter_id else None,
+                                   **_bound_meta(f)})
     rels: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for r in db.scalars(select(Relationship).where(Relationship.world_id == world.id).order_by(Relationship.created_at)):
         t = type_by_id[r.type_id]
@@ -186,6 +245,7 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                              "until": str(r.until_chapter_id) if r.until_chapter_id else None})
         if r.role:
             rels[r.a_id][-1]["role"] = r.role
+        rels[r.a_id][-1].update(_bound_meta(r))
 
     presence: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for p in db.scalars(select(Presence).where(Presence.world_id == world.id).order_by(Presence.created_at)):
@@ -231,14 +291,24 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                                       .where(Item.world_id == world.id, ItemLink.target_table == "entity")).all():
         if target in names:
             tags[item_id].append(names[target])
+    ranges: dict[uuid.UUID, list[str]] = defaultdict(list)
+    for r in db.scalars(select(ExperimentRange).join(Item, Item.id == ExperimentRange.item_id)
+                        .where(Item.world_id == world.id).order_by(ExperimentRange.position)):
+        ranges[r.item_id].append(str(r.chapter_id))
     for i in db.scalars(select(Item).where(Item.world_id == world.id).order_by(Item.created_at)):
         folder = project_dir[i.project_id] if i.project_id else root
         short = _safe(i.title or i.body.split("\n", 1)[0], 50)
-        files[f"{folder}/Planning/{i.status}/{i.created_at:%Y-%m-%d} {short} ({str(i.id)[:8]}).md"] = _doc(
-            {"id": str(i.id), "kind": i.kind, "status": i.status, "title": i.title,
-             "project": projects[i.project_id].slug if i.project_id else None, "source": i.source,
-             "created_at": _iso(i.created_at), "closed_at": _iso(i.closed_at), "closed_note": i.closed_note,
-             "tags": sorted(tags.get(i.id, []))}, i.body)
+        meta = {"id": str(i.id), "kind": i.kind, "status": i.status, "title": i.title,
+                "project": projects[i.project_id].slug if i.project_id else None, "source": i.source,
+                "created_at": _iso(i.created_at), "closed_at": _iso(i.closed_at), "closed_note": i.closed_note,
+                "tags": sorted(tags.get(i.id, []))}
+        # an experiment: the chapters it would replace, or where it adds (docs/SPEC.md §13.6.1)
+        if i.kind == "experiment":
+            if ranges.get(i.id):
+                meta["replaces"] = ranges[i.id]
+            if i.insert_at_chapter_id and i.insert_side:
+                meta["insert"] = {i.insert_side: str(i.insert_at_chapter_id)}
+        files[f"{folder}/Planning/{i.status}/{i.created_at:%Y-%m-%d} {short} ({str(i.id)[:8]}).md"] = _doc(meta, i.body)
 
     notes: dict[uuid.UUID, list[str]] = defaultdict(list)
     for n in db.scalars(select(HarvestNote).where(HarvestNote.world_id == world.id).order_by(HarvestNote.created_at)):
@@ -258,13 +328,19 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             meta = {"id": str(ch.id), "title": ch.title, "state": ch.state, "position": ch.position,
                     "pov": names.get(ch.pov_entity_id) if ch.pov_entity_id else None,
                     "summary": ch.summary, "status": status_label.get(ch.status_id) if ch.status_id else None}
+            if ch.outside_time:
+                meta["time"] = "outside"
+            elif ch.time_at is not None:
+                meta["time"] = {"at": float(ch.time_at), "end": float(ch.time_end) if ch.time_end is not None else None,
+                                "label": ch.time_label, "approx": ch.time_approx}
+            if ch.told_as:
+                meta["told_as"] = ch.told_as
             if ch.state == "current":
                 n += 1
                 path = f"{d}/Manuscript/{n:02d} {_safe(ch.title, 60)}.md"
                 compiled += [f"## {ch.title}", "", without_margin_notes(ch.body).rstrip(), ""]
             elif ch.state == "experiment":
-                meta |= {"replaces": str(ch.replaces_id) if ch.replaces_id else None,
-                         "item": str(ch.experiment_item_id) if ch.experiment_item_id else None}
+                meta |= {"item": str(ch.experiment_item_id) if ch.experiment_item_id else None}
                 path = f"{d}/Experiments/{_safe(ch.title, 60)} ({str(ch.id)[:8]}).md"
             else:
                 meta |= {"retired_at": _iso(ch.retired_at), "harvest_notes": notes.get(ch.id, [])}
@@ -341,6 +417,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     name = " ".join(str(wmeta.get("name") or "Restored world").split())
     taken = set(db.scalars(select(World.slug)))
     world = World(name=name, slug=_unique(slugify(str(wmeta.get("slug") or name), "world"), taken),
+                  time_unit=" ".join(str(wmeta.get("time_unit") or "year").split())[:40] or "year",
+                  time_units=" ".join(str(wmeta.get("time_units") or "years").split())[:40] or "years",
                   created_by=user.id, updated_by=user.id)
     db.add(world)
     db.flush()
@@ -454,6 +532,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
 
     # items: the world's own Planning/ and each project's
     item_by_old: dict[str, uuid.UUID] = {}
+    # experiments' ranges and places, relinked once the chapters exist
+    item_ranges: list[tuple[Item, dict]] = []
     planning = [(None, rel, meta, body) for rel, meta, body in under(f"{root}/Planning/")]
     for folder, pslug in project_dirs.items():
         planning += [(pslug, rel, meta, body) for rel, meta, body in under(f"{root}/Projects/{folder}/Planning/")]
@@ -471,6 +551,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
         db.flush()
         if meta.get("id"):
             item_by_old[str(meta["id"])] = i.id
+        if kind == "experiment":
+            item_ranges.append((i, meta))
         for tag in meta.get("tags") or []:
             if str(tag) in entity_by_name:
                 db.add(ItemLink(item_id=i.id, target_table="entity", target_id=entity_by_name[str(tag)]))
@@ -489,7 +571,7 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                              experiment_item_id=item_by_old.get(str(meta.get("item"))) if meta.get("item") else None,
                              retired_at=_when(meta.get("retired_at")) if state == "retired" else None,
                              summary=" ".join(str(meta.get("summary") or "").split())[:300],
-                             status_id=status_of(pid, meta.get("status")),
+                             status_id=status_of(pid, meta.get("status")), **_time_in(meta),
                              created_by=user.id, updated_by=user.id)
                 if state == "retired" and ch.retired_at is None:
                     ch.retired_at = datetime.now(UTC)
@@ -507,8 +589,25 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     def chapter(old) -> uuid.UUID | None:  # type: ignore[no-untyped-def]
         return chapter_by_old.get(str(old)) if old else None
 
+    # each experiment's range (or where it adds); a draft from an older export with `replaces: <id>` gives its
+    # experiment a range of that one chapter
+    ranged: set[uuid.UUID] = set()
+    for it, meta in item_ranges:
+        olds = meta.get("replaces")
+        olds = olds if isinstance(olds, list) else ([olds] if olds else [])
+        for n, old in enumerate(x for x in (chapter_by_old.get(str(o)) for o in olds) if x):
+            db.add(ExperimentRange(item_id=it.id, chapter_id=old, position=n))
+            ranged.add(it.id)
+        ins = meta.get("insert")
+        if isinstance(ins, dict):
+            for side in ("before", "after"):
+                if chapter(ins.get(side)):
+                    it.insert_at_chapter_id, it.insert_side = chapter(ins.get(side)), side
     for ch, old in pending_replaces:
-        ch.replaces_id = chapter_by_old.get(old)
+        target = chapter_by_old.get(old)
+        if ch.experiment_item_id and target and ch.experiment_item_id not in ranged:
+            db.add(ExperimentRange(item_id=ch.experiment_item_id, chapter_id=target, position=0))
+            ranged.add(ch.experiment_item_id)
 
     # the cuts bin, each relinked to its source chapter (and the one it was put back into) by id
     for folder, pslug in project_dirs.items():
@@ -529,8 +628,7 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                         standing=f.get("standing") if f.get("standing") in standings else "canon",
                         evidence=f.get("evidence"), note=f.get("note"),
                         established_in_chapter_id=chapter(f.get("established_in")),
-                        from_chapter_id=chapter(f.get("from")), until_chapter_id=chapter(f.get("until")),
-                        created_by=user.id, updated_by=user.id))
+                        **_spans_in(f, chapter), created_by=user.id, updated_by=user.id))
         for r in meta.get("relationships") or []:
             other = entity_by_old.get(str(r.get("to"))) or entity_by_name.get(str(r.get("to_name")))
             kinds = r.get("type_kinds") or ["*", "*"]
@@ -541,8 +639,7 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                                 standing=r.get("standing") if r.get("standing") in standings else "canon",
                                 evidence=r.get("evidence"), note=r.get("note"), role=clean_role(r.get("role")),
                                 established_in_chapter_id=chapter(r.get("established_in")),
-                                from_chapter_id=chapter(r.get("from")), until_chapter_id=chapter(r.get("until")),
-                                created_by=user.id, updated_by=user.id))
+                                **_spans_in(r, chapter), created_by=user.id, updated_by=user.id))
 
     for e, meta in world_model:
         for p in meta.get("is_at") or []:

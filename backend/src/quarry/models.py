@@ -18,6 +18,7 @@ from sqlalchemy import (
     Boolean,
     Integer,
     LargeBinary,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -48,6 +49,14 @@ REVISION_DOCS = ("chapter",)
 MENTION_KINDS = ("exact", "alias", "near_miss")
 # a character's gender, read by the family tree for its words; NULL is "not set"
 GENDERS = ("female", "male", "nonbinary")
+# how a chapter is told, when not in the present of the story (docs/SPEC.md §13.1.2)
+TOLD_AS = ("flashback", "tale")
+INSERT_SIDES = ("before", "after")
+
+
+def _time() -> Mapped[float | None]:
+    """An in-world time: one sortable number (decimals and below zero allowed), never a calendar (SPEC §13.1.1)."""
+    return mapped_column(Numeric(asdecimal=False))
 
 
 class Base(DeclarativeBase):
@@ -85,6 +94,9 @@ class World(Base):
     id: Mapped[uuid.UUID] = _id()
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     slug: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    # what in-world time is counted in, one and several ("year" / "years", "day" / "days")
+    time_unit: Mapped[str] = mapped_column(String(40), nullable=False, default="year", server_default="year")
+    time_units: Mapped[str] = mapped_column(String(40), nullable=False, default="years", server_default="years")
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
@@ -186,6 +198,7 @@ class Item(Base):
     __table_args__ = (
         CheckConstraint(_in("kind", ITEM_KINDS), name="ck_items_kind"),
         CheckConstraint(_in("status", ITEM_STATUSES), name="ck_items_status"),
+        CheckConstraint(_in("insert_side", INSERT_SIDES), name="ck_items_insert_side"),
     )
 
     # chosen by the client when it captures, so a capture replayed from an offline phone is not saved twice
@@ -198,6 +211,10 @@ class Item(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
     closed_note: Mapped[str | None] = mapped_column(Text)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # an experiment that only adds chapters (docs/SPEC.md §13.6.1): its drafts go in before or after this chapter
+    insert_at_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL",
+                                                                             use_alter=True))
+    insert_side: Mapped[str | None] = mapped_column(String(10))
     # where it came from: "phone", "desk", "share"
     source: Mapped[str | None] = mapped_column(String(40))
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -330,12 +347,17 @@ class NameIgnore(Base):
 class Chapter(Base):
     """A unit of manuscript prose in a project.
 
-    current: in the book, ordered by position. experiment: an alternate draft, tied to the experiment item that
-    tracks it and to the chapter it would replace (if any). retired: salvage, kept with its harvest notes.
+    current: in the book, ordered by position. experiment: a draft, tied to the experiment item that tracks it (its
+    position is its place among the experiment's drafts; the chapters it would replace are the item's range).
+    retired: salvage, kept with its harvest notes.
     """
 
     __tablename__ = "chapters"
-    __table_args__ = (CheckConstraint(_in("state", CHAPTER_STATES), name="ck_chapters_state"),)
+    __table_args__ = (
+        CheckConstraint(_in("state", CHAPTER_STATES), name="ck_chapters_state"),
+        CheckConstraint(_in("told_as", TOLD_AS), name="ck_chapters_told_as"),
+        CheckConstraint("NOT outside_time OR time_at IS NULL", name="ck_chapters_outside_time"),
+    )
 
     id: Mapped[uuid.UUID] = _id()
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False,
@@ -346,8 +368,15 @@ class Chapter(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pov_entity_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("entities.id", ondelete="SET NULL"))
     experiment_item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"))
-    replaces_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # when it is set (docs/SPEC.md §13.1): a time (number, optional end, free label, "about"), outside time, or neither
+    time_at: Mapped[float | None] = _time()
+    time_end: Mapped[float | None] = _time()
+    time_label: Mapped[str | None] = mapped_column(String(200))
+    time_approx: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    outside_time: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # told as a flashback or a tale, or NULL for the present of the story
+    told_as: Mapped[str | None] = mapped_column(String(20))
     # one optional line about the chapter, and where it stands (the project's statuses)
     summary: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
     status_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapter_statuses.id", ondelete="SET NULL"))
@@ -439,7 +468,11 @@ class Fact(Base):
     passage that established it."""
 
     __tablename__ = "facts"
-    __table_args__ = (CheckConstraint(_in("standing", STANDINGS), name="ck_facts_standing"),)
+    __table_args__ = (
+        CheckConstraint(_in("standing", STANDINGS), name="ck_facts_standing"),
+        CheckConstraint("from_chapter_id IS NULL OR from_time IS NULL", name="ck_facts_from"),
+        CheckConstraint("until_chapter_id IS NULL OR until_time IS NULL", name="ck_facts_until"),
+    )
 
     id: Mapped[uuid.UUID] = _id()
     world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -450,6 +483,12 @@ class Fact(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     from_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
     until_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
+    # a bound can be an in-world time instead of a chapter (one or the other); outside time has no bounds at all
+    from_time: Mapped[float | None] = _time()
+    from_approx: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    until_time: Mapped[float | None] = _time()
+    until_approx: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    outside_time: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     standing: Mapped[str] = mapped_column(String(20), nullable=False, default="canon")
     established_in_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id",
                                                                                   ondelete="SET NULL"))
@@ -502,7 +541,11 @@ class Relationship(Base):
     """Two entries joined by a type: A <label> B, read back from B as B <reverse> A."""
 
     __tablename__ = "relationships"
-    __table_args__ = (CheckConstraint(_in("standing", STANDINGS), name="ck_relationships_standing"),)
+    __table_args__ = (
+        CheckConstraint(_in("standing", STANDINGS), name="ck_relationships_standing"),
+        CheckConstraint("from_chapter_id IS NULL OR from_time IS NULL", name="ck_relationships_from"),
+        CheckConstraint("until_chapter_id IS NULL OR until_time IS NULL", name="ck_relationships_until"),
+    )
 
     id: Mapped[uuid.UUID] = _id()
     world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -511,6 +554,12 @@ class Relationship(Base):
     b_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True)
     from_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
     until_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"))
+    # a bound can be an in-world time instead of a chapter (one or the other); outside time has no bounds at all
+    from_time: Mapped[float | None] = _time()
+    from_approx: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    until_time: Mapped[float | None] = _time()
+    until_approx: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    outside_time: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     standing: Mapped[str] = mapped_column(String(20), nullable=False, default="canon")
     established_in_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id",
                                                                                   ondelete="SET NULL"))
@@ -600,3 +649,29 @@ class SessionNote(Base):
     note: Mapped[str] = mapped_column(Text, nullable=False, default="")
     cursor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[datetime] = _updated()
+
+
+class ExperimentRange(Base):
+    """The current chapters an experiment would replace, in order (docs/SPEC.md §13.6.1). None for one that only
+    adds; one for a single-chapter experiment."""
+
+    __tablename__ = "experiment_ranges"
+
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
+    chapter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chapters.id", ondelete="CASCADE"), primary_key=True,
+                                                  index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class RetireReview(Base):
+    """What a review before retiring changed (docs/SPEC.md §13.6.2): each row kept, moved, marked planned or dropped,
+    as it was before, for Undo and Reinstate. Bookkeeping, like resolutions: not exported."""
+
+    __tablename__ = "retire_reviews"
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    chapter_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
+    changes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()

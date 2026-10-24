@@ -23,6 +23,7 @@ from .api import (
     journal,
     labels,
     manuscript,
+    restructure,
     revising,
     storytime,
     transfer,
@@ -150,6 +151,8 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.include_router(decisions.router)
     app.include_router(bible.router)
     app.include_router(journal.router)
+    # before the manuscript's /chapters/{id}: /chapters/ties and /chapters/retire
+    app.include_router(restructure.router)
     app.include_router(manuscript.router)
     app.include_router(demo.router)
     app.include_router(transfer.router)

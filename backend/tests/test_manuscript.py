@@ -122,7 +122,7 @@ def test_experiment_accepted_takes_the_old_place(world: Client):
     two = chapter(world, "Two", "the old second chapter")
     chapter(world, "Three", "third")
     exp = world.post(f"{W}/chapters/{two['id']}/experiments", json={"start": "scratch"}).json()
-    assert (exp["state"], exp["body"], exp["replaces_title"], exp["experiment_status"]) == (
+    assert (exp["state"], exp["body"], exp["experiment"]["range"][0]["title"], exp["experiment_status"]) == (
         "experiment", "", "Two", "open")
     # it shows up in the manuscript and as an experiment item in the inbox
     m = world.get(f"{P}/chapters").json()
