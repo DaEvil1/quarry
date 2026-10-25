@@ -98,6 +98,15 @@ def test_demo_world(signed_in: Client):
     assert not any(c["rule"] == "dead_mentioned" and (c["chapter"] or {}).get("title") == "What the Drowned Say"
                    for c in signed_in.get(f"{W}/checks", params={"planned": 1}).json())
     assert "Agathe Vey" in [m["entity_name"] for m in signed_in.get(f"{W}/chapters/{drowned['id']}").json()["mentions"]]
+    # a long title, last in Ash Season and set in 414; Ilse with many relationships; births for most of the family
+    assert [c["title"] for c in two_book][-1] == "The Morning the Ash Stopped Falling and the Wardens Opened the Lower Gates"
+    tl = {c["title"]: c for c in signed_in.get(f"{W}/timeline").json()}
+    assert tl[two_book[-1]["title"]]["set_time"] == 414
+    ilse = signed_in.get(f"{W}/entities/{entities['Ilse Marrow']['id']}").json()
+    assert len(ilse["relationships"]) == 11 and len({r["reads"] for r in ilse["relationships"]}) == 11
+    cards = signed_in.get(f"{W}/cards").json()
+    born = {c["name"] for c in cards if any(f["label"] == "born" for f in c["facts"])}
+    assert born == {"Tamsin Vey", "Oskar Vey", "Agathe Vey", "Linnet Dray", "Corin Dray", "Ilse Marrow", "Pell"}
     # the chart: two places pinned inside the delta, the rest laid out (docs/SPEC.md §13.7.3)
     pins = signed_in.get(f"{W}/chart").json()["pins"]
     pinned = {entities[n]["id"] for n in ("Greywater", "Marrow Locks")}

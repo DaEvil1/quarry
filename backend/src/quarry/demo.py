@@ -42,6 +42,12 @@ world opens under the Writing focus; switch it to Planning on the front page to 
 
 For names shared by two entries (docs/SPEC.md §14.10) it has two Linnets, Linnet Dray and Linnet Sorrel the
 lock-keeper, and "The Cartographer" calls one of them just "Linnet" before, between and after choice lines.
+
+And a few things that test the screens' limits: an event and a place with long names, a chapter with a long title
+(the last of Ash Season, in 414), five events within two years before the raising of the locks (a cluster on the
+Timeline), a long era before the locks (the Open Water) with the Lock Works nested at its end, Ilse Marrow with eleven
+relationships of different kinds, places nested six deep (the delta, the Reedmarch, Weirholm, the Old Wharf, the
+Toll-House and a room in it), and births for seven of the characters.
 """
 
 from __future__ import annotations
@@ -76,7 +82,8 @@ BIBLE: list[dict] = [
         "facts": [
             {"label": "pronunciation", "value": "TAM-zin VAY"},
             {"label": "born", "value": "", "from_time": 395},
-            {"label": "age", "value": "17"},
+            # her age in the first book (Ash Season goes on to 414, when her birth makes her 19)
+            {"label": "age", "value": "17", "until": "b1-c4"},
             {"label": "eye colour", "value": "green", "evidence": "her green eyes narrowed against the glare",
              "established_in": "b1-c1"},
             {"label": "occupation", "value": "ferry hand", "until": "b1-c2"},
@@ -151,6 +158,7 @@ BIBLE: list[dict] = [
     {
         "id": "linnet", "name": "Linnet Dray", "kind": "character", "gender": "female",
         "summary": "Oskar's sister, a net-maker in Greywater.",
+        "facts": [{"label": "born", "value": "", "from_time": 358}],
         "relationships": [
             {"type": "parent of", "type_kinds": ["character", "character"], "to": "corin"},
             {"type": "lives in", "type_kinds": ["character", "place"], "to": "greywater"},
@@ -167,6 +175,7 @@ BIBLE: list[dict] = [
         # gender not set: the family tree gives the general words for Corin (grandchild, sibling's child)
         "id": "corin", "name": "Corin Dray", "kind": "character", "project": "ash-season",
         "summary": "Linnet's child, Tamsin's cousin; came down from Greywater with the ash.",
+        "facts": [{"label": "born", "value": "", "from_time": 396}],
         "body": _p("Only in Ash Season so far, so in that book's own bible."),
     },
     {
@@ -174,13 +183,24 @@ BIBLE: list[dict] = [
         "summary": "Warden-Captain of the River Wardens; keeps the locks and the tolls.",
         "facts": [
             {"label": "role", "value": "Warden-Captain"},
+            {"label": "born", "value": "", "from_time": 371},
             # planted: two values at once (two drafts disagreed), for the Checks
             {"label": "eye colour", "value": "grey"},
             {"label": "eye colour", "value": "blue", "note": "the first draft said blue"},
         ],
+        # many relationships, of many kinds, for her page and the graph
         "relationships": [
             {"type": "leads", "type_kinds": ["character", "faction"], "to": "wardens", "role": "Warden-Captain"},
             {"type": "rival of", "type_kinds": ["character", "character"], "to": "oskar"},
+            {"type": "born in", "type_kinds": ["character", "place"], "to": "weirholm"},
+            {"type": "works at", "type_kinds": ["character", "place"], "to": "marrow-locks"},
+            {"type": "visits", "type_kinds": ["character", "place"], "to": "carrow-ferry", "from": "b1-c1"},
+            {"type": "has met", "type_kinds": ["character", "character"], "to": "tamsin", "from": "b1-c1"},
+            {"type": "mentor of", "type_kinds": ["character", "character"], "to": "harl"},
+            {"type": "guards", "type_kinds": ["character", "object"], "to": "seal"},
+            {"type": "knows about", "type_kinds": ["character", "*"], "to": "hesper", "from": "b1-c4"},
+            {"type": "witnessed", "type_kinds": ["character", "event"], "to": "raising", "note": "at nine years old"},
+            {"type": "is a", "type_kinds": ["character", "species"], "to": "human"},
         ],
         "is_at": [{"chapter": "b1-c4", "place": "marrow-locks"}],
         "body": _p("Not a villain: the locks are the only thing keeping the lower delta from flooding every spring, "
@@ -323,6 +343,43 @@ BIBLE: list[dict] = [
                            "note": "the dyke road"}],
         "body": _p(""),
     },
+    # nesting all the way down: the delta (a land), a region, a town, a district, a building, a room
+    {
+        "id": "reedmarch", "name": "The Reedmarch", "kind": "place",
+        "summary": "The eastern marshes between the fourth and fifth channels, where the weirs are.",
+        "facts": [{"label": "type", "value": "region"}],
+        "relationships": [{"type": "inside", "type_kinds": ["place", "place"], "to": "delta"},
+                          {"type": "east of", "type_kinds": ["place", "place"], "to": "carrow-ferry"}],
+        "body": _p(""),
+    },
+    {
+        "id": "weirholm", "name": "Weirholm", "kind": "place",
+        "summary": "A weir town on the fourth channel, where the Wardens counted their tolls before the locks.",
+        "facts": [{"label": "type", "value": "town"}, {"label": "population", "value": "about six hundred"}],
+        "relationships": [{"type": "inside", "type_kinds": ["place", "place"], "to": "reedmarch"}],
+        "body": _p(""),
+    },
+    {
+        "id": "old-wharf", "name": "The Old Wharf", "kind": "place",
+        "summary": "Weirholm's oldest quarter: tarred pilings, rope sheds and the toll-house.",
+        "facts": [{"label": "type", "value": "district"}],
+        "relationships": [{"type": "inside", "type_kinds": ["place", "place"], "to": "weirholm"}],
+        "body": _p(""),
+    },
+    {
+        "id": "toll-house", "name": "The Toll-House", "kind": "place",
+        "summary": "Where every boat on the fourth channel stopped to pay, before the locks made it pointless.",
+        "facts": [{"label": "type", "value": "building"}],
+        "relationships": [{"type": "inside", "type_kinds": ["place", "place"], "to": "old-wharf"}],
+        "body": _p(""),
+    },
+    {
+        "id": "counting-room", "name": "The Counting Room Where the Lantern Tolls Were Weighed", "kind": "place",
+        "summary": "An upper room of the toll-house, still smelling of lamp oil.",
+        "facts": [{"label": "type", "value": "room"}],
+        "relationships": [{"type": "inside", "type_kinds": ["place", "place"], "to": "toll-house"}],
+        "body": _p(""),
+    },
     # factions, culture, event, objects, terms
     {
         "id": "wardens", "name": "The River Wardens", "kind": "faction", "aliases": ["the Wardens"],
@@ -410,6 +467,19 @@ BIBLE: list[dict] = [
         "facts": [{"label": "type", "value": "era"}],
         "body": _p(""),
     },
+    # before the locks: a long era, with the years of building them nested at its end
+    {
+        "id": "open-water", "name": "The Open Water", "kind": "event", "when": {"at": 320, "end": 379},
+        "colour": "sky", "summary": "Before the locks, when the nine channels went where they liked.",
+        "facts": [{"label": "type", "value": "era"}],
+        "body": _p(""),
+    },
+    {
+        "id": "lock-works", "name": "The Lock Works", "kind": "event", "when": {"at": 376, "end": 379},
+        "colour": "amber", "summary": "Four years of piling, digging and drowning, to build Marrow Locks.",
+        "facts": [{"label": "type", "value": "era"}],
+        "body": _p(""),
+    },
     {
         "id": "raising", "name": "The Raising of the Locks", "kind": "event", "when": {"at": 380, "approx": True},
         "summary": "The River Wardens close the lower delta with the great locks.",
@@ -422,6 +492,48 @@ BIBLE: list[dict] = [
         ],
         "tellings": [{"chapter": "b1-c3", "passage": "Brother Cade said the River Wardens raised Marrow Locks the year "
                       "his own teacher was born, and that the Ninefold Delta has never forgiven them."}],
+        "body": _p(""),
+    },
+    # the years before the raising, close together on the Timeline (a cluster when zoomed out)
+    {
+        "id": "survey", "name": "The Survey of the Nine Channels", "kind": "event", "when": {"at": 378},
+        "summary": "The Wardens sound every channel, to learn where a lock would hold.",
+        "facts": [{"label": "type", "value": "survey"}],
+        "relationships": [{"type": "involved", "type_kinds": ["event", "*"], "to": "wardens"}],
+        "body": _p(""),
+    },
+    {
+        "id": "petition", "name": "The Ferrymen's Petition", "kind": "event", "when": {"at": 378},
+        "summary": "The ferry folk ask the Wardens to leave one channel open. They are thanked, and refused.",
+        "facts": [{"label": "type", "value": "petition"}, {"label": "outcome", "value": "refused"}],
+        "relationships": [{"type": "involved", "type_kinds": ["event", "*"], "to": "agathe"},
+                          {"type": "happened at", "type_kinds": ["event", "place"], "to": "toll-house"},
+                          {"type": "followed from", "type_kinds": ["event", "event"], "to": "survey"}],
+        "body": _p(""),
+    },
+    {
+        "id": "gates-shut", "name": "The Night the Lower Gates Were Shut Against the Spring Tide", "kind": "event",
+        "when": {"at": 379}, "summary": "The first trial of the half-built locks, a month too early.",
+        "facts": [{"label": "type", "value": "flood"}],
+        "relationships": [{"type": "involved", "type_kinds": ["event", "*"], "to": "wardens"},
+                          {"type": "happened at", "type_kinds": ["event", "place"], "to": "marrow-locks"},
+                          {"type": "caused", "type_kinds": ["event", "*"], "to": "diggers"}],
+        "body": _p(""),
+    },
+    {
+        "id": "diggers", "name": "The Drowning of the Lock Diggers", "kind": "event", "when": {"at": 379},
+        "summary": "Forty diggers caught below the gates when the tide came over.",
+        "facts": [{"label": "type", "value": "disaster"}],
+        "relationships": [{"type": "happened at", "type_kinds": ["event", "place"], "to": "marrow-locks"}],
+        "body": _p(""),
+    },
+    {
+        "id": "riots", "name": "The Toll-House Riots", "kind": "event", "when": {"at": 379, "end": 380},
+        "summary": "A winter of stones through the toll-house windows, and the Wardens' boats burned at their moorings.",
+        "facts": [{"label": "type", "value": "riot"}],
+        "relationships": [{"type": "involved", "type_kinds": ["event", "*"], "to": "wardens"},
+                          {"type": "happened at", "type_kinds": ["event", "place"], "to": "toll-house"},
+                          {"type": "followed from", "type_kinds": ["event", "event"], "to": "diggers"}],
         "body": _p(""),
     },
     {
@@ -644,6 +756,21 @@ CHAPTERS: list[dict] = [
             "Under the water there is no year. The drowned keep their lanterns lit and their names short.",
             "Agathe Vey says the river was never theirs to lock. The others agree, the way water agrees: by "
             "closing over the question.",
+        ),
+    },
+    # a long title, for lists and headings; set the year the ash stopped
+    {
+        "id": "b2-c5", "time": {"at": 414}, "summary": "The ash stops, and the Wardens let three summers of grey water out.",
+        "status": "sketch", "project": BOOK_TWO,
+        "title": "The Morning the Ash Stopped Falling and the Wardens Opened the Lower Gates", "position": 4,
+        "pov": "Tamsin Vey",
+        "body": _p(
+            "The ash stopped falling in the spring. Tamsin noticed it the way you notice a bell has stopped: by the "
+            "quiet, a long while after.",
+            "Linnet Sorrel sent word from Marrow Locks that the lower gates would open at the first high tide, and "
+            "that anyone with a boat should be off the water by noon.",
+            "Tamsin took the ferry out anyway, with Pell in the bow and Moss under the bench, and they watched the "
+            "grey water of three summers go out past the Salt Flats to the sea.",
         ),
     },
     # an experiment that only adds (docs/SPEC.md §13.6): a new prologue before "The Crossing", replacing nothing

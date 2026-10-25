@@ -117,6 +117,12 @@ def test_demo_world_is_charted(signed_in: Client):
     labels = {(r["label"], r["other"]["name"]) for r in cards["Greywater"]["relations"]}
     assert ("road to", "Carrow Ferry") in labels and ("north of", "Carrow Ferry") in labels
     assert ("borders", "The Outer Sound") in {(r["label"], r["other"]["name"]) for r in cards["The Ninefold Delta"]["relations"]}
+    # places nested six deep, each inside the one before, one of each type the chart's "down to" reads
+    chain = ["The Ninefold Delta", "The Reedmarch", "Weirholm", "The Old Wharf", "The Toll-House",
+             "The Counting Room Where the Lantern Tolls Were Weighed"]
+    assert [types[n] for n in chain] == ["land", "region", "town", "district", "building", "room"]
+    for outer, inner in zip(chain, chain[1:]):
+        assert ("inside", outer) in {(r["label"], r["other"]["name"]) for r in cards[inner]["relations"]}
     # two places pinned inside the delta, the rest laid out automatically
     pins = signed_in.get(f"{D}/chart").json()["pins"]
     assert sorted((p["place_id"], p["container_id"]) for p in pins) == sorted(
