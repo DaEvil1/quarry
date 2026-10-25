@@ -238,7 +238,7 @@ test("16.5 done when: the filter lists only decisions with open follow-ups, surv
   await page.getByTestId("filter-open").click();
   await expect(page).toHaveURL(/followups=open/);
   await page.reload();
-  const listed = page.getByTestId("decision-list").locator("li");
+  const listed = page.getByTestId("decision-list").locator(":scope > li");
   await expect(page.getByTestId("open-summary")).toContainText("open follow-up");
   for (const text of await listed.allTextContents()) expect(text).toMatch(/to do/);
   // To follow through on the front page, with "chapter 9 is written" beside the planned death
