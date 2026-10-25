@@ -24,7 +24,7 @@ Single-user today; the data model leaves room for co-writers later (§7).
 | **Entity** | A bible page in a world: character, species, place, faction, culture, event, object, term or other. Has a name, aliases and a body. Lives at world level (shared by every project) or in one project's part of the bible (§12.4); either way it is matched in every project. |
 | **Item** | Anything that needs attention: `spark`, `question`, `task` or `experiment`. Status is `open`, `accepted`, `rejected`, `harvested` or `deferred`. Belongs to a world and optionally to one project (an idea about the world in general has no project). Can link to entities and chapters. |
 | **Journal entry** | Dated thinking-on-paper (the "What now?" kind of writing). World-level or project-level. Editable, but conceptually append-only. From phase 13 written in the editor, with the world tools; facts and relationships can say they were planned in one (§14). |
-| **Decision** | A dated one-line verdict ("chapter 3 is now told by the sister"), optionally tied to the item it closes. World-level or project-level. |
+| **Decision** | A dated one-line verdict ("chapter 3 is now told by the sister"), optionally tied to the item it closes. World-level or project-level. From phase 14 it can have follow-ups (planned facts and relationships, and tasks) that carry it out, and its state is worked out from them (§16). |
 | **Harvest note** | A short note on what was alive in a retired chapter or rejected experiment. Shown in the Salvage view. |
 | **Cut** | A passage cut from a chapter into the project's cuts bin, labelled with the chapter it came from. Shown in Salvage; can be put back (§11). |
 | **Chapter status** | A pill per chapter (raw, rewritten, polished to start), renameable per project (§11). |
@@ -164,6 +164,8 @@ Bible pages show:
   From phase 13, facts and relationships also carry where they were planned (`planned_in:`, `planned_evidence:`),
   events their notes from the Journal, items the chapter or journal entry and passage they came from, entries their
   added kinds (`also:`), and `world.md` the premise (§14).
+  From phase 14, facts, relationships and items also carry the decisions they follow (`follows:`), and `Decisions.md`
+  lists each decision's follow-ups under it, with the dropped ones' words (§16).
 - **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. Revision history stays in the database and is not part of an export.
 - **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
@@ -211,6 +213,11 @@ quarry/                      # public GitHub repo (code only)
     checks, cause arrows on the Timeline, entries of more than one kind, and a focus per world (writing or
     planning), and names shared by two entries, settled by a line in the text. Designed in §14, with a *done when* per
     part; built after phase 12 is merged, as build phases 13a, 13b and 13c (§14.12).
+14. **Decisions with follow-ups**: a decision can have follow-ups (planned facts and relationships made or attached
+    from it, and tasks linked to chapters), an optional `+ follow-up` step after closing an item with a decision line,
+    a state worked out from them (settled, *n of m to do*, done), a line in a written chapter's Loose ends when a
+    planned change from a decision is tied to it but not yet canon, a Decisions filter and a front page list. Designed
+    in §16, with a *done when* per part.
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -1766,7 +1773,7 @@ the end of the story (or as of the chosen point, §13.7.4).
 - **Smooth** at a few hundred places: the same budget as the graph's.
 - **From the Timeline**: brushing a span there drives the chart's *as of* (§13.7.5).
 - **Not a drawn map.** The chart doesn't replace an uploaded map image with pinned places, which stays on the later
-  list (WORLD-MODEL.md §6; §16).
+  list (WORLD-MODEL.md §6; §17).
 
 **Data:**
 
@@ -2684,7 +2691,449 @@ walkthrough until the next one or *Delete it* (§15.2); watching has speed contr
 made by hand into a short-lived download, not kept in the repository (§15.5); and every walkthrough below is written
 and built at once.
 
-## 16. Out of scope (for now)
+## 16. Decisions with follow-ups (phase 14)
+
+A decision is a dated one-line verdict (§2): `Varren dies at the end of chapter 9`. Today nothing follows from it. It
+sits in the log, and whether chapter 9 ever got written that way is something only memory knows (Thomas: "with a
+decision like that, how do I know it was carried out?"). Phase 14 lets a decision have **follow-ups**: the planned
+changes and tasks that carry it out. Its state (*settled*, *1 of 2 to do*, *done*) is **worked out** from them, never
+ticked by hand, and a chapter that is written but still lacks a planned change from a decision says so in its **Loose
+ends**.
+
+It builds on what phase 13 made: facts and relationships with a standing, *planned* until they are in the book and
+*Make it canon here* when the text shows them (§14.1.2); tasks linked to chapters and listed in their Loose ends
+(§14.3); the planning reading (§14.2); the front page (§14.4); and *Include planned* on Checks (§14.6).
+
+The principles hold. Nothing here writes, suggests or reads story content: whether chapter 9 *shows* Varren's death is
+for the writer to say, by making the planned change canon there. Follow-ups are optional and the step that offers
+them is skipped with Enter. The state is worked out from links Quarry keeps, and no list asks for attention: there are
+no reminders, no badges and nothing while typing. The compiled manuscript stays pure prose.
+
+Examples use made-up names. On 12 October 2026 the writer closes the question *When does Varren die?* in Triage with
+the decision `Varren dies at the end of chapter 9`, tagged with Varren and Isolde, in the project *The Salt Road*,
+whose ninth chapter is *The Drowned Bell*.
+
+### 16.1 Follow-ups
+
+A decision can have **any number of follow-ups, none to start with**. A follow-up is one of three things, each a row
+Quarry already has:
+
+- **A planned fact** (*status: dead* on Varren, from chapter 9).
+- **A planned relationship** (*Isolde knows about Varren*, from chapter 11).
+- **A task** item (*Plant the bell's crack in chapter 4*), linked to the chapters and entries it is about, so it shows
+  in those chapters' Loose ends (§14.3.1) like any task linked to a chapter.
+
+The follow-up is only the link from the decision to that row. The fact, relationship or task is an ordinary one:
+edited, made canon, closed or deleted wherever it is, and read by everything that reads its kind.
+
+**Making one from the decision.** One gesture makes the row and links it (where the gesture is offered: §16.3). The
+small form is filled from the decision, and everything it takes from the decision is shown as a chip to keep or
+remove, so nothing is guessed silently:
+
+- **Planned fact**: the form of *Record a fact* (§14.1.2) in one row.
+  1. **The entry**: a chip for each entry the decision is tagged with, then each it names (its stored mentions), the
+     first tagged one chosen; *Other…*.
+  2. **Label and value**, empty, with the suggestions of §12.6. Nothing is read from the decision's words.
+  3. **When it holds**: the span picker of §13.1.5, starting empty. When the decision names a chapter (below), the
+     picker offers it: `Named in the decision: chapter 9, The Drowned Bell · From · Until`. One click (or Tab and
+     Enter) uses it; otherwise it isn't used.
+  4. **Standing**: *planned*, as for anything recorded outside a chapter (§14.1.2). The one-click switch to *canon* is
+     there, but a follow-up made canon at once is done at once.
+  5. **Save** (Enter). The toast says `Planned "status: dead" on Varren · follows the decision · Undo`.
+- **Planned relationship**: the relationship form in one row. *A* and *B* start on the first two tagged entries (each a
+  chip with the others and *Other…*), the types are those for their kinds, a role where the type has one, the span
+  with the same chapter offer, and *planned*.
+- **Task**: a line of your own (required, since a task needs words; it starts empty), then chips:
+  - the decision's tagged entries, **ticked** (they are the writer's own tags);
+  - a chapter the decision names, **offered unticked**: `chapter 9, The Drowned Bell · named in the decision`;
+  - *Chapter…* to pick any other.
+
+  The project is the decision's. It saves an **open task** linked to the ticked entries and chapters (`item_links`, no
+  passage), and the toast says `Task added · follows the decision · Undo`.
+
+**A chapter the decision names.** Read from the decision's text, only to offer it:
+
+- `chapter 9`, `ch 9`, `ch. 9` or `chapter nine` (one to twenty in words) is the ninth current chapter by position in
+  the decision's project. For a decision with no project, in a world with several projects, it is offered once per
+  project that has that many chapters, each with its project's name.
+- A current chapter's **full title**, matched as a whole phrase, any capitals (`The Drowned Bell`). Titles of one word
+  shorter than five letters are not matched.
+- At most three chapters are offered, in the order they appear in the decision.
+
+A wrong offer costs a glance; it is never applied without a click.
+
+**Attaching what already exists.** *Attach…* in the same row opens a picker (type to filter) of:
+
+- planned facts and relationships, those on the decision's tagged entries first, each shown as on the entry page
+  (`Varren · status: dead · from chapter 9 · planned`);
+- open and deferred tasks, newest first.
+
+Canon rows and closed tasks aren't offered: they would be done before they were attached. A row can follow more than
+one decision; it is attached to a decision once. From the other side, a planned fact or relationship on an entry page
+and a task on its item page have *Follows a decision…* under *More…*, which picks from the decisions tagged with the
+entry (or the task's entries) first, then all of them, newest first.
+
+**Where a follow-up shows its decision.** On the entry page, beside a fact or relationship that follows one:
+`follows the decision of 12 Oct 2026` (the decision's text on hover), linking to its line on the Decisions page. On a
+task's item page, in Triage, on the Board and in the inbox: `Follows: "Varren dies at the end of chapter 9" · 12 Oct
+2026`.
+
+**Letting one go.**
+
+- **Drop** (on a follow-up that is still to do): the change or task won't happen. The follow-up stays on the decision
+  as *dropped*, with the date; the planned row or task is left as it is, and can be deleted or closed separately.
+- **Deleting** a planned fact or relationship that follows a decision says so first (`This follows the decision "Varren
+  dies at the end of chapter 9". It will be listed there as dropped.`) and drops the follow-up. Its words are kept on
+  the decision, since the row is gone.
+- **Detach** removes the follow-up altogether, for one made or attached by mistake; the row stays, and the decision no
+  longer counts it.
+
+Each has *Undo* in its toast.
+
+**Deleting a decision** with follow-ups says so first (`1 planned fact and 1 task follow this decision. They stay,
+without the decision.`) and removes only the links.
+
+**Undoing the close.** Undo on the toast of a close in Triage or the inbox deletes the decision, as today, and also
+deletes the planned rows and tasks that were *made* in its follow-up step; ones that were *attached* stay, unlinked.
+
+*Done when* the decision `Varren dies at the end of chapter 9`, tagged with Varren and Isolde, makes a planned fact
+with Varren chosen, the span offering `chapter 9, The Drowned Bell` as *From* (used only after a click), saved as
+*planned* and shown on Varren's page with `follows the decision of 12 Oct 2026`; makes a task with Varren and Isolde
+ticked and chapter 9 offered unticked, which, once ticked, lists the task in chapter 9's Loose ends; attaches an
+existing planned relationship from the picker; *Drop* keeps the follow-up as dropped; deleting a planned fact that
+follows it warns first and leaves it dropped with its words; *Detach* removes it; a decision with no project in a
+world with two projects offers chapter 9 once per project; and `Chapter Nine` is offered as chapter 9.
+
+### 16.2 The worked-out state
+
+A decision's state is **worked out** from its follow-ups each time it is read. There is no checkbox, and nothing to
+keep up to date.
+
+- **Settled**: no follow-ups. Every decision today, and any decision that needs nothing further.
+- **To do** (`1 of 2 to do`): some follow-ups are still to do.
+- **Done**: it has follow-ups, and none is to do.
+
+A follow-up is **to do** while:
+
+- a fact or relationship is *planned* or *rumour*: a change set to rumour stays to do until it is made canon or dropped
+  (Thomas);
+- a task is *open* or *deferred*.
+
+It is **done** when:
+
+- a fact or relationship is *canon* (by *Make it canon here*, the standing pill, or anywhere else);
+- a task is *accepted* or *harvested*.
+
+It is **dropped** when:
+
+- it was dropped by *Drop*, or by deleting its row;
+- a task was closed as *rejected*. It counts toward the decision being done, but is listed as *dropped*, dated its
+  close, so the list shows it wasn't carried out (Thomas).
+
+Done and dropped both count as not to do; the follow-up list tells them apart. Reopening a task or setting a canon row
+back to planned makes the follow-up to do again, and the decision's state follows.
+
+**Where it shows.** The same quiet pill wherever a decision's line is:
+
+- on the **Decisions** page;
+- in the **Decisions** section of an entry page;
+- in the **planning reading** (§14.2), on each decision;
+- in **Latest decisions** on the front page (§14.4).
+
+A settled decision shows **no pill**: it is a decision, as today. `1 of 2 to do` is a plain pill and `done` a dimmed one
+with a tick. No colour says late or overdue, since nothing is.
+
+**The follow-up list.** Clicking the pill (or `+ follow-up` on a settled decision, §16.3) opens the decision's
+follow-ups under its line, to do first, then done, then dropped:
+
+```
+Varren dies at the end of chapter 9 · The Salt Road · 12 Oct 2026          1 of 3 to do
+  to do    Varren · status: dead · from chapter 9, The Drowned Bell · planned · chapter 9 is written
+  done     Plant the bell's crack in chapter 4 · task · accepted 20 Oct
+  dropped  Isolde knows about Varren · from chapter 11 · 22 Oct                    (the row was deleted)
+```
+
+Each line links to its row (the entry page at the fact, or the item). A to-do line has *Drop* and *Detach*; a line
+whose chapter is written adds the quiet `chapter 9 is written`, the same test as §16.4.
+
+**Data:** none beyond §16.6; the state is worked out when read. `GET /decisions` gains, per decision, `followups:
+{todo, done, dropped}` counts, and `GET /decisions/<id>/followups` returns the list.
+
+*Done when* a decision with no follow-ups shows no pill; adding a planned fact makes it `1 of 1 to do` on the
+Decisions page, on Varren's page, in his planning reading and on the front page; *Make it canon here* on that fact
+turns it to `done` everywhere; adding a task makes it `1 of 2 to do` again; deferring the task leaves it to do,
+rejecting it makes the decision done, with the task listed as dropped; reopening the task makes it `1 of 2 to do`
+again; changing a planned relationship that follows it to *rumour* leaves it to do; and there is nowhere to tick a
+decision done.
+
+### 16.3 Where follow-ups are added
+
+The gesture is the same everywhere: **one row, keyboard first**, under the decision's line.
+
+```
+Decision logged · + follow-up:  f fact · w relationship · t task · x attach existing · Enter skip
+```
+
+- **f** opens the planned fact form in the row, **w** the relationship form (*with*), **t** the task form, **x** the
+  picker of existing rows (§16.1). On the phone they are four chips and *Skip*.
+- In a form, Enter saves, and the row comes back as `+ another · Enter done`, so a decision can take several follow-ups
+  in a row. Esc in a form goes back to the choice row without saving.
+- Enter or Esc on the choice row ends the step.
+
+**After closing an item with a decision line**, in Triage and in the phone Inbox:
+
+- The step is offered only when a decision was written (not for an empty line, a harvest note or *defer*), and only
+  online: offline the close goes on as today and nothing is asked.
+- **Triage**: the row appears above the next item, with the keyboard in it. f, w, t and x are not Triage keys, so they
+  can't be pressed by habit for something else. **Any Triage key** (a, r, h, d, l, p, e, 1–3, j, k, u) skips the step
+  and does what it does, so the step never holds up a run through the inbox. The close's toast stays beside it.
+- **Inbox** (phone and desk): the row appears in the list where the closed item was, as chips. Tapping anywhere else,
+  or scrolling away, skips it.
+- **Closing an experiment** with a decision line (§13.6.1) offers the same step under the close form.
+- There is no setting to turn it off: it is one row, and Enter skips it.
+
+**On a decision's line, anywhere.** On the Decisions page, an entry page's Decisions, the planning reading and the front
+page's Latest decisions, a quiet `+ follow-up` sits at the end of each line (shown on hover or focus on the desk, always
+on the phone). It opens the same row under the line. A new decision written on the Decisions page itself gets the step
+too, as after a close.
+
+**Nothing while typing.** The step appears only after the decision line is saved; the forms open only on a key or a
+click, and the chapter offer is worked out once, when the step opens.
+
+*Done when* closing a question in Triage with `Varren dies at the end of chapter 9` shows the row above the next item;
+Enter skips it, and so does `a`, which accepts the next item; `f` opens the fact form, Enter saves it, and the row comes
+back as `+ another`; `t` then adds a task, and Enter ends the step; Esc in a form returns to the row; closing with no
+decision line, or harvesting, offers nothing; on the phone the step is four chips and *Skip*, and isn't offered in
+airplane mode; `+ follow-up` on a line on Varren's page opens the same row; and typing in the decision line never opens
+anything.
+
+### 16.4 Catching the gap in a chapter
+
+The point of following through: when the writer reaches the chapter, the plan should be there to meet them. Quarry
+doesn't read the prose to see whether chapter 9 kills Varren. It only says that chapter 9 has text, and a planned change
+from a decision is tied to it.
+
+**The rule.** For a current chapter C, a **gap line** is shown for each follow-up of any decision that is:
+
+- a fact or relationship that is still to do (§16.2);
+- tied to C, in either of two ways:
+  - its *from* chapter, its *until* chapter or its *established in* chapter is C;
+  - its *from* or *until* is a time (§13.1.5), and C is set at that time (§13.1.2): C's time, or the span from it to
+    its end, includes it (Thomas). A chapter with no set time is tied by chapter bounds only, and a change *outside
+    time* is tied to no chapter;
+- and C **has text**: at least one word of prose, margin notes not counted.
+
+A change bounded by a time can so be tied to several chapters, each with its own line and its own *Not yet*.
+
+Experiment drafts and retired chapters have no gap lines.
+
+**In Loose ends**, under the items tied to the chapter (§14.3.1), as their own small group:
+
+```
+Decided 12 Oct 2026: Varren · status: dead, from this chapter · not in the book yet
+    "Varren dies at the end of chapter 9"
+    Make it canon here · Not yet
+```
+
+The change is shown as on the entry page, *this chapter* for C; the decision's text is quoted under it and links to its
+line on the Decisions page.
+
+- **Make it canon here** works as in §14.1.2: the standing becomes *canon* and C its *established in*. The span is
+  left as it is. If a passage is selected in the editor, it becomes the evidence, and the button says `Make it canon
+  here, with the selection`; with nothing selected there is no evidence, which can be added later on the entry page.
+  The toast says `Canon in chapter 9 · Undo`, and, if it was the decision's last follow-up, `· the decision is done`.
+  *Record a fact* in C offering *Make it canon here* for the same planned row (§14.1.2) completes the follow-up the
+  same way.
+- **Not yet** hides the line from C's Loose ends: the writer knows, and will get to it. It is remembered as a
+  **resolution** (the table the Continuity findings use): rule `followup_gap`, key `<follow-up id>:<chapter id>`,
+  outcome `later`. The line folds under `Not yet · 1` at the foot of the group, where *Show again* deletes the
+  resolution. Because the key names the chapter, moving the planned change to another chapter shows it again there. The
+  follow-up stays to do: the decision's pill, the Decisions page and the front page are unchanged by *Not yet*.
+- **No count while typing.** The gap lines are fetched with the items tied to the chapter, when the chapter opens and
+  when Loose ends is shown, never per keystroke. Writing the first words of an empty chapter doesn't make a line appear
+  until the chapter is next opened. Offline they are not shown, as the tied items aren't.
+
+**With *Include planned*** (§14.6):
+
+- The gap line is not a Continuity finding and isn't on Checks. It is about planned rows whatever the switch says, so
+  the switch neither shows nor hides it.
+- With the switch on, a finding that rests on a planned row that follows a decision adds `· decided 12 Oct 2026`, linking
+  to the decision: `Varren is named in chapter 12, but is planned dead from chapter 9 · decided 12 Oct 2026`.
+- The two are kept apart. Resolving that finding (*intentional*, *later*) doesn't touch the follow-up, and *Not yet*
+  resolves no finding. Checks' list of resolutions leaves the `followup_gap` rule out.
+- Making it canon here can bring the finding up with the switch off, since the checks now read the row as canon. That is
+  the checks working.
+
+**Data:** none beyond §16.6 and one more rule name in `resolutions`. Loose ends reads the gap lines from `GET
+/chapters/<id>/gaps`, fetched beside `GET /chapters/<id>/items` as it is today; the facts and relationship endpoints'
+`make_canon` takes a chapter with no passage.
+
+*Done when*, with Varren's *status: dead* planned from chapter 9 as a follow-up and chapter 9 empty, chapter 9's Loose
+ends shows no gap line; after a paragraph is written and the chapter reopened, it shows `Decided 12 Oct 2026: Varren ·
+status: dead, from this chapter · not in the book yet`; *Not yet* hides the line, folds it under `Not yet · 1` and
+leaves the decision `1 of 1 to do`, and *Show again* brings it back; moving the fact's span to chapter 10 (which has
+text) shows the line there, and moving it back shows it in chapter 9 again only after *Show again*; *Make it canon here*
+with a sentence selected makes the fact canon, established in chapter 9 with that sentence, and the decision `done`;
+a fact planned from year 412 shows the line in each chapter set in 412 that has text, and in none set in 413 or with
+no set time; the line is the same with *Include planned* on or off; with it on, Checks' finding for Varren named in chapter 12 adds
+`decided 12 Oct 2026`; and nothing appears or changes while typing.
+
+### 16.5 Surfacing
+
+Where an open follow-up can be found, other than on its decision and in its chapter. All of it is lists to read when
+wanted; nothing comes to the writer.
+
+- **On the Decisions page**, a filter beside the project filter: **All · With open follow-ups**, kept in the address
+  (`?followups=open`). It lists the decisions with something to do, oldest first, since those have waited longest, each
+  with its follow-up list open. `4 decisions with 6 open follow-ups`.
+- **On the front page** (§14.4), a section **To follow through**, after *Latest decisions*: the decisions with open
+  follow-ups, oldest first, five, then `4 more · Decisions` (linking to the filter). Each line has its text, date,
+  project and pill, and, when one of its planned changes is tied to a written chapter (§16.4), `chapter 9 is written`,
+  linking into the chapter's Loose ends. Like every section there, it hides while empty.
+- **Nowhere else**: no count in the nav, no badge on the Decisions link, no notification, no line in the editor outside
+  Loose ends, nothing while typing. A to-do follow-up is never shown as late.
+
+**Data:** none. `GET /decisions` takes `followups=open`; `GET /worlds/<slug>/front` gains `follow_through`.
+
+*Done when* the filter on the Decisions page lists only the decisions with open follow-ups, oldest first, and survives a
+reload; the front page's *To follow through* lists them with `chapter 9 is written` beside Varren's and hides once both
+are done; and the nav shows no count.
+
+### 16.6 Data model, export and Restore
+
+```sql
+decision_followups (
+  id               uuid primary key,
+  decision_id      → decisions      ON DELETE CASCADE,
+  fact_id          → facts          ON DELETE SET NULL,  NULL
+  relationship_id  → relationships  ON DELETE SET NULL,  NULL
+  item_id          → items          ON DELETE SET NULL,  NULL
+  what             text NOT NULL,   -- the row in words, kept for when it is gone
+  dropped_on       date NULL,       -- by Drop, or by deleting its row
+  created_by, created_at
+)
+-- CHECK num_nonnulls(fact_id, relationship_id, item_id) <= 1
+-- UNIQUE (decision_id, fact_id), (decision_id, relationship_id), (decision_id, item_id)
+-- a row with none of the three is dropped
+```
+
+**Why a table of its own**, and not a `decision_id` on facts, relationships and items:
+
+- A follow-up has to outlive its row: a deleted planned fact still counts as *dropped* on the decision, with its words.
+- Real foreign keys with `SET NULL` keep it whole, unlike a polymorphic `target_table, target_id` (as in `item_links`),
+  which nothing cleans up.
+- One row can follow two decisions.
+- The three busy tables and their forms don't change.
+
+`Decision.item_id`, the item a decision closed, stays as it is and is not a follow-up.
+
+**Keeping it right:**
+
+- `what` is written when the follow-up is made, and again whenever its row is saved through the facts, relationships or
+  items endpoints, so it reads right when the row is later gone (`Varren · status: dead · from chapter 9`, `task: Plant
+  the bell's crack in chapter 4`).
+- Deleting a fact, relationship or item through the API sets `dropped_on` on its follow-ups in the same transaction.
+  A task closed as rejected is worked out as dropped from its status, not stored. A row lost by a cascade (its entry
+  deleted) leaves a follow-up with no row and no date, shown as `dropped`.
+- An entry's delete warning (`3 relationships use…`) adds `2 of its facts follow decisions`.
+- Done and to do are never stored (§16.2).
+
+**Endpoints:**
+
+- `POST /decisions/<id>/followups` takes either `{fact | relationship | item: <new row as its own endpoint takes it>}`,
+  which makes the row and the link in one transaction, or `{attach: {table, id}}`.
+- `POST /decisions/<id>/followups/<fid>/drop`, its undo, and `DELETE` (detach).
+- `GET /decisions/<id>/followups`.
+- `GET /decisions/<id>/chapters` returns the chapters the decision names (§16.1), so the server and the phone read
+  numbers and titles alike.
+
+**Export** keeps the links and makes them readable in plain text:
+
+- A fact or relationship in an entry's frontmatter, and an item's frontmatter, carry `follows: [<decision id>, …]`.
+  Decision ids are already in `Decisions.md`.
+- `Decisions.md` lists each decision's follow-ups as indented lines under it, worked out for the reader:
+  ```
+  - 2026-10-12 · [the-salt-road] Varren dies at the end of chapter 9 <!-- id=… item=… entities=… -->
+    - to do: Varren · status: dead · from chapter 9 (planned fact)
+    - done: Plant the bell's crack in chapter 4 (task, accepted)
+    - dropped 2026-10-22: Isolde knows about Varren · from chapter 11
+  ```
+  The decision line's form is unchanged, so `DECISION_RE` still reads it.
+
+**Restore:**
+
+- It makes the decisions as today, keeping a map from the export's decision ids to the new rows.
+- After that it links each fact, relationship and item that has `follows:` (facts and relationships are made before the
+  decisions today, so their `follows:` is kept aside until then).
+- From `Decisions.md` it reads only the `dropped` lines, as follow-ups with no row, with their date and words. The to-do
+  and done lines are worked out again from the rows.
+- An older export has none of this, and its decisions come back settled.
+
+*Done when* the table and endpoints above exist with their migration; deleting Varren's planned fact leaves the
+follow-up dropped with `Varren · status: dead · from chapter 9`; deleting Varren himself leaves it dropped with no date;
+and exporting and restoring a world keeps every follow-up, to do, done and dropped, with its decision, and
+`Decisions.md` reads as above.
+
+### 16.7 The demo world and the Guide
+
+**The demo world** (backend/src/quarry/demo.py) gains two decisions with follow-ups, planted through the export layout
+like the rest (`follows:` and `Decisions.md`). The decision *Oskar dies in chapter 2, not chapter 1* stays settled, so
+all three states show.
+
+- **Done**: `2026-10-06 · Ash Season · Hesper is a cartographer, and Ash Season shows her at her maps`, tagged with
+  Hesper Quill. Its follow-up is her *trade: cartographer* fact, planned in the Journal in 2014 and already canon in
+  *The Cartographer*. It shows `done`.
+- **Not done**: `2026-10-08 · The Ferryman's Daughter · Brother Cade dies at Saltreach, in What the River Kept`, tagged
+  with Brother Cade. Two follow-ups:
+  - his *status: dead* fact, planned from chapter 3 (*What the River Kept*, which has text), so chapter 3's Loose ends
+    shows the gap line, and *Include planned* still turns it into Ash Season's finding (§14.6);
+  - a task, *Let Pell ask about the bells before Cade dies*, linked to chapter 3 and Brother Cade, accepted.
+
+  It shows `1 of 2 to do`, and the front page lists it under *To follow through* with `chapter 3 is written`.
+
+**The Guide** (§15) gains two steps rather than a walkthrough of its own, since the follow-up step belongs to closing an
+item and the gap belongs to planning:
+
+- **Walkthrough 2** (*A spark on the phone, sorted at the desk*): after the spark about the Wardens' toll is accepted
+  with the decision `The toll is paid in lanterns, from The Crossing on`, the `+ follow-up` row shows. `t` makes the
+  task *Show a lantern paid at the lock*, the River Wardens ticked and *The Crossing* offered and clicked. The Decisions
+  log then shows the decision `1 of 1 to do`. About 20 seconds more.
+- **Walkthrough 10** (*Planning in the Journal*): before *Include planned*, the front page's *To follow through* and
+  Brother Cade's decision, its follow-up list, and chapter 3's Loose ends with the gap line. *Not yet* folds it.
+  *Make it canon here* is only pointed at, since the walkthrough then needs his death planned for *Include planned*.
+  About 30 seconds more.
+
+The Guide's total becomes about 26 minutes. The end-to-end run plays both, as it plays every walkthrough (§15.3).
+
+*Done when* loading the demo world shows the three decisions as settled, `done` and `1 of 2 to do`, chapter 3's gap
+line and the front page's *To follow through*; and both walkthroughs play with no skipped step in the end-to-end run.
+
+### 16.8 Not building
+
+- **Mandatory follow-ups**, or any prompt that has to be answered: the step is skipped with Enter, and most decisions
+  stay settled.
+- **A manual done checkbox** on a decision: done is worked out from the rows, so it can't drift from them.
+- **Reading the prose** to see whether a chapter shows the change: the writer says so with *Make it canon here*.
+- **Reminders, nags, badges, due dates or "overdue"**: open follow-ups are found on the Decisions filter, the front page
+  and a written chapter's Loose ends, when the writer looks.
+- **Follow-ups of other kinds**: an event, a chapter status, a summary. A task covers anything else.
+- **Decisions that follow decisions** (a decision superseding another): a new decision is written, and the old one's
+  follow-ups are dropped or detached.
+
+### 16.9 Open questions for phase 14
+
+None left. Thomas's answers are in DECISIONS.md (2026-10-25):
+
+- a task closed as rejected counts toward done but is listed as dropped (§16.2);
+- a change set to rumour stays to do until it is canon or dropped (§16.2);
+- a decision with no follow-ups shows no pill (§16.2);
+- a change bounded by a time gives the gap line in the chapters set at that time that have text (§16.4);
+- closing an experiment with a decision offers the follow-up step too (§16.3);
+- the keys are `f`, `w`, `t` and `x` (§16.3);
+- and phase 14 is built as one pull request: the table and endpoints, the forms and the step, the state and its pills,
+  the gap line, the filter and the front page section, export and Restore, the demo and the two Guide steps.
+
+## 17. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -2705,7 +3154,7 @@ and built at once.
   - calendars, or packs of real history: time stays a sortable number (§13.1.1);
   - a soundtrack feature: the share target already records where a link came from.
 
-## 17. Open questions
+## 18. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?
