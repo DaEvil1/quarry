@@ -16,6 +16,11 @@ import { useSession } from "./session";
 
 const DONE_KEY = "quarry.guide";
 const SPEED_KEY = "quarry.guide.speed";
+/**
+ * "instant": watched walkthroughs play without reading pauses, pointer travel or typing a letter at a time, still
+ * doing every step and waiting for what each expects. Only the e2e run sets it (on the device), to keep CI quick.
+ */
+const PACE_KEY = "quarry.guide.pace";
 /** where a walkthrough had got to on this tab, so a reload can carry on */
 const AT_KEY = "quarry.guide.at";
 
@@ -112,6 +117,7 @@ export const useGuide = defineStore("guide", {
     error: "",
     paused: false,
     speed: readJson<number>(local(), SPEED_KEY, 1),
+    instant: readJson<string>(local(), PACE_KEY, "") === "instant",
     /** the caption folded to its title line, to see what it covers */
     folded: false,
     /** the phone's address, when it is open */
@@ -286,16 +292,17 @@ export const useGuide = defineStore("guide", {
       if (acting) {
         await this.pointAt(el!, stopped);
         if (step.act && "hover" in step.act) hovered = el;
-        await perform(el!, step.act!, { slow: this.mode === "watch", speed: this.speed, stopped });
+        await perform(el!, step.act!, { slow: this.mode === "watch" && !this.instant, speed: this.speed, stopped });
       }
       if (step.wait && (acting || how === "did") && !(await waitFor(doc, step.wait, 15_000, stopped)) && !stopped()) {
         this.missed.push(`${this.index + 1}: waited for ${step.wait.css} ${step.wait.text ?? ""}`.trim());
       }
-      await sleep(how === "did" ? 300 : 150);
+      await sleep(this.instant ? 0 : how === "did" ? 300 : 150);
     },
 
     /** Watched: the caption's time on screen at the chosen speed, held while paused. */
     async linger(step: Step, stopped: () => boolean) {
+      if (this.instant) return sleep(step.settle ?? 0);
       let left = (step.read ?? Math.min(9000, 1600 + step.say.length * 38)) / this.speed;
       while (left > 0 && !stopped()) {
         await sleep(100);
@@ -305,7 +312,7 @@ export const useGuide = defineStore("guide", {
 
     /** Move the fake pointer onto `el` and press, so a watched click can be followed. */
     async pointAt(el: HTMLElement, stopped: () => boolean) {
-      if (this.mode !== "watch") return;
+      if (this.mode !== "watch" || this.instant) return;
       const r = el.getBoundingClientRect();
       const off = this.step?.in === "phone" ? document.querySelector("[data-testid=guide-phone-frame]")!.getBoundingClientRect() : { left: 0, top: 0 };
       const x = off.left + r.left + Math.min(r.width / 2, 40);

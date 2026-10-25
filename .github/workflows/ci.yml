@@ -84,7 +84,7 @@ jobs:
 
   # Each shard runs phase1.spec.ts (the setup project) first, against a database and a Quarry of its own. The
   # chain of phase specs stays together; the specs that build their own worlds are split in two; the Guide's
-  # walkthroughs play one after another on a shard of their own.
+  # walkthroughs play at their instant pace, split over two shards.
   e2e:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -97,7 +97,8 @@ jobs:
           - { name: chain, args: --project=chain --project=update }
           - { name: own 1, args: --project=demo --project=own --shard=1/2 }
           - { name: own 2, args: --project=demo --project=own --shard=2/2 }
-          - { name: guide, args: --project=guide }
+          - { name: guide 1, args: --project=guide --shard=1/2 }
+          - { name: guide 2, args: --project=guide --shard=2/2 }
     services:
       postgres:
         image: postgres:17-alpine

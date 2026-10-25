@@ -2620,9 +2620,12 @@ from a list by its value or the words it shows, press a key with Ctrl (Cmd on a 
 or type at it), and may wait for what that brings up. Nothing in the views knows about the Guide.
 
 The app changes; a walkthrough must not quietly drift from it. A step that can't find what it points at, or what it
-waits for, is skipped and named on the walkthrough's last card. The end-to-end run plays every walkthrough with *Do it
-for me* on each step and fails if any step was skipped, so a renamed button or a moved panel breaks the build, not the
-lesson. The walkthroughs run one after another on a shard of their own.
+waits for, is skipped and named on the walkthrough's last card. The end-to-end run watches every walkthrough at an
+*instant* pace (no reading pauses, no pointer travel, typing at once, but every step done and everything it expects
+waited for; a step can ask for the time the app itself needs, such as a count that catches up after typing) and fails
+if any step was skipped, so a renamed button or a moved panel breaks the build, not the lesson. That pace is set only
+by the tests, on the device; *Try it yourself* and Carry on are checked once more on their own. The walkthroughs are
+split over two shards of their own.
 
 ### 15.4 The phone in a frame
 

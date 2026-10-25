@@ -27,8 +27,9 @@ export default defineConfig({
     { name: "chain", testMatch: chain, dependencies: ["setup"], workers: 1, use: chromium },
     // each loads the demo world, under the same name: one at a time
     { name: "demo", testMatch: demo, dependencies: ["setup"], workers: 1, use: chromium },
-    // the Guide's walkthroughs, one sandbox at a time (each replaces the last): one after another
-    { name: "guide", testMatch: "guide.spec.ts", dependencies: ["setup"], workers: 1, use: chromium },
+    // the Guide's walkthroughs, one sandbox at a time (each replaces the last), so one worker; each walkthrough is a
+    // test of its own, so --shard can spread them over several runners, each with its own Quarry
+    { name: "guide", testMatch: "guide.spec.ts", dependencies: ["setup"], workers: 1, fullyParallel: true, use: chromium },
     // each builds a world of its own
     {
       name: "own",

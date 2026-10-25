@@ -43,6 +43,8 @@ export interface Step {
   wait?: Target;
   /** how long a watched step lingers before acting, in ms (else worked out from the caption's length) */
   read?: number;
+  /** time the app itself needs here, in ms (a debounced count, say), kept at every pace, the instant one too */
+  settle?: number;
 }
 
 export interface Tour {
@@ -78,7 +80,7 @@ export async function waitFor(doc: () => Document | null, t: Target, ms = 15_000
     const d = doc();
     const el = d && find(d, t);
     if (el) return el;
-    await sleep(120);
+    await sleep(50);
   }
   return null;
 }

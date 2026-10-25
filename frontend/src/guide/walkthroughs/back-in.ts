@@ -58,8 +58,9 @@ const steps: Step[] = [
     read: 1200,
   },
   {
-    // also gives the word count its moment to catch up, so leaving next counts the new words
+    // the word count catches up 300 ms after typing stops; leaving before then wouldn't count the new words
     target: { css: tid("word-count") },
+    settle: 800,
     say: "It saves as you go, and the word count keeps up when you pause.",
   },
   {

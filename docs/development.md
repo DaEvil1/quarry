@@ -77,12 +77,12 @@ demo world take turns, and `update.spec.ts` (which changes the served `sw.js`) r
 that builds a world of its own needs nothing; one that carries on from another spec or loads the demo world belongs
 in that project in `playwright.config.ts`. Empty the database before each run either way.
 
-CI splits the run over four runners, each with its own database and server, and sets `E2E_SHARD` so
+CI splits the run over five runners, each with its own database and server, and sets `E2E_SHARD` so
 `update.spec.ts` needn't wait there: `--project=chain --project=update`, `--project=demo --project=own` with
-`--shard=1/2` and `--shard=2/2`, and `--project=guide`.
+`--shard=1/2` and `--shard=2/2`, and `--project=guide` with `--shard=1/2` and `--shard=2/2`.
 
-`guide.spec.ts` plays every walkthrough of the Guide (docs/SPEC.md §15) with "Do it for me" on each step and fails
-if a step can't find its place. After changing a page a walkthrough uses, run `npx playwright test --project=setup
+`guide.spec.ts` watches every walkthrough of the Guide (docs/SPEC.md §15) at the instant pace (set in local storage
+by the test) and fails if a step can't find its place. After changing a page a walkthrough uses, run `npx playwright test --project=setup
 --project=guide`; the walkthroughs are in `src/guide/walkthroughs/`. With `GUIDE_VIDEO=<folder>` it watches them
 instead and records `<folder>/<id>.webm` (the "guide videos" workflow, run by hand, does this in CI).
 

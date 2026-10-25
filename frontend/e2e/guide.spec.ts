@@ -1,9 +1,10 @@
-// The Guide (docs/SPEC.md §15): every walkthrough plays to its end on a fresh sandbox, with "Do it for me" on each
-// step, and no step fails to find its place. The sandbox stays afterwards until the next walkthrough or Delete, a
+// The Guide (docs/SPEC.md §15): every walkthrough plays to its end on a fresh sandbox, watched at the instant pace
+// (no reading pauses, pointer travel or typing a letter at a time, but every step done and waited for), and no step
+// fails to find its place. The sandbox stays afterwards until the next walkthrough or Delete, a
 // reload can carry on where it was, and the writer's own worlds are left alone. A walkthrough that has gone stale (a
 // renamed button, a moved panel) fails here.
 //
-// With GUIDE_VIDEO=<folder> the walkthroughs are watched instead, at normal speed, and each is recorded to
+// With GUIDE_VIDEO=<folder> the walkthroughs are watched at normal speed instead, and each is recorded to
 // <folder>/<id>.webm (the "guide videos" workflow; nothing is kept in the repository).
 
 import { mkdirSync, renameSync } from "node:fs";
@@ -43,30 +44,22 @@ async function open(browser: Browser) {
     viewport: size,
     ...(VIDEO ? { recordVideo: { dir: VIDEO, size } } : {}),
   });
+  if (!VIDEO) await context.addInitScript(() => localStorage.setItem("quarry.guide.pace", JSON.stringify("instant")));
   return { context, page: await context.newPage() };
 }
 
 for (const id of IDS) {
   test(`the ${id} walkthrough plays to its end`, async ({ browser }) => {
-    test.setTimeout(VIDEO ? 15 * 60_000 : 180_000);
+    test.setTimeout(VIDEO ? 15 * 60_000 : 90_000);
     const { context, page } = await open(browser);
     const own = (await me(page)).worlds.filter((w) => !w.sandbox).map((w) => w.slug);
     await page.goto("/guide");
-    await page.getByTestId(`guide-tour-${id}`).getByTestId(VIDEO ? "guide-watch" : "guide-try").click();
+    await page.getByTestId(`guide-tour-${id}`).getByTestId("guide-watch").click();
     const guide = page.getByTestId("guide");
     await expect(guide).toBeVisible({ timeout: 30_000 });
     expect((await sandboxes(page)).length).toBe(1);
 
-    const finished = guide.getByTestId("guide-finished");
-    if (VIDEO) {
-      await expect(finished).toBeVisible({ timeout: 14 * 60_000 });
-    } else {
-      await expect(async () => {
-        if (await finished.isVisible()) return;
-        await guide.getByTestId("guide-next").click({ timeout: 1000 }).catch(() => undefined);
-        await expect(finished).toBeVisible({ timeout: 700 });
-      }).toPass({ timeout: 170_000, intervals: [300] });
-    }
+    await expect(guide.getByTestId("guide-finished")).toBeVisible({ timeout: VIDEO ? 14 * 60_000 : 80_000 });
     await expect(guide.getByTestId("guide-missed")).toHaveCount(0);
 
     // closing the walkthrough keeps the sandbox, to look around in
