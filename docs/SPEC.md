@@ -166,6 +166,9 @@ Bible pages show:
   added kinds (`also:`), and `world.md` the premise (§14).
   From phase 14, facts, relationships and items also carry the decisions they follow (`follows:`), and `Decisions.md`
   lists each decision's follow-ups under it, with the dropped ones' words (§16).
+  From phase 15, the export has a `Pictures/` folder with each picture's file, texts link their pictures by a path
+  relative to the file, entries carry their gallery (`pictures:`) and `world.md` lists the pictures with their names;
+  Restore links them up again, and takes zips of up to 1 GB (§17.6).
 - **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. Revision history stays in the database and is not part of an export.
 - **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
@@ -174,7 +177,7 @@ Bible pages show:
 
 | Layer | Choice |
 |---|---|
-| Backend | Python 3.12, FastAPI, SQLAlchemy 2, Alembic, psycopg 3, py_webauthn, rapidfuzz (near misses) |
+| Backend | Python 3.12, FastAPI, SQLAlchemy 2, Alembic, psycopg 3, py_webauthn, rapidfuzz (near misses), Pillow (pictures, from phase 15) |
 | DB | Postgres 16+, via `DATABASE_URL` (DigitalOcean managed cluster in production, a local container in development) |
 | Frontend | Vue 3 + TypeScript + Vite, Pinia, vue-router, CodeMirror 6, Dexie, vite-plugin-pwa (Workbox) |
 | Packaging | One image: FastAPI serves `/api` and the built SPA. GitHub Actions builds `ghcr.io/daevil1/quarry` on `master`. |
@@ -218,6 +221,12 @@ quarry/                      # public GitHub repo (code only)
     a state worked out from them (settled, *n of m to do*, done), a line in a written chapter's Loose ends when a
     planned change from a decision is tied to it but not yet canon, a Decisions filter and a front page list. Designed
     in §16, with a *done when* per part.
+15. **Pictures**: pictures in a world, uploaded from the desk or the phone and kept in Postgres at most 2400 px, with a
+    view copy and a thumb; a gallery on any bible entry, with captions and a main picture at the top of its page and on
+    its cards; a picture on a line of its own in chapters, journal entries and entries' notes, drawn under its line in
+    the editor and left out of the counts and the compiled manuscript; the pictures of the offline copy kept on the
+    phone; a Pictures page in World settings; and pictures in the export and Restore. Designed in §17, with a *done
+    when* per part.
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -1773,7 +1782,7 @@ the end of the story (or as of the chosen point, §13.7.4).
 - **Smooth** at a few hundred places: the same budget as the graph's.
 - **From the Timeline**: brushing a span there drives the chart's *as of* (§13.7.5).
 - **Not a drawn map.** The chart doesn't replace an uploaded map image with pinned places, which stays on the later
-  list (WORLD-MODEL.md §6; §17).
+  list (WORLD-MODEL.md §6; §18).
 
 **Data:**
 
@@ -3146,7 +3155,374 @@ None left. Thomas's answers are in DECISIONS.md (2026-10-25):
 - and phase 14 is built as one pull request: the table and endpoints, the forms and the step, the state and its pills,
   the gap line, the filter and the front page section, export and Restore, the demo and the two Guide steps.
 
-## 17. Out of scope (for now)
+## 17. Pictures (phase 15)
+
+Thomas asked for "images of people, objects, places etc etc just like in a wiki". Today a world holds only text, so
+a portrait of a character, a sketch of an object or a view of a place lives somewhere else. Moving the novel in (§8)
+makes it urgent: one chapter opens with a picture, and Restore can only bring Markdown.
+
+Phase 15 adds **pictures**. A picture is uploaded once into a world and placed where it is wanted: in a bible entry's
+**gallery**, whose first picture is the entry's **main picture** (shown at the top of its page and on its cards, like
+a wiki's infobox), or on a **line of its own** in a chapter, a journal entry or an entry's notes. The export carries
+the picture files, and Restore links them up again.
+
+The principles hold. Quarry stores and shows the pictures it is given. It never makes, changes, describes or tags
+one: nothing reads what is in a picture (§1). A picture line is a note, as a margin note is: it is not counted, not
+matched for names, and the compiled manuscript stays pure prose (Thomas). Pictures are never required anywhere.
+
+Examples use made-up names. The world has the place *Greywick* and the character *Isolde*; *The Salt Road*'s ninth
+chapter is *The Drowned Bell*.
+
+### 17.1 A picture in a world
+
+A picture belongs to **one world**. It has:
+
+- a **name**, taken from its file name (`harbour-at-dusk.jpg` is *harbour-at-dusk*), which can be changed;
+- its **size** in pixels, and three **files** made when it is uploaded (§17.4): the *full* picture, a *view* copy for
+  pages and a *thumb* for galleries and cards.
+
+It is placed in two ways, and one picture can be placed in any number of places:
+
+- in an entry's **gallery** (§17.2);
+- on a **picture line** in a text (§17.3).
+
+A **caption** belongs to the place, not to the picture: the same view of Greywick can be *The harbour at dusk* on
+Greywick's page and *Where Isolde lands* in chapter 9. A picture's files never change once it is uploaded: a better
+picture of Greywick is a new picture, put in the old one's place.
+
+**Adding a picture** needs the network: *Add pictures…* on an entry (§17.2), pasting or dropping a picture into a text
+or *Picture…* in the editor (§17.3), and *Upload…* on the Pictures page. Offline, these say `Pictures need the
+network` and do nothing else.
+
+**The Pictures page**, a section of World settings, lists every picture in the world, newest first: its thumb, name,
+size and where it is used. The count and size are at the top: `48 pictures · 61 MB`.
+
+- **Where it is used** is the entries whose gallery has it and the texts that have a picture line for it: chapters
+  (current, experiments and salvage), journal entries, entries' notes and the cuts bin. Old revisions don't count.
+- **Rename** changes the name (`Undo` on the toast).
+- **Delete** is offered only for a picture used nowhere, and asks first (`Delete harbour-at-dusk? This can't be
+  undone.`). An old revision restored after its picture was deleted shows the placeholder `Picture deleted` on that
+  line, and the line stays as written.
+
+*Done when* a picture uploaded on the Pictures page lists as used nowhere and can be renamed and deleted; once it is
+placed on Greywick's page and in chapter 9, it lists both and offers no Delete; and offline, *Upload…* says `Pictures
+need the network`.
+
+### 17.2 Pictures on an entry
+
+Any entry, of any kind, can have a **gallery**: any number of pictures in an order, none to start with, each with an
+optional caption. The **first** is the entry's **main picture**.
+
+**On the entry page:**
+
+- **The main picture** sits at the top right of the page head, beside the name, other names and one-liner, at most
+  280 px wide, with its caption under it. On the phone it is full width under the name, at most 40% of the screen
+  high. An entry with no pictures has no space for one.
+- **A Pictures section**, after the notes, shows the whole gallery as thumbs in order, each with its caption.
+  - *Add pictures…* opens the file picker for one or more files (on the phone it offers the camera or the gallery).
+    Dropping files on the section does the same. Each file gets its own progress line, and the pictures join the
+    end of the gallery.
+  - *From the world…* opens a picker of the world's pictures (type to filter by name or by any of their captions).
+  - Each thumb has a *More…* menu with *Make main*, *Caption…* and *Remove from this entry*. On the desk the thumbs can
+    be dragged into a new order, and on the phone moved with arrows.
+  - *Remove from this entry* takes the picture out of the gallery only. The picture stays in the world, on the
+    Pictures page (`Undo` on the toast).
+  - With no pictures, the section is one line: `Pictures · Add…`.
+- **Clicking a picture** opens the **full view**: the view copy as large as the window allows, its caption and name,
+  *Open full size* (the full file, in a new tab) and, for a gallery, ‹ › (or the arrow keys, or a swipe on the phone)
+  through the entry's pictures. Esc closes it.
+
+**On its cards.** The main picture's thumb, a small square cropped to its middle, sits in the corner of the entry's
+card: the name card in the editor (resting on a name), the cards in a journal entry's side panel, and the card shown on
+hover wherever a name links to its page. An entry with no picture shows its card as today.
+
+Changes to a gallery are saved at once and aren't revisions; each has `Undo` on its toast. Deleting an entry removes
+its gallery, and its pictures stay in the world.
+
+*Done when* two pictures added to Greywick show as a gallery; *Make main* on the second puts it at the top of the page
+and on Greywick's card when resting on the name in chapter 9; a caption shows under the main picture and in the gallery;
+the full view steps through both with the arrow keys; *Remove from this entry* leaves the picture on the Pictures page
+as used nowhere; an existing picture is added from *From the world…*; and on the phone the main picture is full width
+under the name.
+
+### 17.3 Pictures in the text
+
+**A picture line** is a line with an image link to a picture, and nothing else:
+
+```
+![The harbour at dusk](picture:3f2a9c1e-8b4d-4c1a-9e57-2d6f0b8a41c3)
+```
+
+The caption may be empty (`![](picture:…)`), and spaces around the link are allowed. The full id is used, so the line
+can't be mistaken for anything else. An image link inside a sentence, a link to a web address, or a line starting with
+`%%` is not a picture line, and it is shown as written.
+
+Picture lines work in **chapters** (in every state), **journal entries** and **entries' notes**. In items, decisions,
+summaries and captions, an image link is only text.
+
+**What a picture line is.** A picture line is treated as a margin note is (WORLD-MODEL.md §7):
+
+- it is not counted in the word count, the word history or "has text" (§16.4);
+- names in its caption are not matched as mentions, and the companion doesn't read it;
+- it is left out of the compiled manuscript (Thomas).
+
+It stays in the chapter, in its revisions and in its exported file (§17.6). Cutting it to the cuts bin, copying it into
+an experiment and putting it back all work on the line, as on any text.
+
+**In the editor** (chapters and journal entries), the line stays text that can be typed in, and the picture is drawn
+under it:
+
+- With the cursor elsewhere, the `(picture:…)` part is **folded** into a small chip, so the line reads `![The harbour
+  at dusk] ▣`. The fold is one unit: the cursor steps over it, and Backspace just after it deletes the whole link
+  (`Undo` brings it back). With the cursor on the line, the line shows in full.
+- **Under the line**, the picture is drawn as a block: the view copy, at most the measure wide and 60% of the window
+  high, with the caption under it in the interface's font. The block isn't text. The cursor moves from the line to
+  the next line past it, and a click on it opens the full view (§17.2).
+- **Smooth typing.** The block's height is reserved from the picture's stored size, so nothing jumps when it loads.
+  Pictures are loaded only when their line is drawn, and typing in other lines never redraws them. The 10k-word
+  chapter on a mid-range phone (§6) stays smooth with a dozen pictures in it.
+- **Adding a picture.** Pasting a picture, or dropping a file onto the text, uploads it (`Uploading harbour.jpg…` at
+  the foot). When it is done, a picture line `![](picture:…)` is put on its own line after the paragraph the cursor is
+  in, with the cursor between the brackets for a caption. *Picture…* (in the command palette, and *More…* in the
+  toolbar) offers *Upload…* or the world's pictures, filtered by typing, with the pictures of entries named in the
+  text first.
+- **A picture that can't be shown** leaves a box of its shape (or a short one when its size isn't known) with its
+  caption and a word on why: `Not on this device` offline (§17.5), `Picture deleted`, or `Not a picture of this world`
+  for a line copied from another world.
+
+**Read-only.** Wherever these texts are shown read-only, a picture line shows as the picture with its caption under
+it: an entry's notes on its page, *Read as if accepted* (§13.6.1) and a chapter opened read-only on the phone. While an
+entry's notes are edited, the line shows as written, and pasting a picture into them puts a picture line at the cursor.
+
+*Done when* pasting a picture into chapter 9 uploads it and puts `![](picture:…)` after the current paragraph with the
+cursor in the caption; the picture shows under the line, and the link folds to a chip once the cursor leaves; Backspace
+after the chip deletes the link and `Undo` brings it back; the word count, the mentions and the compiled manuscript are
+the same with and without the line, whatever its caption says; `Isolde ![x](picture:…) waits` in a sentence stays text;
+a picture line in Greywick's notes shows as the picture on the page; and typing in chapter 9 with six pictures stays as
+fast as without them.
+
+### 17.4 Upload, sizes and storage
+
+**What is taken.** JPEG, PNG and WebP, recognised by opening the file, not by its name. Anything else (HEIC, GIF, TIFF,
+PDF, SVG) is refused with `Quarry takes JPEG, PNG or WebP pictures`. SVG is never taken, since it can carry script. An
+animated WebP keeps its first frame. A file may be up to **25 MB**, and a picture up to 50 megapixels. Several files
+are sent one after another, one per request.
+
+**What is kept.** On upload, the server (with Pillow, a new backend dependency) does this once:
+
+1. It turns the picture the way its camera says it was held, and drops its metadata (location, camera, date).
+2. A picture larger than **2400 px** on its longest side is scaled down to it (Thomas), and kept as the **full** file
+   in its own format: JPEG at quality 90, PNG, or WebP at quality 90. Transparency is kept.
+3. It makes two WebP copies: **view**, at most 1600 px, and **thumb**, at most 400 px. A smaller picture isn't scaled
+   up: its copies are its own size.
+
+So the full file is about 1–2 MB for a phone photo, the view copy about 300 KB and the thumb about 30 KB.
+
+**Memory.** The container has 256 MB of memory (§9). JPEGs are decoded at a reduced scale (Pillow's draft mode), so a
+phone photo never needs its whole size in memory. A PNG or WebP over 30 megapixels is refused, and one picture is
+worked on at a time, with an upload waiting its turn.
+
+**Where the bytes live: in Postgres** (Thomas), in a table of their own (§17.7), beside everything else. The managed
+cluster's daily backups cover them, and restoring the database restores the pictures. There's no volume and no new
+service. The files are stored without Postgres trying to compress them again (`STORAGE EXTERNAL`). At 2 MB a picture
+with its copies, 200 pictures take about 0.5 GB.
+
+**Serving.** `GET /api/pictures/<id>/full`, `/view` and `/thumb` check that the user is a member of the picture's world
+and send the file with:
+
+- its own type, and `X-Content-Type-Options: nosniff`;
+- `Cache-Control: private, max-age=31536000, immutable`, since a picture's files never change;
+- `Content-Disposition: inline` with its name.
+
+The gzip middleware leaves pictures alone, since they are compressed already. Lists, entry pages and texts never carry
+picture bytes, only ids with each picture's width and height.
+
+*Done when* a JPEG of 4000 × 3000 px with a location in its metadata is kept as 2400 × 1800 px without it, with a
+1600 px view copy and a 400 px thumb; a photo taken sideways shows upright; a PNG with transparency keeps it; an SVG, a
+HEIC and a text file renamed `.jpg` are refused; a 30 MB file is refused; uploading a 50-megapixel JPEG keeps the app
+inside its memory limit; and a picture of a world the user isn't a member of answers 404.
+
+### 17.5 On the phone, and offline
+
+The phone loads thumbs in galleries and on cards, and view copies in texts and the full view. It loads the full file
+only on *Open full size*.
+
+**In the offline copy.** When the device syncs a world (§4), after the chapters and journal entries, it fetches the
+**view copy** of every picture used in them that it doesn't have yet:
+
+- They go into a cache of their own, kept with the rest by `navigator.storage.persist()`. One picture is fetched at a
+  time, so a sync is never held up by its pictures.
+- A picture no longer used in any text on the device is dropped at the next sync.
+- The offline copy also keeps each picture's name, width and height, so the box for a missing picture has its shape.
+- Settings' *Offline copy* section adds `Pictures: 34 · 12 MB`.
+
+**Everything else** (entry pages' galleries, thumbs on cards) is kept when first shown, in a second cache of at most
+300 pictures, the oldest dropped first. Entry pages are read online anyway (§4).
+
+**Offline, a picture that isn't on the device** shows as a box of its shape with its caption and `Not on this device`.
+Text around it is untouched and can be typed in as usual.
+
+*Done when* after a sync, chapter 9's picture shows on the phone in airplane mode; a picture on Greywick's page that was
+never opened shows `Not on this device` in a text that uses it, at the right shape; removing the picture line from
+chapter 9 drops its picture from the device at the next sync; and Settings shows the pictures' count and size.
+
+### 17.6 Export and Restore
+
+**Export** (§8):
+
+- **`<world>/Pictures/<name>-<id8>.<ext>`**: each picture's full file as kept, with its name lower-cased and hyphened
+  so paths need no escaping (`Pictures/harbour-at-dusk-3f2a9c1e.jpg`). The files are stored in the zip without being
+  compressed again.
+- **`world.md`** gains `pictures:`, one line per picture in the world (used or not) with its file and name:
+  `- {file: Pictures/harbour-at-dusk-3f2a9c1e.jpg, name: harbour-at-dusk}`.
+- **In every `.md` file**, `picture:<id>` becomes the picture's path **relative to that file**, so the export shows its
+  pictures in any Markdown reader. In `Projects/The Salt Road/Manuscript/09 The Drowned Bell.md` the line becomes
+  `![The harbour at dusk](../../../Pictures/harbour-at-dusk-3f2a9c1e.jpg)`.
+- **An entry's frontmatter** gains `pictures:`, its gallery in order (the main picture first), with paths relative to
+  the world folder: `- {file: Pictures/harbour-at-dusk-3f2a9c1e.jpg, caption: The harbour at dusk}`.
+- **`manuscript.md`** leaves picture lines out, as it leaves out margin notes.
+
+**Restore:**
+
+- Every `.jpg`, `.jpeg`, `.png` and `.webp` file under `<world>/Pictures/` (at any depth) becomes a picture, made as an
+  upload is (§17.4): opened, scaled down when larger than 2400 px, and given its copies. Its name comes from
+  `world.md`, or else from its file name. A file Quarry doesn't take is skipped and named in the result.
+- In every `.md` file, an image link on a line of its own whose path, read relative to that file (or else to the world
+  folder), is one of those files becomes `picture:<new id>`. Paths written with `%20` or in `<…>` are read too.
+  Links to web addresses, or to files that aren't in the zip, stay as written.
+- Galleries come back from the entries' `pictures:`.
+- A picture in the zip that nothing uses comes back as used nowhere. An export from before phase 15 has no
+  `Pictures/` folder, and comes back as before.
+
+So a zip made by hand, such as the one that moves the novel in (§8), only needs its image files under `Pictures/` and a
+`![caption](relative path)` line where each belongs.
+
+**Sizes.** Today the whole zip is read into memory, with a cap of 50 MB (`MAX_UPLOAD`) and 200 MB unpacked
+(`MAX_UNPACKED`). Pictures would break both, so:
+
+- **Restore** takes a zip of up to **1 GB**. The upload is kept on disk (as FastAPI's `UploadFile` already does), and
+  the zip's files are read one at a time. The `.md` files together stay capped at 200 MB unpacked, and each picture at
+  25 MB, with reading stopped at the cap whatever the zip claims. Pictures are made one at a time and flushed as they
+  go.
+- **Export** writes the zip to a temporary file on disk, reading each picture from the database in turn, and sends
+  that file. It is never held in memory whole.
+- **nginx**: the export and restore location gets `client_max_body_size 1g` and `proxy_read_timeout 600s`
+  (`deploy/nginx-quarry.conf`, docs/deploy.md).
+- Restore's result says `Restored, with 48 pictures` and lists any files it skipped.
+
+*Done when* exporting a world with a gallery on Greywick, a picture line in chapter 9, one in a journal entry and an
+unused picture gives a `Pictures/` folder of four files, links that open in a Markdown reader, and Greywick's
+`pictures:`; restoring that zip gives back all four pictures, the gallery in order with its captions and both
+picture lines showing; a hand-made zip with `![](<../../../Pictures/old map.png>)` restores with the picture linked; a
+link to a missing file stays as written; and a 600 MB export restores without the app going over its memory limit.
+
+### 17.7 Data model, in one place
+
+```sql
+pictures (
+  id          uuid primary key,
+  world_id    → worlds ON DELETE CASCADE,
+  name        text NOT NULL,          -- from the file name; changed on the Pictures page
+  format      text NOT NULL,          -- jpeg | png | webp: the full file's
+  width       int NOT NULL,           -- the full file's, to reserve room before it loads
+  height      int NOT NULL,
+  size        int NOT NULL,           -- bytes of the full file
+  created_by, created_at
+)
+picture_files (
+  picture_id  → pictures ON DELETE CASCADE,
+  kind        text NOT NULL,          -- full | view | thumb
+  data        bytea NOT NULL,         -- STORAGE EXTERNAL: already compressed
+  PRIMARY KEY (picture_id, kind)
+)
+entity_pictures (
+  entity_id   → entities ON DELETE CASCADE,
+  picture_id  → pictures ON DELETE RESTRICT,
+  position    int NOT NULL,           -- 0 is the main picture
+  caption     text NOT NULL DEFAULT '',
+  PRIMARY KEY (entity_id, picture_id)
+)
+```
+
+- **Why the bytes have a table of their own:** lists, entry pages and the Pictures page read pictures without loading
+  any files.
+- **Texts point at pictures by id in their Markdown**, with no foreign key, like names. That is why a picture is
+  deleted only when nothing uses it (§17.1), and why a line whose picture is gone shows a placeholder instead of
+  failing.
+- **The picture line** is recognised by one pattern, kept beside the margin-note pattern in `margin.py` and its twin
+  in the frontend: `^[ \t]*!\[([^\]\n]*)\]\(picture:([0-9a-f-]{36})\)[ \t]*$`.
+
+**Endpoints:**
+
+- `POST /api/worlds/<slug>/pictures` takes one file and returns the picture.
+- `GET /api/worlds/<slug>/pictures` returns every picture with where it is used.
+- `PATCH /api/pictures/<id>` changes the name. `DELETE /api/pictures/<id>` answers 409, with the uses, when the picture
+  is used.
+- `GET /api/pictures/<id>/{full,view,thumb}` returns the files (§17.4).
+- `PUT /api/entities/<id>/pictures` takes the gallery in order (`[{picture, caption}]`).
+- An entry's detail gains `pictures` (id, caption, width, height), and the cards gain `picture`, the main picture's id
+  or null.
+- The offline sync's answer (§4) gains `pictures`: the id, name, width and height of each picture used in the texts it
+  sends.
+
+### 17.8 The demo world and the Guide
+
+**The demo world** (backend/src/quarry/demo.py) gains three made-up pictures, **drawn in code** with Pillow when the
+demo is loaded, so no image files are added to the repository:
+
+- Marrow Locks gets two: a lock gate in flat shapes, *The upper gate*, as its main picture, and a plan of the locks,
+  *The locks from above*.
+- The Brass Compass gets a compass rose, *The compass, closed*.
+- Chapter 3 of The Ferryman's Daughter (*What the River Kept*) opens with a picture line of the compass, captioned
+  *The brass compass*.
+
+They go in through the export layout like the rest of the demo: files under `Pictures/`, `pictures:` in frontmatter,
+and a link in the chapter.
+
+**The Guide** (§15) gains one step. In **walkthrough 4** (*The bible*), after Tamsin Vey's page comes Marrow Locks' page,
+with its main picture at the top. The step opens the full view and steps to the plan, then uses *Make main* on the plan.
+It only points at *Add pictures…*, since that is a file picker. About 20 seconds more, so the Guide's total is about 26
+minutes. Walkthrough 3 needs nothing new: chapter 3's picture is simply there.
+
+**Tests** use made-up pictures drawn in the tests (Pillow), never photos or drawings of anything real, and no story
+content (§1).
+
+*Done when* loading the demo world shows Marrow Locks with its main picture on its page and card, the compass at the
+top of chapter 3 (also on the phone in airplane mode after a sync), and three pictures on the Pictures page; and
+walkthrough 4 plays the new step with no skipped step in the end-to-end run.
+
+### 17.9 Not building
+
+- **Editing pictures**: no cropping, rotating (beyond turning the picture the way its camera held it), filters,
+  drawing or marking up. A picture is changed by uploading another.
+- **AI of any kind**: no generated pictures, no captions, descriptions or tags made by a model, no recognising faces or
+  places, and no "similar pictures". Captions are the writer's own words (§1).
+- **Pictures in the compiled manuscript** (Thomas). They are in the chapter files of the export.
+- **Albums, folders or tags** for pictures: the Pictures page and where each is used are enough.
+- **Pictures on captures, items and decisions**, and **sharing a picture to Quarry** from the phone's gallery: a
+  picture is added where it belongs, on an entry or in a text.
+- **Pictures from a web address**: a picture is uploaded, so the export holds it.
+- **Video and sound.**
+- **Thumbs in the bible tables**: the main picture is on the entry page and its cards.
+
+### 17.10 Toward a drawn map
+
+The drawn map (an uploaded map image with places pinned on it, WORLD-MODEL.md §6) stays on the later list (§18), and
+isn't specified here. This work makes it smaller: the map image is a picture, uploaded, kept, copied for the phone,
+cached offline and carried by the export and Restore as above. What is left for it is the pins (a picture, a place
+entry, and where on the picture it sits, as fractions of its width and height), the view that draws them with *as of*,
+and perhaps a larger size limit for maps than 2400 px, which is for that spec to decide.
+
+### 17.11 Decisions for phase 15
+
+Thomas's answers are in DECISIONS.md (2026-10-26):
+
+- the bytes live in Postgres, in a table of their own, rather than on a volume or in object storage (§17.4);
+- a picture is scaled down to 2400 px on upload and its metadata dropped, rather than kept as uploaded (§17.4);
+- picture lines are left out of the compiled manuscript (§17.3);
+- the demo world gets three made-up pictures drawn in code, and walkthrough 4 one step (§17.8).
+
+## 18. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -3155,7 +3531,7 @@ None left. Thomas's answers are in DECISIONS.md (2026-10-25):
 - Native apps (the PWA is enough on Android)
 - A git mirror of the content (§8)
 - A drawn map: uploaded map images with pinned places stay on the later list (WORLD-MODEL.md §6). The chart (§13.7)
-  is schematic and doesn't replace them.
+  is schematic and doesn't replace them. Pictures (§17) carry the image, so what is left is the pins (§17.10).
 - From the plan-first comparison (phase 13, §14), deliberately not built:
   - questionnaires, templates or prompts for worldbuilding: the Journal is written freely and swept afterwards
     (§14.1);
@@ -3167,7 +3543,7 @@ None left. Thomas's answers are in DECISIONS.md (2026-10-25):
   - calendars, or packs of real history: time stays a sortable number (§13.1.1);
   - a soundtrack feature: the share target already records where a link came from.
 
-## 18. Open questions
+## 19. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?
