@@ -31,9 +31,11 @@ import type { Card } from "../world/cards";
 import type { Hit, Matcher } from "../world/matcher";
 import { changeAt, changesField, setChanges, type Change } from "./changes";
 import { buildMarks, companionExtensions, marksChanged, markedAt, openKbd, Since, type CompanionHooks } from "./companion";
-import { cardDom, cutStripDom, findingStripDom, passageStripDom, selectionStripDom, nearMissStripDom, wasDom, type HistoryActions, type IsAtActions, type LinkActions, type PassageActions } from "./strips";
+import { choiceOn, choicesField, chooseChange, matcherFacet, namesChanged, settle } from "./shared";
+import { badChoiceStripDom, cardDom, cutStripDom, findingStripDom, passageStripDom, selectionStripDom, nearMissStripDom, settledRow, sharedCardDom, wasDom, type HistoryActions, type IsAtActions, type LinkActions, type PassageActions } from "./strips";
 
 export { countWords } from "../words";
+export { namesChanged };
 
 /** What the editor needs from the app to show the world. */
 export interface WorldHooks {
@@ -75,9 +77,6 @@ const underlines = (hooks: WorldHooks) => hooks.prefs().underlines && (hooks.com
 
 // ---- names: coloured by kind, recomputed for what is on screen --------------------------------------------------
 
-/** Tell the editor the world's names changed (a new entry, another spelling, a different setting). */
-export const namesChanged = StateEffect.define<null>();
-
 function namesPlugin(hooks: WorldHooks) {
   return ViewPlugin.fromClass(
     class {
@@ -96,14 +95,23 @@ function namesPlugin(hooks: WorldHooks) {
         const b = new RangeSetBuilder<Decoration>();
         if (matcher.empty) return b.finish();
         const doc = view.state.doc;
+        const wavy = underlines(hooks);
+        // a shared name nothing settles: dotted while Revising (docs/SPEC.md §14.10)
+        const dotted = hooks.companion?.revising() ?? false;
         let next = 0;
         for (const { from, to } of view.visibleRanges) {
           // whole lines (paragraphs), so a name is never cut in half at the edge of the screen; the matcher
           // remembers each line, so a keystroke only rescans the paragraph being written
           for (let pos = Math.max(from, next); pos <= to; ) {
             const line = doc.lineAt(pos);
-            for (const h of matcher.scanLine(line.text, line.from, underlines(hooks))) b.add(h.start, h.end, markFor(h, prefs));
             next = pos = line.to + 1;
+            // a choice line names nobody; one that singles out no claimant is underlined while Revising
+            const choice = choiceOn(view.state, line.from);
+            if (choice) {
+              if (wavy && choice.ids && !choice.ids.length && line.to > line.from) b.add(line.from, line.to, badChoice);
+              continue;
+            }
+            for (const h of settle(view.state, matcher, matcher.scanLine(line.text, line.from, wavy))) b.add(h.start, h.end, markFor(h, prefs, dotted));
           }
         }
         return b.finish();
@@ -113,10 +121,13 @@ function namesPlugin(hooks: WorldHooks) {
   );
 }
 
+const badChoice = Decoration.mark({ class: "cm-bad-choice", attributes: { "data-choice": "none" } });
 const markCache = new Map<string, Decoration>();
-function markFor(h: Hit, prefs: WritingPrefs): Decoration {
+function markFor(h: Hit, prefs: WritingPrefs, dotted = false): Decoration {
   const coloured = prefs.colourNames && !prefs.plainKinds.includes(h.entityKind as EntityKind);
-  const cls = h.kind === "near_miss" ? "cm-near-miss" : `cm-name${coloured ? ` cm-k-${h.entityKind}` : ""}`;
+  const cls = h.kind === "near_miss"
+    ? "cm-near-miss"
+    : `cm-name${coloured ? ` cm-k-${h.entityKind}` : ""}${h.kind === "ambiguous" && dotted ? " cm-ambiguous" : ""}`;
   const key = `${cls}|${h.entityId}|${h.kind}`;
   let d = markCache.get(key);
   if (!d) {
@@ -130,10 +141,29 @@ function markFor(h: Hit, prefs: WritingPrefs): Decoration {
 /** The name (or likely misspelling) under a position, found the same way the colours were. */
 function hitAt(state: EditorState, hooks: WorldHooks, pos: number, nearMisses = underlines(hooks)): Hit | undefined {
   const line = state.doc.lineAt(pos);
-  return hooks
-    .matcher()
-    .scanLine(line.text, line.from, nearMisses)
-    .find((h) => h.start <= pos && pos < h.end);
+  if (choiceOn(state, line.from)) return undefined;
+  const matcher = hooks.matcher();
+  return settle(state, matcher, matcher.scanLine(line.text, line.from, nearMisses)).find((h) => h.start <= pos && pos < h.end);
+}
+
+/** A choice line under a position that singles out nobody (docs/SPEC.md §14.10). */
+function badChoiceAt(state: EditorState, pos: number) {
+  const line = state.doc.lineAt(pos);
+  const c = choiceOn(state, line.from);
+  return c && c.ids && !c.ids.length ? c : undefined;
+}
+
+/** Its strip: the claimants to put in instead. */
+function badChoiceDom(v: EditorView, hooks: WorldHooks, at: number): HTMLElement | null {
+  const c = badChoiceAt(v.state, at);
+  if (!c) return null;
+  const claimants = c.owners.map((id) => hooks.card(id)).filter((x): x is Card => !!x);
+  const form = v.state.sliceDoc(c.start, c.end).replace(/^[ \t]*%%[ \t]*/, "").split(":")[0].trim();
+  return badChoiceStripDom(form, claimants, (id) => {
+    const now = badChoiceAt(v.state, at);
+    if (now) v.dispatch({ changes: { from: now.start, to: now.end, insert: `%% ${form}: ${hooks.card(id)?.name ?? id}` } });
+    v.focus();
+  });
 }
 
 function wrap(el: HTMLElement): HTMLElement {
@@ -167,6 +197,26 @@ let lastKey = 0;
 
 /** What resting on (or selecting) a marked word shows: a misspelling's fixes, or a name's card. */
 function hitDom(v: EditorView, hooks: WorldHooks, h: Hit): HTMLElement {
+  const shared = h.shared;
+  if (shared && h.kind !== "near_miss") {
+    // a shared name (docs/SPEC.md §14.10): who it means from here, by a choice line above the paragraph
+    const claimants = shared.ids.map((id) => hooks.card(id)).filter((c): c is Card => !!c);
+    const actions = {
+      open: hooks.open,
+      choose: (ids: string[] | null) => {
+        const names = ids ? ids.map((id) => hooks.card(id)?.name ?? id) : null;
+        v.dispatch({ changes: chooseChange(v.state, v.state.doc.lineAt(Math.min(h.start, v.state.doc.length)).from, shared.key, shared.form, names) });
+        v.focus();
+      },
+    };
+    if (h.kind === "ambiguous") return sharedCardDom(shared.form, claimants, actions);
+    return settledRow(cardDom(hooks.card(h.entityId), {
+      open: () => hooks.open(h.entityId),
+      link: hooks.link(h.entityId),
+      isAt: hooks.noIsAt ? undefined : hooks.isAt(h.entityId),
+      several: hooks.several,
+    }), claimants, h.chosen ?? [h.entityId], actions);
+  }
   if (h.kind === "near_miss") {
     const target = hooks.card(h.entityId);
     return nearMissStripDom(h.matched, target?.name ?? "?", {
@@ -194,6 +244,8 @@ function full(hooks: WorldHooks): CompanionHooks | null {
       const sel = view.state.selection.main;
       const h = hitAt(view.state, hooks, pos, true);
       if (h && (sel.empty || (h.start <= sel.from && sel.to <= h.end))) return { from: h.start, dom: hitDom(view, hooks, h) };
+      const bad = sel.empty ? badChoiceDom(view, hooks, pos) : null;
+      if (bad) return { from: view.state.doc.lineAt(pos).from, dom: bad };
       if (sel.empty) return null;
       const text = view.state.sliceDoc(sel.from, sel.to).trim();
       const cut = hooks.cut ? () => hooks.cut!(sel.from, sel.to) : undefined;
@@ -222,10 +274,16 @@ function full(hooks: WorldHooks): CompanionHooks | null {
       };
     },
     nextMiss(state, after) {
+      // likely misspellings, shared names nothing settles, and choice lines that single out nobody
       const matcher = hooks.matcher();
       for (let n = after < 0 ? 1 : state.doc.lineAt(after).number; n <= state.doc.lines; n++) {
         const line = state.doc.line(n);
-        const h = matcher.scanLine(line.text, line.from, true).find((x) => x.kind === "near_miss" && x.start > after);
+        const choice = choiceOn(state, line.from);
+        if (choice) {
+          if (choice.ids && !choice.ids.length && line.from > after) return { from: line.from, to: line.to };
+          continue;
+        }
+        const h = settle(state, matcher, matcher.scanLine(line.text, line.from, true)).find((x) => (x.kind === "near_miss" || x.kind === "ambiguous") && x.start > after);
         if (h) return { from: h.start, to: h.end };
       }
       return null;
@@ -241,6 +299,10 @@ function intent(hooks: WorldHooks): Extension[] {
       if (Date.now() - lastKey < prefs.quietMs) return null;
       if (prefs.cardsWithCtrl && !ctrl) return null;
       const h = hitAt(view.state, hooks, pos);
+      if (!h && badChoiceAt(view.state, pos) && underlines(hooks)) {
+        const line = view.state.doc.lineAt(pos);
+        return { pos: line.from, end: line.to, above: false, create: (v) => ({ dom: badChoiceDom(v, hooks, pos) ?? document.createElement("div") }) };
+      }
       if (!h) {
         const c = full(hooks);
         const m = c && c.revising() ? markedAt(c, pos) : undefined;
@@ -441,6 +503,9 @@ const theme = EditorView.theme({
   ".cm-has-item": { boxShadow: "-12px 0 0 -9px var(--accent)" },
   ".cm-passage": { backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent)", borderRadius: "2px" },
   ".cm-near-miss": { textDecoration: "underline wavy var(--warn)", textDecorationSkipInk: "none", textUnderlineOffset: "4px" },
+  // a shared name nothing settles, while Revising: faint, like a possible new name (docs/SPEC.md §14.10)
+  ".cm-ambiguous": { textDecoration: "underline dotted color-mix(in srgb, currentColor 55%, transparent)", textUnderlineOffset: "4px" },
+  ".cm-bad-choice": { textDecoration: "underline wavy var(--warn)", textDecorationSkipInk: "none", textUnderlineOffset: "4px" },
   ".cm-searchMatch": { backgroundColor: "var(--warn-soft)", outline: "1px solid var(--warn)" },
   ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--accent-soft)" },
   ".cm-panels": { backgroundColor: "var(--surface)", color: "var(--text)", fontFamily: "system-ui, sans-serif", fontSize: "13px" },
@@ -544,6 +609,8 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
     EditorState.readOnly.of(!!opts.readOnly),
     EditorView.editable.of(!opts.readOnly),
     theme,
+    matcherFacet.of(opts.world.matcher),
+    choicesField,
     namesPlugin(opts.world),
     intentMode.of(opts.readOnly ? [] : intent(opts.world)),
     companion ? companionExtensions(companion) : [],

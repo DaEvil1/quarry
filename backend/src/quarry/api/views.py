@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..mentions import COUNTED
 from ..models import Entity, Mention, Presence, RelationType, Relationship, User
 from .deps import current_user
 from .storytime import _paragraph_bounds, story_order
@@ -70,7 +71,7 @@ def cooccurrence(db: Session, world) -> list[dict]:  # type: ignore[no-untyped-d
     by_chapter: dict[uuid.UUID, list[tuple[int, uuid.UUID]]] = defaultdict(list)
     for m in db.scalars(select(Mention).where(Mention.source_table == "chapter",
                                               Mention.source_id.in_([c.id for c in chapters]),
-                                              Mention.kind != "near_miss")):
+                                              Mention.kind.in_(COUNTED))):
         by_chapter[m.source_id].append((m.start, m.entity_id))
     pairs: dict[tuple[uuid.UUID, uuid.UUID], Counter] = defaultdict(Counter)
     for ch in chapters:

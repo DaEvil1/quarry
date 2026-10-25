@@ -49,7 +49,8 @@ REVISION_REASONS = ("autosnap", "checkpoint", "state", "restore", "conflict", "s
 STARTING_STATUSES = ("raw", "rewritten", "polished")
 # documents with revisions: chapters, and journal entries since they moved onto the editor (docs/SPEC.md §14.1.1)
 REVISION_DOCS = ("chapter", "journal")
-MENTION_KINDS = ("exact", "alias", "near_miss")
+# ambiguous: a name two entries share, not settled by a choice line (docs/SPEC.md §14.10); one row per claimant
+MENTION_KINDS = ("exact", "alias", "near_miss", "ambiguous")
 # what an item can be linked to: a bible entry, or the chapter or journal entry (with the passage) it came from
 ITEM_LINK_TARGETS = ("entity", "chapter", "journal")
 # a character's gender, read by the family tree for its words; NULL is "not set"
@@ -110,6 +111,8 @@ class World(Base):
     chart: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     # one optional line: what this world is about (docs/SPEC.md §14.4), up to 300 characters
     premise: Mapped[str | None] = mapped_column(String(300))
+    # the matcher's version its stored mentions were worked out with: older ones are worked out again at startup
+    mentions_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()

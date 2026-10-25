@@ -6,6 +6,7 @@ import type { JournalDetail, StoryChapter } from "../types";
 import type { Era } from "../world/eras";
 import type { Unit } from "../world/when";
 import AsOfPicker from "./AsOfPicker.vue";
+import { castOf } from "../world/cast";
 
 // The entry tab of the companion panel in a journal entry (docs/SPEC.md §14.1.1): the names in it, its cards' "as of",
 // checkpoints and History, and deleting it. Its own component so typing never re-renders it.
@@ -34,16 +35,9 @@ const names = computed(() => {
   return list.length > 2 ? `${list.slice(0, 2).join(", ")} and ${list.length - 2} more` : list.join(" and ");
 });
 
-const named = computed(() => {
-  const counts = new Map<string, { id: string; name: string; kind: string | undefined; count: number }>();
-  for (const m of props.entry.mentions) {
-    if (m.kind === "near_miss") continue;
-    const c = counts.get(m.entity_id) ?? { id: m.entity_id, name: m.entity_name, kind: m.entity_kind, count: 0 };
-    c.count++;
-    counts.set(m.entity_id, c);
-  }
-  return [...counts.values()].sort((a, b) => b.count - a.count);
-});
+// shared names nothing settles are listed once, with their claimants (docs/SPEC.md §14.10)
+const cast = computed(() => castOf(props.entry.mentions));
+const named = computed(() => cast.value.named);
 </script>
 
 <template>
@@ -87,7 +81,12 @@ const named = computed(() => {
           <RouterLink class="kname" :to="{ name: 'entity', params: { world: props.world, id: e.id } }">{{ e.name }}</RouterLink>
           <span class="muted small">×{{ e.count }}</span>
         </li>
-        <li v-if="!named.length" class="muted small">No names from the bible yet.</li>
+        <li v-for="u in cast.unsettled" :key="`${u.form}|${u.claimants.map((c) => c.id).join()}`" data-testid="cast-unsettled" :title="`Not settled: ${u.claimants.map((c) => c.name).join(' or ')}`">
+          <span class="muted">{{ u.form }}?</span>{{ " " }}
+          <template v-for="(c, i) in u.claimants" :key="c.id"><span v-if="i" class="muted"> · </span><RouterLink class="kname" :class="c.kind ? `k-${c.kind}` : ''" :to="{ name: 'entity', params: { world: props.world, id: c.id } }">{{ u.short[i] }}</RouterLink></template>
+          <span class="muted small">×{{ u.count }}</span>
+        </li>
+        <li v-if="!named.length && !cast.unsettled.length" class="muted small">No names from the bible yet.</li>
       </ul>
     </section>
     <section v-if="!props.readOnly" class="side-actions">

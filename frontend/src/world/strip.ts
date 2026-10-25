@@ -17,6 +17,8 @@ export interface StripCell {
   /** later on the clock than the "as of" point (docs/SPEC.md §13.1.4) */
   later: boolean;
   asOf: boolean;
+  /** uses of a name it shares that no choice line settles (docs/SPEC.md §14.10): a faint cell when it has no others */
+  unsettled: number;
 }
 
 export interface Gap {
@@ -47,6 +49,7 @@ export function mentionStrip(
   entityId: string,
   asOf: At | null = null,
   indexOf?: IndexOf,
+  unsettled: Map<string, number> = new Map(),
 ): Strip {
   // with no clock given, the strip's own book order is the clock (as before phase 12)
   const clock: IndexOf = indexOf ?? Object.assign((id: string | null) => timeline.find((c) => c.id === id)?.index, {});
@@ -54,7 +57,7 @@ export function mentionStrip(
   const cells: StripCell[] = timeline.map((c, i) => {
     const count = counts.get(c.id) ?? 0;
     const later = asOf !== null && !atOrBefore(c.id, asOf, clock);
-    return { chapter: c, n: i + 1, count, step: step(count, busiest), pov: c.pov === entityId, later, asOf: asOf !== null && typeof asOf === "number" && clock(c.id) === asOf };
+    return { chapter: c, n: i + 1, count, step: step(count, busiest), pov: c.pov === entityId, later, asOf: asOf !== null && typeof asOf === "number" && clock(c.id) === asOf, unsettled: unsettled.get(c.id) ?? 0 };
   });
   const rows: Strip["rows"] = [];
   for (const cell of cells) {
@@ -88,5 +91,8 @@ export function mentionStrip(
     const after = timeline.length - named[named.length - 1]!.n;
     if (after > 0) parts.push(after === 1 ? "not named in the last chapter" : `not named in the last ${after}`);
   }
+  // shared names no choice line settles count for nobody, and are said once (docs/SPEC.md §14.10)
+  const vague = cells.filter((c) => c.unsettled > 0);
+  if (vague.length) parts.push(`+ ${vague.reduce((k, c) => k + c.unsettled, 0)} unsettled in ${chapters(vague.length)}`);
   return { rows, gaps, line: parts.join(" · ") };
 }

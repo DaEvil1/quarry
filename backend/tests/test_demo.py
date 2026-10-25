@@ -80,6 +80,12 @@ def test_demo_world(signed_in: Client):
     assert ("dead_mentioned", True, "Ash Season") in planned
     assert not any(c["rule"] == "dead_mentioned" and "Cade" in c["message"] for c in signed_in.get(f"{W}/checks").json())
     assert ("cause_after_effect", "Lanterns on the Water") in rules
+    # two Linnets: "The Cartographer" settles the bare name with choice lines (docs/SPEC.md §14.10)
+    two_book = signed_in.get(f"{W}/projects/ash-season/chapters").json()["chapters"]
+    cartographer = signed_in.get(f"{W}/chapters/{next(c['id'] for c in two_book if c['title'] == 'The Cartographer')}").json()
+    linnets = [(m["kind"], m["entity_name"]) for m in cartographer["mentions"] if m["matched_text"] == "Linnet"]
+    assert linnets == [("ambiguous", "Linnet Dray"), ("ambiguous", "Linnet Sorrel"), ("alias", "Linnet Sorrel"),
+                       ("alias", "Linnet Dray"), ("ambiguous", "Linnet Dray"), ("ambiguous", "Linnet Sorrel")]
     delta = next(e for e in signed_in.get(f"{W}/entities", params={"kind": "character"}).json() if e["name"] == "The Ninefold Delta")
     assert (delta["kind"], delta["also_kinds"]) == ("place", ["character"])
 

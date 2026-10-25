@@ -270,6 +270,8 @@ const species = computed(() => {
 
 // the mentions strip: how often each chapter names the entry
 const chapterCounts = computed(() => new Map((detail.value?.mentions ?? []).filter((m) => m.source_table === "chapter").map((m) => [m.source_id, m.count])));
+// uses of a name it shares that nothing settles: faint cells, counted for none (docs/SPEC.md §14.10)
+const unsettledCounts = computed(() => new Map((detail.value?.unsettled ?? []).filter((u) => u.source_table === "chapter").map((u) => [u.source_id, u.count])));
 
 // the family: recorded parents, children and marriages make a tree; kin worked out from them, dimmed, as of the page's
 // chapter (docs/SPEC.md §12.2)
@@ -446,7 +448,7 @@ async function notForThisOne(label: string) {
     <div v-if="notice" class="notice ok" role="status">{{ notice }}</div>
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
 
-    <MentionStrip v-if="cards.timeline.length" :world="world.slug" :entity-id="detail.entity.id" :timeline="cards.timeline" :counts="chapterCounts" :as-of="asOf" :index-of="cards.indexOf" :class="`k-${detail.entity.kind}`" />
+    <MentionStrip v-if="cards.timeline.length" :world="world.slug" :entity-id="detail.entity.id" :timeline="cards.timeline" :counts="chapterCounts" :unsettled="unsettledCounts" :as-of="asOf" :index-of="cards.indexOf" :class="`k-${detail.entity.kind}`" />
 
     <section v-if="missingHere.length || evidenceHere.length" class="card findings-card" data-testid="entity-findings">
       <div v-for="x in evidenceHere" :key="x.key" class="finding" data-rule="evidence_retired" data-testid="evidence-finding">
@@ -702,6 +704,20 @@ async function notForThisOne(label: string) {
         </ul>
       </template>
       <p v-if="!detail.mentions.length" class="empty">Not mentioned anywhere yet.</p>
+      <div v-if="detail.unsettled?.length" class="unsettled" data-testid="unsettled">
+        <h3 class="small muted group-title">Not settled</h3>
+        <p class="small muted">A name it shares with another entry, with no choice line saying which one is meant. Counted for neither.</p>
+        <ul class="rows">
+          <li v-for="u in detail.unsettled" :key="`${u.source_table}-${u.source_id}`" class="faint-row">
+            <div class="grow">
+              <RouterLink :to="sourceLink(world.slug, u.source_table, u.source_id)">{{ u.title }}</RouterLink>
+              <span class="muted small"> · “{{ u.matched }}”</span>
+            </div>
+            <span class="pill">{{ SOURCE_LABEL[u.source_table] }}</span>
+            <span class="muted small">×{{ u.count }}</span>
+          </li>
+        </ul>
+      </div>
     </section>
 
     <section v-if="detail.linked_items.length" class="card">

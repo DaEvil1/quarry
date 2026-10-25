@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..mentions import refresh_source, refresh_world
+from ..mentions import COUNTED, refresh_source, refresh_world
 from ..models import (
     Chapter,
     Decision,
@@ -197,7 +197,7 @@ def named_in_projects(db: Session, world: World) -> dict[uuid.UUID, list[str]]:
     slugs = _slugs(world)
     rows = db.execute(
         select(Mention.entity_id, Chapter.project_id).join(Chapter, Chapter.id == Mention.source_id)
-        .where(Mention.world_id == world.id, Mention.source_table == "chapter", Mention.kind != "near_miss",
+        .where(Mention.world_id == world.id, Mention.source_table == "chapter", Mention.kind.in_(COUNTED),
                Chapter.state == "current").distinct()).all()
     out: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
     for eid, pid in rows:
@@ -224,7 +224,7 @@ def list_entities(slug: str, kind: Kind | None = None, user: User = Depends(curr
         # an entry of more than one kind is listed under each (docs/SPEC.md §14.8)
         q = q.where((Entity.kind == kind) | (literal(kind) == any_(Entity.also_kinds)))
     counts = dict(db.execute(
-        select(Mention.entity_id, func.count()).where(Mention.world_id == world.id, Mention.kind != "near_miss")
+        select(Mention.entity_id, func.count()).where(Mention.world_id == world.id, Mention.kind.in_(COUNTED))
         .group_by(Mention.entity_id)).all())
     slugs = _slugs(world)
     named = named_in_projects(db, world)
@@ -267,13 +267,19 @@ def get_entity(slug: str, entity_id: uuid.UUID, user: User = Depends(current_use
                                                            ItemLink.target_id == e.id)))
     mentions, near = [], []
     unlinked = []
+    # a shared name no choice line settles (docs/SPEC.md §14.10): shown faintly, counted for none
+    unsettled = []
     for (table, sid), ms in by_source.items():
         row = db.get(SOURCES[table], sid)
         if row is None:
             continue
         text = text_of(row)
-        hits = [m for m in ms if m.kind != "near_miss"]
+        hits = [m for m in ms if m.kind in COUNTED]
         misses = [m for m in ms if m.kind == "near_miss"]
+        vague = [m for m in ms if m.kind == "ambiguous"]
+        if vague:
+            unsettled.append({"source_table": table, "source_id": str(sid), "title": title_of(row), "count": len(vague),
+                              "matched": vague[0].matched_text})
         base = {"source_table": table, "source_id": str(sid), "title": title_of(row),
                 "project": projects.get(getattr(row, "project_id", None)), "version": row.version
                 if hasattr(row, "version") else None}
@@ -314,6 +320,7 @@ def get_entity(slug: str, entity_id: uuid.UUID, user: User = Depends(current_use
                                      .order_by(Decision.decided_on.desc()))] if tagged | named else []
     return {"entity": _out(e, sum(m["count"] for m in mentions), projects), "mentions": mentions, "unlinked": unlinked,
             "linked_items": linked_items, "near_misses": near, "first_appearance": list(first.values()),
+            "unsettled": unsettled,
             "decisions": decisions, **entity_world_detail(db, world, e),
             # an event's tellings (Told in, docs/SPEC.md §13.2.3)
             "tellings": tellings_of(db, world, e.id) if e.kind == "event" else [],

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..clock import INF, TIMED, Clock, time_text
 from ..db import get_db
+from ..mentions import COUNTED
 from ..models import (
     Chapter,
     Entity,
@@ -138,7 +139,7 @@ def checks(db: Session, world: World, planned: bool = False) -> list[dict]:
     appears: dict[uuid.UUID, Counter] = defaultdict(Counter)
     if order:
         for m in db.scalars(select(Mention).where(Mention.source_table == "chapter", Mention.source_id.in_(list(index)),
-                                                  Mention.kind != "near_miss")):
+                                                  Mention.kind.in_(COUNTED))):
             named[m.entity_id][m.source_id] += 1
             if not any(a <= m.start < b for a, b in told.get(m.source_id, ())):
                 appears[m.entity_id][m.source_id] += 1

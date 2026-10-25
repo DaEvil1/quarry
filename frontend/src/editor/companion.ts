@@ -7,6 +7,7 @@ import { Decoration, EditorView, ViewPlugin, keymap, showTooltip, type Decoratio
 
 import type { Finding } from "../world/findings";
 import { findingStripDom, type FindingActions } from "./strips";
+import { choiceOn, namesChanged } from "./shared";
 
 /** A finding where it is now in the text (its analysis was of an older version). */
 export interface Marked {
@@ -29,6 +30,8 @@ export interface CompanionHooks {
   nextMiss(state: EditorState, after: number): { from: number; to: number } | null;
   stash(): void;
   sceneBreak(): void;
+  /** a journal entry: a %% line is ordinary text, and only choice lines are notes (docs/SPEC.md §14.10) */
+  choicesOnly?: boolean;
 }
 
 // ---- margin notes: a line starting with %% is a note to yourself ------------------------------------------------
@@ -36,14 +39,17 @@ export interface CompanionHooks {
 const marginLine = Decoration.line({ class: "cm-margin", attributes: { spellcheck: "false" } });
 const MARGIN = /^[ \t]*%%/;
 
-export const marginPlugin = ViewPlugin.fromClass(
+/** Margin notes dimmed: every %% line in a chapter; in a journal entry only choice lines. */
+const marginPlugin = (choicesOnly: boolean) => ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
     constructor(view: EditorView) {
       this.decorations = this.build(view);
     }
     update(u: ViewUpdate) {
-      if (u.docChanged || u.viewportChanged) this.decorations = this.build(u.view);
+      if (u.docChanged || u.viewportChanged || (choicesOnly && u.transactions.some((tr) => tr.effects.some((e) => e.is(namesChanged))))) {
+        this.decorations = this.build(u.view);
+      }
     }
     build(view: EditorView): DecorationSet {
       const b = new RangeSetBuilder<Decoration>();
@@ -51,7 +57,7 @@ export const marginPlugin = ViewPlugin.fromClass(
       for (const { from, to } of view.visibleRanges) {
         for (let pos = Math.max(from, next); pos <= to; ) {
           const line = view.state.doc.lineAt(pos);
-          if (MARGIN.test(line.text)) b.add(line.from, line.from, marginLine);
+          if (choicesOnly ? choiceOn(view.state, line.from) : MARGIN.test(line.text)) b.add(line.from, line.from, marginLine);
           next = pos = line.to + 1;
         }
       }
@@ -148,7 +154,8 @@ function keyboardStrip(view: EditorView, inner: HTMLElement): HTMLElement {
       else if (b && b.isConnected) close();
     });
   });
-  requestAnimationFrame(() => focusables()[0]?.focus());
+  // a strip can say which of its buttons the keyboard starts on (a shared name: its first choice, not a name)
+  requestAnimationFrame(() => (box.querySelector<HTMLElement>("[data-first]:not([disabled])") ?? focusables()[0])?.focus());
   return box;
 }
 
@@ -207,7 +214,7 @@ function sceneBreaks(hooks: CompanionHooks) {
 
 export function companionExtensions(hooks: CompanionHooks): Extension[] {
   return [
-    marginPlugin,
+    marginPlugin(!!hooks.choicesOnly),
     marksField,
     kbdField,
     sceneBreaks(hooks),

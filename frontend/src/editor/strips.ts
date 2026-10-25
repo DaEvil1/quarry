@@ -4,6 +4,7 @@
 
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "../types";
 import type { Card } from "../world/cards";
+import { shortNames } from "../world/cast";
 import { isPronunciation } from "../world/labels";
 import { possessors, shownByName, speciesText } from "../world/species";
 
@@ -808,4 +809,70 @@ function itemForm(root: HTMLElement, p: PassageActions, start: "spark" | "questi
   formKeys(root, save, done);
   root.append(el("span", "qstrip-q", "From this passage"), kind.row, line, who, row);
   setTimeout(() => line.focus());
+}
+
+// ---- a name shared by two entries (docs/SPEC.md §14.10) -----------------------------------------------------------
+
+export interface SharedActions {
+  /** from here on, the name means these entries (null: nobody in particular) */
+  choose: (ids: string[] | null) => unknown;
+  open: (id: string) => void;
+}
+
+/** "From here: Marr · Senn · Both", without the ones already chosen; Unsure once something is. */
+function fromHere(claimants: Card[], chosen: string[] | null, actions: SharedActions): HTMLElement {
+  const row = el("div", "qrow");
+  row.dataset.testid = "shared-strip";
+  row.append(el("span", "qstrip-q", "From here:"));
+  const short = shortNames(claimants.map((c) => c.name));
+  const ids = claimants.map((c) => c.id);
+  claimants.forEach((c, i) => {
+    if (chosen?.length === 1 && chosen[0] === c.id) return;
+    row.append(chip(short[i], () => actions.choose([c.id]), `k-${c.kind}`));
+  });
+  if (!(chosen && chosen.length === ids.length)) row.append(chip(claimants.length === 2 ? "Both" : "All", () => actions.choose(ids)));
+  if (chosen) row.append(chip("Unsure", () => actions.choose(null), "quiet"));
+  return row;
+}
+
+/** A shared name no choice line settles: everyone claiming it with their one-liner, then which one it means from here. */
+export function sharedCardDom(form: string, claimants: Card[], actions: SharedActions): HTMLElement {
+  const root = el("div", "qcard");
+  root.setAttribute("role", "tooltip");
+  root.dataset.testid = "shared-card";
+  const head = el("div", "qcard-head");
+  head.append(el("span", "qcard-name", `${form}?`), el("span", "qcard-also", `${claimants.length} entries share it`));
+  root.append(head);
+  const ul = el("ul", "qcard-rels");
+  for (const c of claimants) {
+    const li = el("li");
+    const name = el("button", `qname k-${c.kind} qlink`, c.name);
+    name.type = "button";
+    name.addEventListener("mousedown", (e) => e.preventDefault());
+    name.addEventListener("click", () => actions.open(c.id));
+    li.append(name);
+    if (c.summary) li.append(el("span", "qcard-role", ` · ${c.summary}`));
+    ul.append(li);
+  }
+  const choose = fromHere(claimants, null, actions);
+  // the keyboard (Alt+Enter, F8) starts on the first choice
+  const first = choose.querySelector("button");
+  if (first) first.dataset.first = "";
+  root.append(ul, choose);
+  return root;
+}
+
+/** A shared name a choice line settled: the chosen entry's card, then the others, Both and Unsure. */
+export function settledRow(card: HTMLElement, claimants: Card[], chosen: string[], actions: SharedActions): HTMLElement {
+  card.append(fromHere(claimants, chosen, actions));
+  return card;
+}
+
+/** A choice line whose words single out nobody: the claimants to put in instead. */
+export function badChoiceStripDom(form: string, claimants: Card[], put: (id: string) => unknown): HTMLElement {
+  const root = el("div", "qstrip");
+  root.dataset.testid = "choice-strip";
+  root.append(el("span", "qstrip-q", `Which ${form}?`));
+  for (const c of claimants) root.append(chip(c.name, () => put(c.id), `k-${c.kind}`));
+  return root;
 }
