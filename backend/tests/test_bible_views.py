@@ -270,10 +270,12 @@ def test_value_suggestions_are_per_label_and_kind(world: Client):
     for i in range(3):
         fact(world, entity(world, f"Town {i}", "place"), "Type", "City")
     s = world.get(f"{W}/fact-suggestions").json()
-    assert s["event"]["values"]["type"] == [{"value": "Festival", "count": 4}, {"value": "Battle", "count": 2},
-                                            {"value": "Wedding", "count": 1}]
+    # the values in use (the starting values of phase 12 follow them, without counts)
+    used = lambda xs: [x for x in xs if x["count"]]  # noqa: E731
+    assert used(s["event"]["values"]["type"]) == [{"value": "Festival", "count": 4}, {"value": "Battle", "count": 2},
+                                                  {"value": "Wedding", "count": 1}]
     # places' types are their own
-    assert s["place"]["values"]["type"] == [{"value": "City", "count": 3}]
+    assert used(s["place"]["values"]["type"]) == [{"value": "City", "count": 3}]
     # a label on three or more entries is common, and listed first
     assert s["event"]["common"] == ["type"] and s["event"]["labels"][0] == "type"
     assert s["place"]["labels"][0] == "Type"
@@ -433,7 +435,8 @@ def test_existing_world_gets_witnessed_from_the_migration(db_url: str):
             c.execute(text("INSERT INTO relation_types (id, world_id, a_kind, b_kind, label, reverse_label, position) "
                            "VALUES (:id, :w, :a, :b, :l, :r, :p)"),
                       {"id": uuid.uuid4(), "w": wid, "a": a, "b": b, "l": label, "r": reverse, "p": pos})
-    command.upgrade(cfg, "head")
+    # up to phase 11 (phase 12 adds more types after it)
+    command.upgrade(cfg, "0009")
     with e.connect() as c:
         def listed(wid):  # type: ignore[no-untyped-def]
             return [tuple(r) for r in c.execute(text(

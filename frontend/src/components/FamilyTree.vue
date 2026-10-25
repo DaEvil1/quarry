@@ -50,8 +50,9 @@ const points = (ps: [number, number][]) => ps.map(([x, y]) => `${x},${y}`).join(
               <polyline :points="points(l.points.map(([x, y]) => [x, y - 3]) as [number, number][])" class="fline married" :class="{ dashed: l.dashed }" />
               <polyline :points="points(l.points.map(([x, y]) => [x, y + 3]) as [number, number][])" class="fline married" :class="{ dashed: l.dashed }" />
             </template>
-            <polyline v-else :points="points(l.points)" class="fline" :class="[l.kind, { dashed: l.dashed }]" />
-            <text v-if="l.label" class="fline-label" :x="l.points[3]![0] + 4" :y="l.points[3]![1] - 6">{{ l.label }}</text>
+            <polyline v-else :points="points(l.points)" class="fline" :class="[l.kind, { dashed: l.dashed }]" :data-testid="l.kind === 'ancestor' ? 'family-lineage' : undefined" />
+            <text v-if="l.label && l.kind === 'ancestor'" class="fline-label lineage" :x="l.points[1]![0] + 6" :y="(l.points[0]![1] + l.points[1]![1]) / 2" data-testid="family-lineage-label">{{ l.label }}</text>
+            <text v-else-if="l.label" class="fline-label" :x="l.points[3]![0] + 4" :y="l.points[3]![1] - 6">{{ l.label }}</text>
           </template>
         </g>
         <g v-for="(u, i) in tree.unknown" :key="`u${i}`" class="funknown">
@@ -81,7 +82,8 @@ const points = (ps: [number, number][]) => ps.map(([x, y]) => `${x},${y}`).join(
     <p v-else class="empty">No recorded parents, children or marriages for them yet.</p>
     <p class="muted small">
       Click a name to centre the tree on them; ↗ opens the entry. Read from “parent of” (and any type ending in parent,
-      father or mother of), “married to” and “sibling of”; kin is worked out, never stored.
+      father or mother of), “married to”, “sibling of” and “ancestor of” (a long dashed line, the generations between
+      not recorded); kin is worked out, never stored.
     </p>
   </div>
 </template>

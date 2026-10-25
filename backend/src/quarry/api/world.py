@@ -3,6 +3,7 @@ colour names and show them on hover (docs/WORLD-MODEL.md §2–§5)."""
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -17,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..mentions import first_name_aliases
 from ..models import Chapter, Entity, Fact, FactLabel, Project, RelationType, Relationship, User, World
-from ..vocabulary import STARTING_TYPES, SUGGESTED_FACTS
+from ..vocabulary import HAS_ROLE_LABELS, STARTING_TYPES, SUGGESTED_FACTS, SUGGESTED_VALUES
 from .deps import current_user
 from .storytime import check_span
 from .worlds import member_world
@@ -25,13 +26,23 @@ from .worlds import member_world
 router = APIRouter(prefix="/api/worlds/{slug}")
 
 Standing = Literal["canon", "planned", "rumour"]
-KINDS = ("character", "place", "faction", "culture", "event", "object", "term", "other")
+KINDS = ("character", "place", "faction", "culture", "species", "event", "object", "term", "other")
 
 
 def seed_relation_types(db: Session, world_id: uuid.UUID) -> None:
     """A new world gets the starting vocabulary."""
     for i, (a, b, label, reverse) in enumerate(STARTING_TYPES):
-        db.add(RelationType(world_id=world_id, a_kind=a, b_kind=b, label=label, reverse_label=reverse, position=i))
+        db.add(RelationType(world_id=world_id, a_kind=a, b_kind=b, label=label, reverse_label=reverse, position=i,
+                            has_role=has_role_label(label)))
+
+
+def has_role_label(label: str) -> bool:
+    """Types that start with "has a role" on: member of, leads, serves, works at (any capitals)."""
+    return " ".join(label.split()).lower() in HAS_ROLE_LABELS
+
+
+def clean_role(role: str | None) -> str | None:
+    return " ".join((role or "").split())[:100] or None
 
 
 def _fits(kind: str, side: str) -> bool:
@@ -86,11 +97,13 @@ class TypeIn(BaseModel):
     b_kind: str = Field(max_length=20)
     label: str = Field(min_length=1, max_length=100)
     reverse_label: str | None = Field(default=None, max_length=100)
+    has_role: bool = False
 
 
 class TypeUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=100)
     reverse_label: str | None = Field(default=None, max_length=100)
+    has_role: bool | None = None
 
 
 class TypeOut(BaseModel):
@@ -100,7 +113,13 @@ class TypeOut(BaseModel):
     label: str
     reverse_label: str | None
     position: int
+    has_role: bool = False
     used: int = 0
+
+
+def type_out(t: RelationType, used: int = 0) -> TypeOut:
+    return TypeOut(id=t.id, a_kind=t.a_kind, b_kind=t.b_kind, label=t.label, reverse_label=t.reverse_label,
+                   position=t.position, has_role=t.has_role, used=used)
 
 
 class RelationshipIn(BaseModel):
@@ -113,12 +132,14 @@ class RelationshipIn(BaseModel):
     established_in_chapter_id: uuid.UUID | None = None
     from_chapter_id: uuid.UUID | None = None
     until_chapter_id: uuid.UUID | None = None
+    role: str | None = Field(default=None, max_length=100)
 
 
 class RelationshipUpdate(BaseModel):
     base_version: int
     type_id: uuid.UUID | None = None
     standing: Standing | None = None
+    role: str | None = Field(default=None, max_length=100)
     evidence: str | None = Field(default=None, max_length=5000)
     note: str | None = Field(default=None, max_length=5000)
     established_in_chapter_id: uuid.UUID | None = None
@@ -145,6 +166,9 @@ class RelationshipOut(BaseModel):
     established_in_chapter_id: uuid.UUID | None
     from_chapter_id: uuid.UUID | None
     until_chapter_id: uuid.UUID | None
+    # the A side's role in the B side's group, and whether the type offers one
+    role: str | None = None
+    has_role: bool = False
     version: int
     created_at: datetime
 
@@ -197,7 +221,8 @@ def relationship_out(r: Relationship, t: RelationType, a: Entity, b: Entity) -> 
                            b=Side(id=b.id, name=b.name, kind=b.kind), label=t.label, reverse_label=t.reverse_label,
                            standing=r.standing, evidence=r.evidence, note=r.note,
                            established_in_chapter_id=r.established_in_chapter_id, from_chapter_id=r.from_chapter_id,
-                           until_chapter_id=r.until_chapter_id, version=r.version, created_at=r.created_at)
+                           until_chapter_id=r.until_chapter_id, role=r.role, has_role=t.has_role, version=r.version,
+                           created_at=r.created_at)
 
 
 def relationships_of(db: Session, world: World, entity_id: uuid.UUID | None = None) -> list[RelationshipOut]:
@@ -256,6 +281,12 @@ def fact_suggestions(slug: str, user: User = Depends(current_user), db: Session 
                 values[lab].append({"value": value_spelling[(k, lab, val)].most_common(1)[0][0], "count": len(ids)})
         for lab in values:
             values[lab].sort(key=lambda v: (-v["count"], v["value"].lower()))
+        # then the starting values from the code, without counts (docs/SPEC.md §13.5)
+        for (k, lab), starting in SUGGESTED_VALUES.items():
+            if k != kind:
+                continue
+            have = {norm(v["value"]) for v in values.get(lab, [])}
+            values[lab] = values.get(lab, []) + [{"value": v, "count": 0} for v in starting if norm(v) not in have]
         out[kind] = {"labels": labels, "common": [shown[lab] for lab in common], "values": dict(values)}
     return out
 
@@ -377,8 +408,7 @@ def list_types(slug: str, user: User = Depends(current_user), db: Session = Depe
     used = dict(db.execute(select(Relationship.type_id, func.count()).where(Relationship.world_id == world.id)
                            .group_by(Relationship.type_id)).all())
     rows = db.scalars(select(RelationType).where(RelationType.world_id == world.id).order_by(RelationType.position))
-    return [TypeOut(id=t.id, a_kind=t.a_kind, b_kind=t.b_kind, label=t.label, reverse_label=t.reverse_label,
-                    position=t.position, used=used.get(t.id, 0)) for t in rows]
+    return [type_out(t, used.get(t.id, 0)) for t in rows]
 
 
 @router.post("/relation-types", status_code=201)
@@ -389,11 +419,11 @@ def add_type(slug: str, body: TypeIn, user: User = Depends(current_user), db: Se
             raise HTTPException(422, "Unknown kind.")
     top = db.scalar(select(func.max(RelationType.position)).where(RelationType.world_id == world.id))
     t = RelationType(world_id=world.id, a_kind=body.a_kind, b_kind=body.b_kind, label=" ".join(body.label.split()),
-                     reverse_label=_clean(body.reverse_label), position=0 if top is None else top + 1)
+                     reverse_label=_clean(body.reverse_label), position=0 if top is None else top + 1,
+                     has_role=body.has_role)
     db.add(t)
     db.commit()
-    return TypeOut(id=t.id, a_kind=t.a_kind, b_kind=t.b_kind, label=t.label, reverse_label=t.reverse_label,
-                   position=t.position)
+    return type_out(t)
 
 
 def _type(db: Session, world: World, type_id: uuid.UUID) -> RelationType:
@@ -412,9 +442,10 @@ def update_type(slug: str, type_id: uuid.UUID, body: TypeUpdate, user: User = De
         t.label = " ".join(body.label.split())
     if "reverse_label" in body.model_fields_set:
         t.reverse_label = _clean(body.reverse_label)
+    if body.has_role is not None:
+        t.has_role = body.has_role
     db.commit()
-    return TypeOut(id=t.id, a_kind=t.a_kind, b_kind=t.b_kind, label=t.label, reverse_label=t.reverse_label,
-                   position=t.position)
+    return type_out(t)
 
 
 @router.delete("/relation-types/{type_id}", status_code=204)
@@ -456,7 +487,7 @@ def add_relationship(slug: str, body: RelationshipIn, user: User = Depends(curre
                      established_in_chapter_id=_chapter_in_world(db, world, body.established_in_chapter_id),
                      from_chapter_id=_chapter_in_world(db, world, body.from_chapter_id),
                      until_chapter_id=_chapter_in_world(db, world, body.until_chapter_id),
-                     created_by=user.id, updated_by=user.id)
+                     role=clean_role(body.role) if t.has_role else None, created_by=user.id, updated_by=user.id)
     check_span(db, world, r.from_chapter_id, r.until_chapter_id)
     db.add(r)
     db.commit()
@@ -496,6 +527,8 @@ def update_relationship(slug: str, rel_id: uuid.UUID, body: RelationshipUpdate, 
     for field in ("established_in_chapter_id", "from_chapter_id", "until_chapter_id"):
         if field in sent:
             setattr(r, field, _chapter_in_world(db, world, getattr(body, field)))
+    if "role" in sent:
+        r.role = clean_role(body.role)
     check_span(db, world, r.from_chapter_id, r.until_chapter_id)
     r.version += 1
     r.updated_by = user.id
@@ -536,16 +569,118 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
     relations: dict[uuid.UUID, list[dict]] = {}
     for r in relationships_of(db, world):
         span = {"from": _sid(r.from_chapter_id), "until": _sid(r.until_chapter_id)}
+        role = {"role": r.role} if r.role else {}
         relations.setdefault(r.a.id, []).append({"label": r.label, "other": r.b.model_dump(mode="json"),
-                                                 "standing": r.standing, **span})
+                                                 "standing": r.standing, **span, **role})
         relations.setdefault(r.b.id, []).append({"label": r.reverse_label or r.label,
-                                                 "other": r.a.model_dump(mode="json"), "standing": r.standing, **span})
+                                                 "other": r.a.model_dump(mode="json"), "standing": r.standing, **span,
+                                                 **role})
     return [{"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases),
              "first_name": firsts.get(e.id), "match_case": e.match_case, "exclusions": list(e.exclusions),
-             "summary": e.summary, "facts": facts.get(e.id, []), "relations": relations.get(e.id, [])[:16],
+             "summary": e.summary, "facts": facts.get(e.id, []), "relations": card_relations(e, relations.get(e.id, [])),
              "labels": sorted(labels.get(e.id, ())), "project": projects.get(e.project_id) if e.project_id else None,
              "gender": e.gender}
             for e in entities]
+
+
+# a character's species and outward form, and who possesses them, read by label from the character's side
+# (docs/SPEC.md §13.3, §13.5), the way the family tree reads parent types
+SPECIES_RE = re.compile(r"^(is an?|appears as( an?)?)$", re.I)
+POSSESSED_RE = re.compile(r"^possessed by$", re.I)
+
+
+def card_relations(e: Entity, rels: list[dict]) -> list[dict]:
+    """A card's relationships: the first sixteen, plus every one the card reads by label (a character's species and
+    outward form, and who possesses them), so the word beside the name follows "as of" offline too."""
+    out = rels[:16]
+    if e.kind == "character":
+        out += [r for r in rels[16:] if (r["other"]["kind"] == "species" and SPECIES_RE.match(r["label"].strip()))
+                or POSSESSED_RE.match(r["label"].strip())]
+    return out
+
+
+# roles in groups (docs/SPEC.md §13.4) -----------------------------------------------------------------------------
+
+
+@router.get("/role-suggestions")
+def role_suggestions(slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    """The roles used on each relationship type across the world, most used first, with counts and the groups (B
+    sides) they are used in, so a group's own roles can be offered first. Each in its most-used spelling."""
+    world, _ = member_world(db, user, slug)
+    spelling: dict[tuple[uuid.UUID, str], Counter] = defaultdict(Counter)
+    groups: dict[tuple[uuid.UUID, str], set] = defaultdict(set)
+    for type_id, group, role in db.execute(select(Relationship.type_id, Relationship.b_id, Relationship.role)
+                                           .where(Relationship.world_id == world.id, Relationship.role.is_not(None))
+                                           .order_by(Relationship.created_at)).all():
+        key = (type_id, norm(role))
+        spelling[key][role] += 1
+        groups[key].add(str(group))
+    out: dict[str, list[dict]] = defaultdict(list)
+    for (type_id, _), counts in spelling.items():
+        out[str(type_id)].append({"role": counts.most_common(1)[0][0], "count": sum(counts.values()),
+                                  "groups": sorted(groups[(type_id, norm(counts.most_common(1)[0][0]))])})
+    for lst in out.values():
+        lst.sort(key=lambda r: (-r["count"], r["role"].lower()))
+    return dict(out)
+
+
+class ChangeRoleIn(BaseModel):
+    base_version: int
+    role: str | None = Field(default=None, max_length=100)
+    # where the new role starts: a chapter (the old one ends at the chapter before it)
+    from_chapter_id: uuid.UUID
+
+
+@router.post("/relationships/{rel_id}/change-role", status_code=201)
+def change_role(slug: str, rel_id: uuid.UUID, body: ChangeRoleIn, user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """A promotion is a new span: the relationship ends just before the chosen chapter, and a copy with the new role
+    starts there. With no chapter before it in the story, the two meet at the chosen chapter (a handover)."""
+    world, _ = member_world(db, user, slug)
+    r = _relationship(db, world, rel_id)
+    a, b = db.get(Entity, r.a_id), db.get(Entity, r.b_id)
+    t = db.get(RelationType, r.type_id)
+    assert a is not None and b is not None and t is not None
+    if r.version != body.base_version:
+        return JSONResponse(status_code=409, content={
+            "detail": "This relationship changed elsewhere. Here is the newer version.",
+            "relationship": relationship_out(r, t, a, b).model_dump(mode="json")})
+    start = _chapter_in_world(db, world, body.from_chapter_id)
+    from .storytime import story_order
+
+    order = [c.id for c, _ in story_order(db, world)]
+    if start not in order:
+        raise HTTPException(422, "Pick a chapter in the book.")
+    i = order.index(start)
+    copy = Relationship(world_id=world.id, type_id=r.type_id, a_id=r.a_id, b_id=r.b_id, standing=r.standing,
+                        note=r.note, from_chapter_id=start, until_chapter_id=r.until_chapter_id,
+                        role=clean_role(body.role), created_by=user.id, updated_by=user.id)
+    r.until_chapter_id = order[i - 1] if i > 0 else start
+    check_span(db, world, r.from_chapter_id, r.until_chapter_id)
+    check_span(db, world, copy.from_chapter_id, copy.until_chapter_id)
+    r.version += 1
+    r.updated_by = user.id
+    db.add(copy)
+    db.commit()
+    return {"ended": relationship_out(r, t, a, b), "started": relationship_out(copy, t, a, b)}
+
+
+@router.post("/relationships/{rel_id}/end-before/{other_id}")
+def end_before(slug: str, rel_id: uuid.UUID, other_id: uuid.UUID, user: User = Depends(current_user),
+               db: Session = Depends(get_db)) -> RelationshipOut:
+    """Resolve two holders of a one-at-a-time role: the earlier one ends where the other starts (a handover)."""
+    world, _ = member_world(db, user, slug)
+    r, other = _relationship(db, world, rel_id), _relationship(db, world, other_id)
+    if other.from_chapter_id is None:
+        raise HTTPException(422, "The other one holds from the start: there is nothing to end before.")
+    r.until_chapter_id = other.from_chapter_id
+    check_span(db, world, r.from_chapter_id, r.until_chapter_id)
+    r.version += 1
+    r.updated_by = user.id
+    db.commit()
+    a, b, t = db.get(Entity, r.a_id), db.get(Entity, r.b_id), db.get(RelationType, r.type_id)
+    assert a is not None and b is not None and t is not None
+    return relationship_out(r, t, a, b)
 
 
 # used by bible.py for an entry's page

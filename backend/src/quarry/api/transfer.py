@@ -5,8 +5,9 @@ entry, journal entry and item, plus Decisions.md and a compiled manuscript.md pe
 that layout back (the compiled manuscript is ignored). Revision history stays in the database: an export carries
 the texts as they are now.
 
-    <world>/world.md                                  name, slug, words marked "not a typo", relationship types,
-                                                      the per-label switches (fact_labels)
+    <world>/world.md                                  name, slug, words marked "not a typo", relationship types
+                                                      (with has_role), the per-label switches (fact_labels), the
+                                                      one-at-a-time roles (roles)
     <world>/Bible/<Kind>/<Name>.md                    id, name, kind, aliases, project (its level; null for the
                                                       world), gender (when set); the notes
     <world>/Journal/<date> <title> (<id>).md          id, date, title, project
@@ -59,13 +60,15 @@ from ..models import (
     Project,
     RelationType,
     Relationship,
+    Role,
     User,
     World,
     WorldMember,
 )
 from ..margin import without_margin_notes
 from .manuscript import snapshot
-from .world import seed_relation_types
+from ..vocabulary import STARTING_TYPES, place_new_types
+from .world import clean_role, has_role_label, seed_relation_types
 from .deps import current_user
 from .worlds import WorldOut, _unique, _world_out, member_world, slugify
 
@@ -73,7 +76,7 @@ router = APIRouter(prefix="/api/worlds")
 
 FORMAT = 1
 KIND_FOLDERS = {"character": "Characters", "place": "Places", "faction": "Factions", "culture": "Cultures",
-                "event": "Events", "object": "Objects", "term": "Terms", "other": "Other"}
+                "species": "Species", "event": "Events", "object": "Objects", "term": "Terms", "other": "Other"}
 MAX_UPLOAD = 50 * 1024 * 1024
 MAX_UNPACKED = 200 * 1024 * 1024
 DECISION_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(?: · \[([^\]]*)\])? (.*?)\s*<!-- (.*?) -->\s*$")
@@ -155,13 +158,15 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
     type_by_id = {t.id: t for t in types}
     switches = list(db.scalars(select(FactLabel).where(FactLabel.world_id == world.id)
                                .order_by(FactLabel.kind, FactLabel.label)))
+    roles = list(db.scalars(select(Role).where(Role.world_id == world.id).order_by(Role.role)))
     files[f"{root}/world.md"] = _doc({
         "quarry_export": FORMAT, "name": world.name, "slug": world.slug,
         "exported_at": datetime.now(UTC).isoformat(), "ignored_words": ignored,
-        "relation_types": [{"a": t.a_kind, "b": t.b_kind, "label": t.label, "reverse": t.reverse_label}
-                           for t in types],
+        "relation_types": [{"a": t.a_kind, "b": t.b_kind, "label": t.label, "reverse": t.reverse_label,
+                            "has_role": t.has_role} for t in types],
         "fact_labels": [{"kind": r.kind, "label": r.label, "several": r.several, "expected": r.expected,
-                         "asked": r.asked} for r in switches]}, "")
+                         "asked": r.asked} for r in switches],
+        "roles": [{"role": r.role, "one_at_a_time": r.one_at_a_time} for r in roles]}, "")
 
     facts: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for f in db.scalars(select(Fact).where(Fact.world_id == world.id).order_by(Fact.entity_id, Fact.position)):
@@ -179,6 +184,8 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                              "established_in": str(r.established_in_chapter_id) if r.established_in_chapter_id else None,
                              "from": str(r.from_chapter_id) if r.from_chapter_id else None,
                              "until": str(r.until_chapter_id) if r.until_chapter_id else None})
+        if r.role:
+            rels[r.a_id][-1]["role"] = r.role
 
     presence: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for p in db.scalars(select(Presence).where(Presence.world_id == world.id).order_by(Presence.created_at)):
@@ -344,11 +351,31 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     exported_types = wmeta.get("relation_types") or []
     type_by_key: dict[tuple[str, str, str], uuid.UUID] = {}
     if exported_types:
+        # "has a role": the export's, or by label for an export from before phase 12 (as the migration did)
+        with_roles = any(isinstance(t, dict) and "has_role" in t for t in exported_types)
+        rows = []
         for i, t in enumerate(exported_types):
+            label = str(t.get("label") or "linked to")
             rt = RelationType(world_id=world.id, a_kind=str(t.get("a") or "*"), b_kind=str(t.get("b") or "*"),
-                              label=str(t.get("label") or "linked to"), reverse_label=t.get("reverse"), position=i)
+                              label=label, reverse_label=t.get("reverse"), position=i,
+                              has_role=t.get("has_role") is True if with_roles else has_role_label(label))
             db.add(rt)
-            db.flush()
+            rows.append(rt)
+        # an export with no type touching species was made before the kind existed: it gets the species starting
+        # types, each at the end of its pair (docs/SPEC.md §13.3)
+        if not any("species" in (rt.a_kind, rt.b_kind) for rt in rows):
+            wanted = [t for t in STARTING_TYPES if "species" in (t[0], t[1])]
+            for (a, b, label, reverse), position in place_new_types(
+                    [(rt.a_kind, rt.b_kind, rt.label, rt.reverse_label, rt.position) for rt in rows], wanted):
+                for rt in rows:
+                    if rt.position >= position:
+                        rt.position += 1
+                rt = RelationType(world_id=world.id, a_kind=a, b_kind=b, label=label, reverse_label=reverse,
+                                  position=position, has_role=False)
+                db.add(rt)
+                rows.append(rt)
+        db.flush()
+        for rt in sorted(rows, key=lambda r: r.position):
             type_by_key.setdefault((rt.a_kind, rt.b_kind, rt.label), rt.id)
     else:
         seed_relation_types(db, world.id)
@@ -512,7 +539,7 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                 continue
             db.add(Relationship(world_id=world.id, type_id=type_id, a_id=e.id, b_id=other,
                                 standing=r.get("standing") if r.get("standing") in standings else "canon",
-                                evidence=r.get("evidence"), note=r.get("note"),
+                                evidence=r.get("evidence"), note=r.get("note"), role=clean_role(r.get("role")),
                                 established_in_chapter_id=chapter(r.get("established_in")),
                                 from_chapter_id=chapter(r.get("from")), until_chapter_id=chapter(r.get("until")),
                                 created_by=user.id, updated_by=user.id))
@@ -559,6 +586,15 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
         switched.add((kind, label.lower()))
         db.add(FactLabel(world_id=world.id, kind=kind, label=label, several=r.get("several") is True,
                          expected=r.get("expected") is True, asked=r.get("asked") is True))
+
+    # the one-at-a-time roles (none in an export from before phase 12)
+    roles_seen: set[str] = set()
+    for r in wmeta.get("roles") or []:
+        role = clean_role(str(r.get("role") or "")) if isinstance(r, dict) else None
+        if not role or role.lower() in roles_seen:
+            continue
+        roles_seen.add(role.lower())
+        db.add(Role(world_id=world.id, role=role, one_at_a_time=r.get("one_at_a_time") is True))
 
     db.flush()
     refresh_world(db, world.id)

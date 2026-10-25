@@ -154,7 +154,7 @@ def derived_places(body: str, mentions: list[tuple[int, uuid.UUID, str]]) -> dic
     return {c: cnt.most_common(1)[0][0] for c, cnt in counts.items() if cnt}
 
 
-KIND_NAMES = ("character", "place", "faction", "culture", "event", "object", "term", "other")
+KIND_NAMES = ("character", "place", "faction", "culture", "species", "event", "object", "term", "other")
 
 
 def _ids(text: str | None) -> list[str]:

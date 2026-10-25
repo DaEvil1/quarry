@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
-import { setLabelSwitches } from "../bible";
+import { endBefore, setLabelSwitches } from "../bible";
 import { checks, resolutions, resolve, unresolve, type Check, type Resolution } from "../companion";
 import { useSession } from "../stores/session";
 import NotFoundView from "./NotFoundView.vue";
@@ -58,6 +58,16 @@ async function bothTrue(c: Check) {
     error.value = (e as Error).message;
   }
 }
+// two holders of a one-at-a-time role: the earlier one ends where the later one starts (a handover)
+async function handOver(c: Check) {
+  if (!c.end || !c.before) return;
+  try {
+    await endBefore(worldSlug.value, c.end.id, c.before.id);
+    await load();
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
 async function reopen(r: Resolution) {
   await unresolve(worldSlug.value, r.id);
   await load();
@@ -73,8 +83,9 @@ async function reopen(r: Resolution) {
         <h1>Checks</h1>
         <p class="muted">
           What the recorded facts, relationships and chapters say against each other: named after being recorded dead,
-          named before being born, two values of a fact at once, a point of view who isn't in their chapter, places
-          inside themselves, dates that run backwards. Nothing is guessed from the prose.
+          named before being born, two values of a fact at once, two holders of a role only one may hold, a point of
+          view who isn't in their chapter, places inside themselves, dates that run backwards. Nothing is guessed from
+          the prose.
         </p>
       </div>
     </div>
@@ -92,6 +103,7 @@ async function reopen(r: Resolution) {
           <span class="grow">{{ c.message }}</span>
           <RouterLink v-for="e in c.entities" :key="e.id" class="kname small" :class="`k-${e.kind}`" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink>
           <button v-if="c.rule === 'fact_conflict' && c.label && c.kind" type="button" class="btn btn-sm" title="The label holds several values at once for this kind" @click="bothTrue(c)">Both are true (several values)</button>
+          <button v-if="c.rule === 'role_clash' && c.end && c.before" type="button" class="btn btn-sm" data-testid="end-before" @click="handOver(c)">End {{ c.end.name }}'s before {{ c.before.name }}'s</button>
           <button type="button" class="btn btn-sm" title="Planted on purpose: never flag it again" @click="settle(c, 'intentional')">Intentional</button>
           <button type="button" class="btn btn-sm" @click="settle(c, 'later')">Later</button>
         </li>

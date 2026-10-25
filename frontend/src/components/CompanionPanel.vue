@@ -93,6 +93,7 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
         <div class="qrow">
           <button v-for="e in c.entities" :key="e.id" type="button" class="qchip" :class="`k-${e.kind}`" @click="props.actions.open(e)">{{ e.name }}</button>
           <button v-if="c.rule === 'fact_conflict' && c.label && c.kind" type="button" class="qchip" title="The label holds several values at once for this kind" @click="props.actions.several(c.kind, c.label)">Both are true (several values)</button>
+          <button v-if="c.rule === 'role_clash' && c.end && c.before" type="button" class="qchip" @click="props.actions.endBefore(c.end.id, c.before.id)">End {{ c.end.name }}'s before {{ c.before.name }}'s</button>
           <button type="button" class="qchip quiet" title="Planted on purpose: never flag it again" @click="props.actions.resolve(c.rule, c.key, 'intentional')">Intentional</button>
           <button type="button" class="qchip quiet" @click="props.actions.resolve(c.rule, c.key, 'later')">Later</button>
         </div>

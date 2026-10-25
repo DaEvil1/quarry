@@ -46,6 +46,9 @@ INSIDE_RE = re.compile(r"^(inside|in|part of|within)$", re.I)
 # "daughter of"; the mirror image (a label "son of", a reverse "father of") makes B the parent
 PARENT_RE = re.compile(r"(^|\s)(parent|father|mother) of$", re.I)
 CHILD_RE = re.compile(r"(^|\s)(child|son|daughter) of$", re.I)
+# a lineage across generations not recorded (docs/SPEC.md §13.5): "ancestor of" / "descendant of", or the mirror
+ANCESTOR_RE = re.compile(r"(^|\s)ancestor of$", re.I)
+DESCENDANT_RE = re.compile(r"(^|\s)descendant of$", re.I)
 
 
 def parent_direction(label: str, reverse: str | None) -> int:
@@ -56,6 +59,21 @@ def parent_direction(label: str, reverse: str | None) -> int:
     if CHILD_RE.search(label) or PARENT_RE.search(reverse):
         return -1
     return 0
+
+
+def ancestor_direction(label: str, reverse: str | None) -> int:
+    """1 when a type reads "A ancestor of B", -1 when it reads "B ancestor of A", 0 otherwise."""
+    label, reverse = label.strip(), (reverse or "").strip()
+    if ANCESTOR_RE.search(label) or DESCENDANT_RE.search(reverse):
+        return 1
+    if DESCENDANT_RE.search(label) or ANCESTOR_RE.search(reverse):
+        return -1
+    return 0
+
+
+def plural(role: str) -> str:
+    """"two Captains": a role's plural, simply."""
+    return role if role.lower().endswith("s") else role + "s"
 
 
 def _ref(e: Entity) -> dict:
@@ -159,12 +177,12 @@ def checks(db: Session, world: World) -> list[dict]:
                 add("place_cycle", ":".join(sorted(str(x) for x in ring)), f"Places inside each other in a circle: "
                     f"{names}.", None, *(entities[x] for x in ring))
 
-    # someone recorded as their own ancestor (parenthood in a circle), like a place inside itself
+    # someone recorded as their own ancestor (parenthood, or "ancestor of", in a circle), like a place inside itself
     parents: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
     for r in rels:
         t = types[r.type_id]
         a, b = entities.get(r.a_id), entities.get(r.b_id)
-        way = parent_direction(t.label, t.reverse_label)
+        way = parent_direction(t.label, t.reverse_label) or ancestor_direction(t.label, t.reverse_label)
         if a and b and a.kind == b.kind == "character" and r.standing == "canon" and way:
             child, parent_id = (b.id, a.id) if way > 0 else (a.id, b.id)
             parents[child].add(parent_id)
@@ -217,6 +235,49 @@ def checks(db: Session, world: World) -> list[dict]:
                     add("fact_conflict", ":".join(sorted([str(f1.id), str(f2.id)])),
                         f"{e.name}: “{f1.label}” is both “{f1.value}” and “{f2.value}” in {_q(ch.title)}.", ch.id, e,
                         label=f1.label, kind=e.kind)
+
+    # two holders of a one-at-a-time role in the same group at once (docs/SPEC.md §13.4): canon relationships only;
+    # a handover (one ends at the chapter where the other starts) is not a clash
+    from .labels import one_at_a_time_roles
+
+    single = one_at_a_time_roles(db, world)
+    holders: dict[tuple[uuid.UUID, str], list[Relationship]] = defaultdict(list)
+    for r in rels:
+        if r.role and r.standing == "canon" and " ".join(r.role.split()).lower() in single:
+            holders[(r.b_id, " ".join(r.role.split()).lower())].append(r)
+
+    def bounds(r: Relationship) -> tuple[int, int] | None:
+        """Where a span runs in the story, both ends in; None for one that runs backwards."""
+        s = index.get(r.from_chapter_id, 0) if r.from_chapter_id else 0
+        e = index.get(r.until_chapter_id, last) if r.until_chapter_id else last
+        return (s, e) if s <= e else None
+
+    for (group_id, _), group in holders.items():
+        g = entities.get(group_id)
+        for i, r1 in enumerate(group):
+            for r2 in group[i + 1:]:
+                h1, h2 = entities.get(r1.a_id), entities.get(r2.a_id)
+                b1, b2 = bounds(r1), bounds(r2)
+                if g is None or h1 is None or h2 is None or r1.a_id == r2.a_id or b1 is None or b2 is None:
+                    continue
+                (x, bx), (y, by) = sorted([(r1, b1), (r2, b2)], key=lambda p: (p[1][0], p[1][1]))
+                start, end = max(bx[0], by[0]), min(bx[1], by[1])
+                # a handover: the earlier one ends at the chapter where the later one starts
+                if start == end and x.until_chapter_id and x.until_chapter_id == y.from_chapter_id:
+                    continue
+                if start > end or not order:
+                    continue
+                ch = order[start][0]
+                hx, hy = entities[x.a_id], entities[y.a_id]
+
+                def since(r: Relationship) -> str:
+                    return f"from {_q(chapter[r.from_chapter_id].title)}" if r.from_chapter_id in chapter \
+                        else "from the start"
+                add("role_clash", ":".join(sorted([str(r1.id), str(r2.id)])),
+                    f"{g.name} has two {plural(x.role or '')} in {_q(ch.title)}: {hx.name} ({since(x)}) and "
+                    f"{hy.name} ({since(y)}).", ch.id, g, hx, hy,
+                    end={"id": str(x.id), "name": hx.name}, before={"id": str(y.id), "name": hy.name}
+                    if y.from_chapter_id else None)
 
     out.sort(key=lambda x: (x["_at"], x["rule"], x["message"]))
     for x in out:

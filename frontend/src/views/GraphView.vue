@@ -12,6 +12,7 @@ import { useCards } from "../world/cards";
 import { familyLinks } from "../world/family";
 import { clusters, neighbourhood, placeTree, visibleLinks, type GraphData, type Link, type PlaceNode } from "../world/graph";
 import { norm } from "../world/labels";
+import { speciesColours } from "../world/species";
 import NotFoundView from "./NotFoundView.vue";
 
 // The world as a graph: entries and their relationships at a point in the story, centred on one entry or all of
@@ -36,7 +37,7 @@ const kinds = ref(new Set<string>(ENTITY_KINDS.map((k) => k.value)));
 const standings = ref(new Set<string>(["canon", "planned", "rumour"]));
 const typeId = ref("");
 const coMin = ref(0);
-const colourBy = ref<"kind" | "cluster">("kind");
+const colourBy = ref<"kind" | "cluster" | "species">("kind");
 const showLoners = ref(false);
 const setQuery = (q: Record<string, string | undefined>) => void router.replace({ query: { ...route.query, ...q } });
 
@@ -205,8 +206,15 @@ const nodeById = computed(() => new Map((data.value?.nodes ?? []).map((n) => [n.
 const hoverNear = computed(() => (hover.value ? neighbourhood(shownLinks.value, hover.value, 1) : null));
 const showLabel = (id: string) =>
   shownNodes.value.length <= 70 || id === hover.value || (near.value?.get(id) ?? 9) <= 1 || (degree.value.get(id) ?? 0) >= 4 || !!hoverNear.value?.has(id);
+// colour by species: characters take their species' colour as of the graph's chapter (docs/SPEC.md §13.3)
+const bySpecies = computed(() => (colourBy.value === "species" && data.value ? speciesColours(data.value, asOf.value, cards.indexOf) : null));
+const speciesColour = computed(() => new Map((bySpecies.value?.legend ?? []).map((s) => [s.id, s.colour])));
 const colour = (id: string) => {
   if (colourBy.value === "kind") return `var(--k-${nodeById.value.get(id)?.kind ?? "other"})`;
+  if (colourBy.value === "species") {
+    const s = nodeById.value.get(id)?.kind === "species" ? id : bySpecies.value?.of.get(id);
+    return (s && speciesColour.value.get(s)) || "var(--muted)";
+  }
   const c = clusterOf.value.get(id) ?? -1;
   return c < 0 ? "var(--muted)" : `hsl(${(c * 137.5 + 25) % 360} 60% 50%)`;
 };
@@ -318,6 +326,7 @@ const flatPlaces = computed(() => {
           <select v-model="colourBy" class="filter">
             <option value="kind">kind</option>
             <option value="cluster">cluster</option>
+            <option value="species">species</option>
           </select>
         </label>
         <label class="small muted">Named together
@@ -369,6 +378,10 @@ const flatPlaces = computed(() => {
               <button type="button" class="btn btn-sm" @click="setQuery({ centre: undefined })">Everyone</button>
             </template>
             <span v-if="colourBy === 'cluster'" class="muted small" data-testid="cluster-count">{{ clusterCount }} cluster{{ clusterCount === 1 ? "" : "s" }}</span>
+            <span v-if="bySpecies" class="small species-legend" data-testid="species-legend">
+              <span v-for="s in bySpecies.legend" :key="s.id" class="legend-item"><span class="legend-dot" :style="{ background: s.colour ?? 'var(--muted)' }" />{{ s.name }} ({{ s.count }})</span>
+              <span class="legend-item muted"><span class="legend-dot" style="background: var(--muted)" />no species</span>
+            </span>
             <button type="button" class="btn btn-sm" @click="fit">Fit</button>
           </div>
           <p v-if="!centre && shownNodes.length > 120" class="muted small graph-hint">
@@ -415,7 +428,7 @@ const flatPlaces = computed(() => {
               @dblclick="openEntry(n.id)"
             >
               <title>{{ n.name }}{{ n.summary ? ` — ${n.summary}` : "" }} (click to centre, double-click to open)</title>
-              <circle :r="n.id === centre ? 11 : 6 + Math.min(5, degree.get(n.id) ?? 0)" :fill="colour(n.id)" />
+              <circle :r="n.id === centre ? 11 : 6 + Math.min(5, degree.get(n.id) ?? 0)" :fill="colour(n.id)" :data-fill="colour(n.id)" />
               <text v-if="showLabel(n.id)" y="-12" text-anchor="middle">{{ n.name }}</text>
             </g>
           </svg>

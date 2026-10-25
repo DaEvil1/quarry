@@ -195,7 +195,7 @@ const filterLink = (f: Fact) => ({ name: "bible-kind", params: { world: props.wo
       <button class="btn btn-sm" type="submit" :disabled="!label.trim()">Add</button>
     </form>
     <datalist v-for="[l, id] in valueLists" :id="id" :key="id" :data-label="l">
-      <option v-for="v in valuesOf(l)" :key="v.value" :value="v.value">{{ v.value }} ({{ v.count }})</option>
+      <option v-for="v in valuesOf(l)" :key="v.value" :value="v.value">{{ v.count ? `${v.value} (${v.count})` : v.value }}</option>
     </datalist>
   </section>
 </template>

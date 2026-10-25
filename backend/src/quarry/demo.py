@@ -12,6 +12,10 @@ For the views of the bible (docs/SPEC.md §12) it has a family of three generati
 their children, so a cousin is worked out), gender set for most of them, an entry in each book's own bible, a witness,
 a pronunciation, events with a type (expected for every event, so the one without it is a finding), and a label that
 holds several values.
+
+For species, roles and vocabulary (docs/SPEC.md §13.3–§13.5) it has three species (human, dog, and the marsh-wights
+of the delta) with an "is a", an "appears as" and a "native to"; the Warden-Captain as a role on the River Wardens,
+marked one at a time, with one clash planted; and an ancestor of the family, centuries back.
 """
 
 from __future__ import annotations
@@ -61,6 +65,7 @@ BIBLE: list[dict] = [
             {"type": "belongs to", "type_kinds": ["character", "culture"], "to": "delta-folk"},
             {"type": "practises", "type_kinds": ["*", "term"], "to": "tidecall"},
             {"type": "has met", "type_kinds": ["character", "character"], "to": "cade", "from": "b1-c2"},
+            {"type": "is a", "type_kinds": ["character", "species"], "to": "human"},
         ],
         "is_at": [{"chapter": "b1-c1", "place": "carrow-ferry"}, {"chapter": "b1-c2", "place": "carrow-ferry"},
                   {"chapter": "b1-c3", "place": "saltreach", "note": "arrives at night"}],
@@ -97,6 +102,14 @@ BIBLE: list[dict] = [
         "body": _p("Built the ferry house on its stilts. Tamsin has her hands, everyone says."),
     },
     {
+        # the family goes back further than anyone recorded: the generations between aren't known
+        "id": "wenna", "name": "Wenna the Ferrywoman", "kind": "character", "gender": "female",
+        "summary": "The first to run a ferry at the widest crossing, centuries ago; the Veys say they come from her.",
+        "facts": [{"label": "status", "value": "dead"}],
+        "relationships": [{"type": "ancestor of", "type_kinds": ["character", "character"], "to": "agathe"}],
+        "body": _p(""),
+    },
+    {
         "id": "mara", "name": "Mara Vey", "kind": "character", "gender": "female",
         "summary": "Tamsin's mother, lost to the river when Tamsin was small.",
         "facts": [{"label": "status", "value": "dead"}],
@@ -131,12 +144,24 @@ BIBLE: list[dict] = [
             {"label": "eye colour", "value": "blue", "note": "the first draft said blue"},
         ],
         "relationships": [
-            {"type": "leads", "type_kinds": ["character", "faction"], "to": "wardens"},
+            {"type": "leads", "type_kinds": ["character", "faction"], "to": "wardens", "role": "Warden-Captain"},
             {"type": "rival of", "type_kinds": ["character", "character"], "to": "oskar"},
         ],
         "is_at": [{"chapter": "b1-c4", "place": "marrow-locks"}],
         "body": _p("Not a villain: the locks are the only thing keeping the lower delta from flooding every spring, "
                    "and she is the only one who knows how to work them."),
+    },
+    {
+        # planted: a second Warden-Captain from chapter 4, while Ilse still holds it (the role is one at a time)
+        "id": "harl", "name": "Harl Brenner", "kind": "character", "gender": "male",
+        "summary": "A lock-keeper of the River Wardens, promoted over the winter.",
+        "relationships": [
+            {"type": "member of", "type_kinds": ["character", "faction"], "to": "wardens", "role": "Lock-keeper",
+             "until": "b1-c3"},
+            {"type": "member of", "type_kinds": ["character", "faction"], "to": "wardens", "role": "Warden-Captain",
+             "from": "b1-c4"},
+        ],
+        "body": _p(""),
     },
     {
         "id": "cade", "name": "Brother Cade", "kind": "character", "gender": "male",
@@ -148,6 +173,9 @@ BIBLE: list[dict] = [
             {"type": "member of", "type_kinds": ["character", "faction"], "to": "ashen-order"},
             {"type": "mentor of", "type_kinds": ["character", "character"], "to": "tamsin", "from": "b1-c3"},
             {"type": "knows about", "type_kinds": ["character", "*"], "to": "compass", "from": "b1-c3"},
+            # what he is, and what he looks like
+            {"type": "is a", "type_kinds": ["character", "species"], "to": "marsh-wight"},
+            {"type": "appears as", "type_kinds": ["character", "species"], "to": "human"},
         ],
         "body": _p("Keeps bees. Speaks to the dead as if they were in the next room."),
     },
@@ -164,6 +192,7 @@ BIBLE: list[dict] = [
         "summary": "Pell's dog: grey, wet, everywhere.",
         # "not a name in this sense": the word is also just moss
         "exclusions": ["moss grew"],
+        "relationships": [{"type": "is a", "type_kinds": ["character", "species"], "to": "dog"}],
         "body": _p(""),
     },
     {
@@ -241,6 +270,30 @@ BIBLE: list[dict] = [
         "relationships": [{"type": "based in", "type_kinds": ["faction", "place"], "to": "saltreach"}],
         "body": _p(""),
     },
+    # species
+    {
+        "id": "human", "name": "human", "kind": "species",
+        "summary": "Most of the delta's people, and everyone who says they are.",
+        "facts": [{"label": "form", "value": "humanoid"}, {"label": "sapient", "value": "yes"},
+                  {"label": "lifespan", "value": "seventy years, if the river allows"}],
+        "body": _p(""),
+    },
+    {
+        "id": "dog", "name": "dog", "kind": "species",
+        "facts": [{"label": "form", "value": "beast"}, {"label": "sapient", "value": "partly",
+                                                         "note": "Moss would say yes"}],
+        "body": _p(""),
+    },
+    {
+        "id": "marsh-wight", "name": "marsh-wight", "kind": "species", "aliases": ["marsh-wights"],
+        "summary": "Old spirits of the reed beds, who sometimes walk among people in borrowed faces.",
+        "facts": [{"label": "form", "value": "spirit"}, {"label": "sapient", "value": "yes"},
+                  {"label": "lifespan", "value": "unknown; longer than the abbey"},
+                  {"label": "habitat", "value": "reed beds"}, {"label": "habitat", "value": "salt flats"},
+                  {"label": "name meaning", "value": "\"wight of the marsh\", in the old delta speech"}],
+        "relationships": [{"type": "native to", "type_kinds": ["species", "place"], "to": "delta"}],
+        "body": _p("Nobody at Saltreach asks Brother Cade how old he is."),
+    },
     {
         "id": "delta-folk", "name": "Delta folk", "kind": "culture",
         "summary": "The river people: boat-born, lantern-keeping, suspicious of anything built to last.",
@@ -294,7 +347,11 @@ BIBLE: list[dict] = [
 FACT_LABELS = [
     {"kind": "event", "label": "type", "several": False, "expected": True, "asked": True},
     {"kind": "character", "label": "languages", "several": True, "expected": False, "asked": False},
+    {"kind": "species", "label": "habitat", "several": True, "expected": False, "asked": False},
 ]
+
+# only one Warden-Captain at a time (Harl's promotion is planted as a clash)
+ROLES = [{"role": "Warden-Captain", "one_at_a_time": True}]
 
 # ---- the manuscript ------------------------------------------------------------------------------------------------
 
@@ -510,6 +567,7 @@ def demo_files() -> dict[str, str]:
         "quarry_export": FORMAT, "name": NAME, "slug": ROOT, "ignored_words": [],
         "relation_types": [{"a": a, "b": b, "label": label, "reverse": reverse} for a, b, label, reverse in STARTING_TYPES],
         "fact_labels": FACT_LABELS,
+        "roles": ROLES,
     }, "")
     names = {e["id"]: e["name"] for e in BIBLE}
     for e in BIBLE:
@@ -528,7 +586,7 @@ def demo_files() -> dict[str, str]:
                                       "to_name": names[r["to"]], "standing": r.get("standing", "canon"),
                                       "evidence": r.get("evidence"), "note": r.get("note"),
                                       "established_in": r.get("established_in"), "from": r.get("from"),
-                                      "until": r.get("until")} for r in e["relationships"]]
+                                      "until": r.get("until"), "role": r.get("role")} for r in e["relationships"]]
         if e.get("is_at"):
             meta["is_at"] = [{"chapter": p["chapter"], "place": p["place"], "place_name": names[p["place"]],
                               "note": p.get("note")} for p in e["is_at"]]

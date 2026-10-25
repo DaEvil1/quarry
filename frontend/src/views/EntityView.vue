@@ -29,6 +29,7 @@ import { useCards } from "../world/cards";
 import { Family, familyLinks, kinOf, kinText, readType } from "../world/family";
 import type { GraphData } from "../world/graph";
 import { isPronunciation, missingKey, missingLabels } from "../world/labels";
+import { speciesText } from "../world/species";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
@@ -213,6 +214,13 @@ const tag = (m: SourceRef) => act(() => linkItem(worldSlug.value, m.source_id, i
 const levels = computed(() => (world.value && world.value.projects.length > 1 ? world.value.projects : []));
 // said after the name, in small type
 const pronunciation = computed(() => detail.value?.facts.find((f) => isPronunciation(f.label) && f.value.trim())?.value ?? "");
+// what a character is, as of the page's chapter (else at the end of the story): "selkie · appears as human"
+const species = computed(() => {
+  const e = detail.value?.entity;
+  if (e?.kind !== "character") return "";
+  const at = asOfId.value || cards.timeline[cards.timeline.length - 1]?.id || null;
+  return speciesText(cards.asOf(cards.byId.get(e.id), at));
+});
 
 // the mentions strip: how often each chapter names the entry
 const chapterCounts = computed(() => new Map((detail.value?.mentions ?? []).filter((m) => m.source_table === "chapter").map((m) => [m.source_id, m.count])));
@@ -278,7 +286,7 @@ async function notForThisOne(label: string) {
             {{ ENTITY_KINDS.find((k) => k.value === detail!.entity.kind)?.plural }}
           </RouterLink>
         </div>
-        <h1 class="kname"><InlineText :value="detail.entity.name" label="Name" :maxlength="200" @save="(v) => v && save({ name: v })" /><span v-if="pronunciation" class="pronunciation" data-testid="pronunciation">{{ pronunciation }}</span></h1>
+        <h1 class="kname"><InlineText :value="detail.entity.name" label="Name" :maxlength="200" @save="(v) => v && save({ name: v })" /><span v-if="pronunciation" class="pronunciation" data-testid="pronunciation">{{ pronunciation }}</span><span v-if="species" class="species-words" data-testid="species-words">{{ species }}</span></h1>
         <p class="entry-summary">
           <InlineText :value="detail.entity.summary" label="One line" placeholder="Add a one-line summary, shown when hovering the name" @save="(v) => save({ summary: v })" />
         </p>

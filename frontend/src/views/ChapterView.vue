@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter, type RouteLocationRaw } from "vue-router";
 
-import { addRelationship, createEntity, fixes, getEntity, setLabelSwitches, typeOptions, updateEntity } from "../bible";
+import { addRelationship, createEntity, endBefore as endBeforeRole, fixes, getEntity, setLabelSwitches, typeOptions, updateEntity } from "../bible";
 import ChapterSide from "../components/ChapterSide.vue";
 import CompanionPanel from "../components/CompanionPanel.vue";
 import {
@@ -636,6 +636,15 @@ const panelActions: PanelActions = {
   async several(kind, label) {
     try {
       await setLabelSwitches(worldSlug.value, kind, label, { several: true });
+      await cards.refresh(worldSlug.value);
+      await afterWorldChange();
+    } catch (e) {
+      error.value = (e as Error).message;
+    }
+  },
+  async endBefore(earlier, later) {
+    try {
+      await endBeforeRole(worldSlug.value, earlier, later);
       await cards.refresh(worldSlug.value);
       await afterWorldChange();
     } catch (e) {

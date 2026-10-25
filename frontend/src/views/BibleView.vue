@@ -8,6 +8,7 @@ import { useSession } from "../stores/session";
 import { ENTITY_KINDS, type Entity, type EntityKind } from "../types";
 import { useCards } from "../world/cards";
 import { filterText, groupBy, labelsOfKind, matches, norm, parseFilter, valuesAtEnd, type LabelReader, type ValueFilter } from "../world/labels";
+import { SPECIES_COLUMN, speciesAtEnd } from "../world/species";
 import NotFoundView from "./NotFoundView.vue";
 
 // The bible: every entry, or one kind of them (characters, places, …) as a table with their one-liners and the facts
@@ -106,8 +107,12 @@ function sortOn(col: string) {
 }
 const values = (e: Entity, label: string) => {
   const c = cards.byId.get(e.id);
-  return c ? valuesAtEnd(c, label, cards.several(c.kind, label), reader.value.last, cards.indexOf) : [];
+  return c ? valuesAtEnd(c, label, label === SPECIES_COLUMN || cards.several(c.kind, label), reader.value.last, cards.indexOf) : [];
 };
+/** A column's heading: a fact label, or "Species" for what characters are (read from "is a", docs/SPEC.md §13.3). */
+const heading = (label: string) => (label === SPECIES_COLUMN ? "Species" : label);
+// the characters table gets a Species column once any character is recorded as being one
+const hasSpecies = computed(() => kind.value === "character" && cards.cards.some((c) => c.kind === "character" && speciesAtEnd(c, null, cards.indexOf).length));
 function sortKey(e: Entity): string | number {
   if (sortBy.value === "name") return e.name.toLowerCase();
   if (sortBy.value === "summary") return e.summary.toLowerCase();
@@ -130,7 +135,7 @@ const sections = computed(() => {
   if (kind.value && groupLabel.value) {
     return groupBy(list, (e) => cards.byId.get(e.id), groupLabel.value, reader.value).map((g) => ({
       key: g.value ?? "",
-      title: g.value ?? `no ${groupLabel.value}`,
+      title: g.value ?? `no ${heading(groupLabel.value).toLowerCase()}`,
       value: g.value,
       elsewhere: false,
       items: sorted(g.items),
@@ -153,7 +158,8 @@ const kindLabels = computed(() => (kind.value ? labelsOfKind(cards.cards, kind.v
 const columns = computed(() => {
   if (!kind.value) return [];
   const top = kindLabels.value.filter((l) => l.count >= 2).slice(0, 3).map((l) => l.label);
-  for (const l of [...filters.value.map((f) => f.label), groupLabel.value]) if (l && !top.some((x) => norm(x) === norm(l))) top.push(l);
+  for (const l of [...filters.value.map((f) => f.label), groupLabel.value]) if (l && l !== SPECIES_COLUMN && !top.some((x) => norm(x) === norm(l))) top.push(l);
+  if (hasSpecies.value) top.push(SPECIES_COLUMN);
   return top;
 });
 
@@ -218,16 +224,17 @@ async function add() {
           <option v-for="p in projects" :key="p.id" :value="p.slug">{{ p.name }}</option>
         </select>
       </label>
-      <label v-if="kind && kindLabels.length" class="small muted">Group by
+      <label v-if="kind && (kindLabels.length || hasSpecies)" class="small muted">Group by
         <select class="filter" :value="groupLabel" data-testid="group-by" @change="setQuery({ group: ($event.target as HTMLSelectElement).value || undefined })">
           <option value="">nothing</option>
           <option v-for="l in kindLabels" :key="l.label" :value="l.label">{{ l.label }}</option>
+          <option v-if="hasSpecies" :value="SPECIES_COLUMN">species</option>
         </select>
       </label>
     </div>
     <div v-if="kind && filters.length" class="chips filter-chips" data-testid="filters">
       <span v-for="f in filters" :key="filterText(f)" class="chip static tag">
-        {{ f.label }}: {{ f.value }}<button type="button" class="chip-x" :aria-label="`Remove the filter ${f.label}: ${f.value}`" @click="dropFilter(f)">×</button>
+        {{ heading(f.label) }}: {{ f.value }}<button type="button" class="chip-x" :aria-label="`Remove the filter ${heading(f.label)}: ${f.value}`" @click="dropFilter(f)">×</button>
       </span>
     </div>
 
@@ -240,14 +247,14 @@ async function add() {
             <th><button type="button" class="th-sort" @click="sortOn('name')">Name</button></th>
             <th><button type="button" class="th-sort" @click="sortOn('summary')">In one line</button></th>
             <th v-if="severalBooks"><button type="button" class="th-sort" @click="sortOn('level')">Level</button></th>
-            <th v-for="c in columns" :key="c"><button type="button" class="th-sort" @click="sortOn(c)">{{ c }}</button></th>
+            <th v-for="c in columns" :key="c"><button type="button" class="th-sort" @click="sortOn(c)">{{ heading(c) }}</button></th>
             <th class="num" title="Mentions"><button type="button" class="th-sort" @click="sortOn('#')">#</button></th>
           </tr>
         </thead>
         <tbody v-for="s in sections" :key="s.key" :class="{ elsewhere: s.elsewhere }" :data-testid="`section-${s.key}`">
           <tr v-if="s.title" class="section-head">
             <th :colspan="4 + columns.length">
-              <button v-if="s.value" type="button" class="linkish" :title="`Only ${groupLabel}: ${s.value}`" @click="addFilter({ label: groupLabel, value: s.value })">{{ s.title }}</button>
+              <button v-if="s.value" type="button" class="linkish" :title="`Only ${heading(groupLabel)}: ${s.value}`" @click="addFilter({ label: groupLabel, value: s.value })">{{ s.title }}</button>
               <template v-else>{{ s.title }}</template>
               <span class="muted"> ({{ s.items.length }})</span>
             </th>
@@ -261,7 +268,7 @@ async function add() {
             <td class="muted">{{ e.summary }}</td>
             <td v-if="severalBooks" class="small">{{ e.project ? projectName(e.project) : "World" }}</td>
             <td v-for="c in columns" :key="c" class="fact-cell">
-              <button v-for="v in values(e, c)" :key="v" type="button" class="value-link" :title="`Only ${c}: ${v}`" @click="addFilter({ label: c, value: v })">{{ v }}</button>
+              <button v-for="v in values(e, c)" :key="v" type="button" class="value-link" :title="`Only ${heading(c)}: ${v}`" @click="addFilter({ label: c, value: v })">{{ v }}</button>
             </td>
             <td class="num muted">{{ e.mention_count }}</td>
           </tr>

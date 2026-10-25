@@ -5,6 +5,7 @@
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "../types";
 import type { Card } from "../world/cards";
 import { isPronunciation } from "../world/labels";
+import { possessors, shownByName, speciesText } from "../world/species";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -68,8 +69,18 @@ export function cardDom(
   who.append(el("strong", "", card.name));
   if (said) who.append(el("span", "qcard-said", said.value));
   if (card.kind === "character" && card.gender) who.append(el("span", "qcard-gender", card.gender));
+  // what a character is, as of this chapter: "selkie · appears as human" (docs/SPEC.md §13.3)
+  const kinds = speciesText(card);
+  if (kinds) who.append(el("span", "qcard-species", kinds));
   head.append(who, el("span", `qkind k-${card.kind}`, kindLabel(card.kind)));
   root.append(head);
+  const held = possessors(card);
+  if (held.length) {
+    const line = el("div", "qcard-possessed");
+    line.append("possessed by ");
+    held.forEach((p, i) => line.append(...(i ? [", "] : []), el("span", `qname k-${p.kind}`, p.name)));
+    root.append(line);
+  }
   if (card.summary) root.append(el("div", "qcard-summary", card.summary));
   if (card.aliases.length) root.append(el("div", "qcard-also", `also ${card.aliases.join(", ")}`));
   // the first few facts; a label that holds several values shows them as chips side by side
@@ -90,11 +101,13 @@ export function cardDom(
     }
     root.append(dl);
   }
-  if (card.relations.length) {
+  const rels = card.relations.filter((r) => !shownByName(r));
+  if (rels.length) {
     const ul = el("ul", "qcard-rels");
-    for (const r of card.relations.slice(0, 4)) {
+    for (const r of rels.slice(0, 4)) {
       const li = el("li");
       li.append(`${r.label} `, el("span", `qname k-${r.other.kind}`, r.other.name));
+      if (r.role) li.append(el("span", "qcard-role", ` · ${r.role}`));
       if (r.standing !== "canon") li.append(el("span", "qcard-standing", ` (${r.standing})`));
       ul.append(li);
     }

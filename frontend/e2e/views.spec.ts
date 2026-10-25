@@ -261,7 +261,8 @@ test("12.2 done when: three generations around Mirelle, kin words by gender, wor
 
   // not set gives the general word; nothing was added to the recorded relationships
   await page.goto(`${W}/bible/${ids.Oswin}`);
-  await page.getByTestId("gender").selectOption("");
+  // the change is saved before the next page reads it
+  await Promise.all([page.waitForResponse((r) => r.url().includes(`/entities/${ids.Oswin}`) && r.request().method() === "PATCH" && r.ok()), page.getByTestId("gender").selectOption("")]);
   await page.goto(`${W}/bible/${ids.Isolde}`);
   await expect(page.getByTestId("family-worked-out")).toContainText(/sibling · Oswin\s*\(via Varren\)/);
   await page.goto(`${W}/bible/${ids.Mirelle}`);

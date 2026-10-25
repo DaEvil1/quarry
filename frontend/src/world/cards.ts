@@ -19,7 +19,8 @@ export interface Card {
   exclusions: string[];
   summary: string;
   facts: { label: string; value: string; from: string | null; until: string | null }[];
-  relations: { label: string; other: EntityRef; standing: string; from: string | null; until: string | null }[];
+  /** with a role in a group, for a type that has one (docs/SPEC.md §13.4) */
+  relations: { label: string; other: EntityRef; standing: string; from: string | null; until: string | null; role?: string }[];
   /** the labels of all its facts, whatever their standing, as compared (lower case) */
   labels?: string[];
   /** its level: a project's slug, or null for the world */
@@ -171,6 +172,8 @@ export interface LabelsPage {
       without: (EntityRef & { resolved: boolean })[];
     }[];
   }[];
+  /** roles in groups, with the per-role "one at a time" switch (docs/SPEC.md §13.4) */
+  roles?: { role: string; count: number; one_at_a_time: boolean; types: string[]; groups: EntityRef[] }[];
 }
 
 export function switchesOf(page: LabelsPage): LabelSwitch[] {
