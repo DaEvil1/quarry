@@ -71,6 +71,18 @@ def test_demo_world(signed_in: Client):
     assert (parked["kind"], parked["origin"]["id"]) == ("spark", wardens_entry)
     assert "??" in journal["Loose threads"]["body"]
 
+    # getting back in and checking (docs/SPEC.md §14.4–§14.9)
+    front = signed_in.get(f"{W}/front").json()
+    assert front["premise"].startswith("A ferry-girl")
+    assert ("journal", "Settle Hesper's age before chapter two of Ash Season") in [(n["source"], n["note"]) for n in front["notes"]]
+    assert signed_in.get(f"{W}/journal/{journal['The first map']['id']}/since").json()["decisions"] >= 1
+    planned = {(c["rule"], c["planned"], (c["chapter"] or {}).get("title")) for c in signed_in.get(f"{W}/checks", params={"planned": 1}).json()}
+    assert ("dead_mentioned", True, "Ash Season") in planned
+    assert not any(c["rule"] == "dead_mentioned" and "Cade" in c["message"] for c in signed_in.get(f"{W}/checks").json())
+    assert ("cause_after_effect", "Lanterns on the Water") in rules
+    delta = next(e for e in signed_in.get(f"{W}/entities", params={"kind": "character"}).json() if e["name"] == "The Ninefold Delta")
+    assert (delta["kind"], delta["also_kinds"]) == ("place", ["character"])
+
     # revising: summaries and statuses, a cut, and a few days of word history (and nothing for the day it loaded)
     assert all(c["summary"] and c["status"] for c in book["chapters"])
     assert [t["label"] for t in book["status_tally"]] == ["raw", "rewritten", "polished", None]
