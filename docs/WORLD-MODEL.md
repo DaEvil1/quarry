@@ -225,7 +225,7 @@ only with Ctrl, typing quiet period, text size and line width, and the default m
 - **The chart** (from phase 12, [SPEC.md](SPEC.md) §13.7): a schematic map of the places, drawn from how they nest,
   border and connect, with shapes by type, pins to shape it by hand, and an optional *as of*.
 - **Later: your own map.** Upload a map image, pin places on it, and see who is where as of a chapter. The chart
-  doesn't replace it.
+  doesn't replace it. The image would be a picture ([SPEC.md](SPEC.md) §17), so what is left is the pins.
 
 ## 7. The writing companion
 
@@ -303,7 +303,7 @@ decision_links    (decision_id, entity_id)
 resolutions       (world_id, rule, key, outcome, note)                            -- intentional / later / not connected
 session_notes     (chapter_id, user_id, note, cursor, updated_at)                 -- getting back in
 chapters          + time_at, time_end, time_label, time_approx, told_as             -- phase 12, SPEC.md §13.8
-map_images, map_pins                                                              -- later
+map_pins                                                                          -- later; the image is a picture (SPEC.md §17)
 ```
 
 Co-occurrence (two entries in the same sentence, paragraph or chapter) is computed from the mentions on save, and
