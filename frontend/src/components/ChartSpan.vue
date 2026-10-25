@@ -78,7 +78,8 @@ const stops = computed<Stop[]>(() => {
 });
 const states = computed(() => stops.value.map((s) => chart.stateAt(s.at, null, props.standings)));
 const step = ref(0);
-watch(stops, (s) => (step.value = Math.max(0, s.length - 1)), { immediate: true });
+// to the span's end when the stops change, not each time the data behind them is read again (a scrub would jump back)
+watch(() => stops.value.map((s) => `${s.t}|${s.when}`).join(","), () => (step.value = Math.max(0, stops.value.length - 1)), { immediate: true });
 const following = computed(() => stops.value.length > 0);
 const shown = computed<ChartState | null>(() => (following.value ? (states.value[step.value] ?? null) : chart.stateAt(props.fallback, null, props.standings)));
 const layout = computed(() => (shown.value ? chart.layoutOf(shown.value) : null));
