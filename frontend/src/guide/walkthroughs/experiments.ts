@@ -103,7 +103,7 @@ export const experiments: Tour = {
   id: "experiments",
   title: "Restructuring with experiments",
   blurb: "Trying other drafts of a range of chapters, reading them in place, accepting, and Salvage.",
-  minutes: 4,
+  minutes: 2,
   covers: ["Experiments", "Read as if accepted", "The review", "Salvage"],
   steps,
 };

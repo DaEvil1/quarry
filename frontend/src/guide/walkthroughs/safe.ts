@@ -94,7 +94,7 @@ export const safe: Tour = {
   id: "safe",
   title: "Keeping it safe",
   blurb: "Autosave and History, Export and Restore, the offline copy, passkeys and recovery codes, and deleting a world.",
-  minutes: 3,
+  minutes: 2,
   covers: ["History and restore", "Export", "Restore", "Offline copy", "Passkeys"],
   steps,
 };

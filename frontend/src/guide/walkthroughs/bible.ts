@@ -112,7 +112,7 @@ export const bible: Tour = {
   id: "bible",
   title: "The bible",
   blurb: "Entries and their pages, names that aren't names, the name check, renaming, and labels.",
-  minutes: 4,
+  minutes: 2,
   covers: ["Entries", "Mentions strip", "Book-only entries", "Name check", "Labels"],
   steps,
 };

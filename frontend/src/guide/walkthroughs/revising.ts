@@ -123,7 +123,7 @@ export const revising: Tour = {
   id: "revising",
   title: "Revising",
   blurb: "Summaries and statuses, word history, find and replace, a checkpoint and the changes since, the cuts bin, and one entry's thread.",
-  minutes: 4,
+  minutes: 2,
   covers: ["Summaries and statuses", "Find and replace", "Changes since a checkpoint", "Cuts bin", "Read a thread"],
   steps,
 };

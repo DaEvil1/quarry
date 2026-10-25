@@ -125,7 +125,7 @@ export const timeline: Tour = {
   id: "timeline",
   title: "Story time and the Timeline",
   blurb: "When chapters are set, recording an event from a passage, and reading the Timeline.",
-  minutes: 4,
+  minutes: 2,
   covers: ["When a chapter is set", "Record as event", "Timeline", "Checks"],
   steps,
 };

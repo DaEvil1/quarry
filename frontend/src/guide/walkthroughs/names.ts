@@ -112,7 +112,7 @@ export const names: Tour = {
   id: "names",
   title: "Names shared by two entries",
   blurb: "Two Linnets in one chapter, settling which is meant with choice lines, and an entry that is two kinds at once.",
-  minutes: 4,
+  minutes: 2,
   covers: ["Shared names", "Choice lines", "Not settled", "Phone", "Entries of two kinds"],
   steps,
 };

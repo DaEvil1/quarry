@@ -70,7 +70,7 @@ export const capture: Tour = {
   id: "capture",
   title: "A spark on the phone, sorted at the desk",
   blurb: "Capture on the phone, then the inbox, closing with a decision, and Triage.",
-  minutes: 2,
+  minutes: 1,
   covers: ["Capture", "Inbox", "Triage", "Decisions"],
   steps,
 };

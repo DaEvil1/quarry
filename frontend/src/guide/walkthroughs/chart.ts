@@ -107,7 +107,7 @@ export const chart: Tour = {
   id: "chart",
   title: "The chart",
   blurb: "Places drawn from the bible: shapes from types, pins and automatic layout, routes, as of a time, and the Timeline.",
-  minutes: 4,
+  minutes: 2,
   covers: ["Chart", "Shapes and pins", "Routes and control", "As of", "From the Timeline"],
   steps,
 };

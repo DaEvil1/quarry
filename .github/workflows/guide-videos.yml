@@ -1,5 +1,5 @@
 # The Guide's walkthroughs as videos (docs/SPEC.md §15): each watched at normal speed in a fresh Quarry and recorded,
-# squeezed with VP9 (about 1.5 MB a minute, some 70 MB for all of them), then kept as a workflow artifact for 30
+# squeezed with VP9 (about 1.5 MB a minute, some 35 MB for all of them), then kept as a workflow artifact for 30
 # days. Run by hand (Actions › guide videos › Run workflow); nothing is committed, so the videos take no room in the
 # repository.
 name: guide videos

@@ -103,7 +103,7 @@ export const species: Tour = {
   id: "species",
   title: "Species and roles",
   blurb: "Species as entries, what a character is and appears as, roles held one at a time, and the clash in Checks.",
-  minutes: 3,
+  minutes: 2,
   covers: ["Species", "Is a / appears as", "Species column", "Roles", "Checks"],
   steps,
 };

@@ -114,7 +114,7 @@ export const journal: Tour = {
   id: "journal",
   title: "Planning in the Journal",
   blurb: "Journal entries with the world tools, planned facts, questions from a passage, the planning reading, and Include planned.",
-  minutes: 5,
+  minutes: 2,
   covers: ["Journal", "Planned facts", "Sparks and questions", "Planning reading", "Include planned"],
   steps,
 };

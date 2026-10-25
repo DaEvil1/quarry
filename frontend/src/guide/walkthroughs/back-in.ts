@@ -101,7 +101,7 @@ export const backIn: Tour = {
   id: "back-in",
   title: "Getting back in",
   blurb: "The world's front page, continuing where you stopped, the note for next time, and the Writing or Planning focus.",
-  minutes: 3,
+  minutes: 2,
   covers: ["Front page", "Where you left off", "A note for next time", "Focus"],
   steps,
 };

@@ -120,7 +120,7 @@ export const companion: Tour = {
   id: "companion",
   title: "Writing a chapter with the companion",
   blurb: "Names coloured as you write, the companion's five tabs, fixes from the keyboard, and stashing a thought.",
-  minutes: 4,
+  minutes: 2,
   covers: ["Names by kind", "The five tabs", "Alt+Enter and F8", "Margin notes", "Stash a thought"],
   steps,
 };

@@ -105,7 +105,7 @@ export const facts: Tour = {
   id: "facts",
   title: "Facts and relationships from the prose",
   blurb: "Recording a fact from a passage, reading an entry as of a point in the story, the family tree, and where everyone is.",
-  minutes: 4,
+  minutes: 2,
   covers: ["Record a fact", "Facts and relationships", "As of", "Family tree", "Where everyone is"],
   steps,
 };
