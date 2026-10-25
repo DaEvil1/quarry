@@ -115,6 +115,44 @@ async function changed() {
   void loadFamily();
 }
 
+// ---- an entry of more than one kind (docs/SPEC.md §14.8) ----
+function addKind(k: EntityKind) {
+  const e = detail.value?.entity;
+  if (!e || !k) return;
+  void save({ also_kinds: [...(e.also_kinds ?? []), k] });
+}
+/** the added kind becomes the main one, and the main one the first added */
+function makeMain(k: EntityKind) {
+  const e = detail.value?.entity;
+  if (!e) return;
+  void save({ kind: k, also_kinds: [e.kind, ...(e.also_kinds ?? []).filter((x) => x !== k)] });
+}
+const dropping = ref<{ kind: EntityKind; message: string } | null>(null);
+/** removing an added kind says what uses it first; those relationships stay */
+function dropKind(k: EntityKind) {
+  const d = detail.value;
+  if (!d) return;
+  const byId = new Map(types.value.map((t) => [t.id, t]));
+  const uses = d.relationships.filter((r) => {
+    const t = byId.get(r.type_id);
+    if (!t) return false;
+    const side = r.a.id === d.entity.id ? t.a_kind : t.b_kind;
+    return side === k;
+  }).length;
+  const word = kindLabel(k).toLowerCase();
+  dropping.value = {
+    kind: k,
+    message: uses ? `${uses} relationship${uses === 1 ? " uses" : "s use"} ${d.entity.name} as a ${word}. They stay.` : `Nothing uses ${d.entity.name} as a ${word}.`,
+  };
+}
+function confirmDrop() {
+  const e = detail.value?.entity;
+  const k = dropping.value?.kind;
+  dropping.value = null;
+  if (!e || !k) return;
+  void save({ also_kinds: (e.also_kinds ?? []).filter((x) => x !== k) });
+}
+
 async function save(changes: EntityChanges) {
   const e = detail.value?.entity;
   if (!e) return;
@@ -350,10 +388,16 @@ async function notForThisOne(label: string) {
   <template v-else-if="detail">
     <div class="page-head entry-head" :class="`k-${detail.entity.kind}`">
       <div class="grow">
-        <div class="crumbs">
+        <div class="crumbs" data-testid="entry-kinds">
           <RouterLink :to="{ name: 'bible-kind', params: { world: world.slug, kind: detail.entity.kind } }">
             {{ ENTITY_KINDS.find((k) => k.value === detail!.entity.kind)?.plural }}
           </RouterLink>
+          <!-- its kinds, in order: "Place · also a character" (docs/SPEC.md §14.8) -->
+          <template v-for="k in detail.entity.also_kinds ?? []" :key="k">
+            · also a <RouterLink :to="{ name: 'bible-kind', params: { world: world.slug, kind: k } }" :class="`k-${k}`">{{ kindLabel(k).toLowerCase() }}</RouterLink>
+            <button type="button" class="linkish small" :data-testid="`make-main-${k}`" @click="makeMain(k)">Make main</button>
+            <button type="button" class="chip-x" :aria-label="`No longer a ${kindLabel(k).toLowerCase()}`" @click="dropKind(k)">×</button>
+          </template>
         </div>
         <h1 class="kname"><InlineText :value="detail.entity.name" label="Name" :maxlength="200" @save="(v) => v && save({ name: v })" /><span v-if="pronunciation" class="pronunciation" data-testid="pronunciation">{{ pronunciation }}</span><span v-if="species" class="species-words" data-testid="species-words">{{ species }}</span></h1>
         <p class="entry-summary">
@@ -377,6 +421,10 @@ async function notForThisOne(label: string) {
         <select class="filter" :value="detail.entity.kind" aria-label="Kind" @change="save({ kind: ($event.target as HTMLSelectElement).value as EntityKind })">
           <option v-for="k in ENTITY_KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
         </select>
+        <select class="filter" value="" aria-label="Also a…" data-testid="also-a" title="It is this kind as well, and stays one entry" @change="addKind(($event.target as HTMLSelectElement).value as EntityKind), (($event.target as HTMLSelectElement).value = '')">
+          <option value="">Also a…</option>
+          <option v-for="k in ENTITY_KINDS.filter((x) => x.value !== detail!.entity.kind && !(detail!.entity.also_kinds ?? []).includes(x.value))" :key="k.value" :value="k.value">{{ k.label }}</option>
+        </select>
         <label v-if="detail.entity.kind === 'character'" class="small muted gender-pick">Gender
           <select class="filter" :value="detail.entity.gender ?? ''" aria-label="Gender" data-testid="gender" @change="save({ gender: (($event.target as HTMLSelectElement).value || null) as Gender | null })">
             <option v-for="g in GENDERS" :key="g.label" :value="g.value ?? ''">{{ g.label }}</option>
@@ -390,6 +438,11 @@ async function notForThisOne(label: string) {
       </div>
     </div>
 
+    <div v-if="dropping" class="notice small" role="alertdialog" data-testid="drop-kind">
+      <span>{{ dropping.message }}</span>
+      <button type="button" class="btn btn-sm" @click="confirmDrop">Remove the kind</button>
+      <button type="button" class="btn btn-sm" @click="dropping = null">Keep it</button>
+    </div>
     <div v-if="notice" class="notice ok" role="status">{{ notice }}</div>
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
 

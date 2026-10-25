@@ -118,7 +118,7 @@ const projectsShown = computed(() => {
   return out;
 });
 const steps = computed(() => new Map(rows.value.map((r) => [r.entity.id, rowSteps(r)])));
-const places = computed(() => cards.names.filter((n) => n.kind === "place"));
+const places = computed(() => cards.names.filter((n) => cards.hasKind(n.id, "place")));
 const KINDS = ENTITY_KINDS;
 
 // recording a place from a character's cell

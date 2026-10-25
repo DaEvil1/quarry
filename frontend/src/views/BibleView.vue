@@ -24,6 +24,7 @@ const worldSlug = computed(() => String(route.params.world));
 const world = computed(() => session.world(worldSlug.value));
 const kind = computed(() => (route.params.kind ? (String(route.params.kind) as EntityKind) : null));
 const kindInfo = computed(() => ENTITY_KINDS.find((k) => k.value === kind.value) ?? null);
+const kindWord = (k: string) => (ENTITY_KINDS.find((x) => x.value === k)?.label ?? k).toLowerCase();
 const entities = ref<Entity[]>([]);
 const q = ref("");
 const error = ref("");
@@ -81,7 +82,8 @@ const reader = computed<LabelReader>(() => ({
 const shown = computed(() => {
   const needle = q.value.trim().toLowerCase();
   return entities.value.filter((e) => {
-    if (kind.value && e.kind !== kind.value) return false;
+    // an entry of more than one kind is listed under each (docs/SPEC.md §14.8)
+    if (kind.value && e.kind !== kind.value && !(e.also_kinds ?? []).includes(kind.value as EntityKind)) return false;
     if (needle && !e.name.toLowerCase().includes(needle) && !e.summary.toLowerCase().includes(needle) && !e.aliases.some((a) => a.toLowerCase().includes(needle))) return false;
     if (kind.value && filters.value.length) {
       const c = cards.byId.get(e.id);
@@ -283,6 +285,7 @@ async function add() {
           <tr v-for="e in s.items" :key="e.id" :class="{ dim: !inBook(e) }">
             <td>
               <RouterLink class="kname" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink>
+              <span v-if="kind && e.kind !== kind" class="pill small" data-testid="also-tag">{{ kindWord(e.kind) }}, also a {{ kindWord(kind) }}</span>
               <div v-if="e.aliases.length" class="muted small">{{ e.aliases.join(", ") }}</div>
               <div v-if="!inBook(e)" class="small where-used" data-testid="where-used">{{ whereUsed(e) }}</div>
             </td>

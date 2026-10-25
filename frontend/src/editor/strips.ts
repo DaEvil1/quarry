@@ -76,6 +76,8 @@ export function cardDom(
   if (kinds) who.append(el("span", "qcard-species", kinds));
   head.append(who, el("span", `qkind k-${card.kind}`, kindLabel(card.kind)));
   root.append(head);
+  // an entry of more than one kind: the main kind's colour, and what else it is (docs/SPEC.md §14.8)
+  if (card.also_kinds?.length) root.append(el("div", "qcard-also", `also a ${card.also_kinds.map((k) => kindLabel(k).toLowerCase()).join(", ")}`));
   const held = possessors(card);
   if (held.length) {
     const line = el("div", "qcard-possessed");

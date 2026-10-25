@@ -26,8 +26,10 @@ const props = defineProps<{
   actions: PanelActions;
   /** a journal entry, not a chapter */
   journal?: boolean;
+  /** Include planned on the Continuity tab (docs/SPEC.md §14.6) */
+  planned?: boolean;
 }>();
-const emit = defineEmits<{ dismissBack: []; tab: [tab: string] }>();
+const emit = defineEmits<{ dismissBack: []; tab: [tab: string]; planned: [on: boolean] }>();
 
 const prefs = usePrefs();
 const tab = ref<"chapter" | EditorName>("chapter");
@@ -91,9 +93,12 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
 
     <!-- Continuity: the checks over recorded data -->
     <section v-else-if="tab === 'continuity'" class="findings" data-testid="findings-continuity">
+      <label class="toggle small" title="Planned facts and relationships count too; rumour never does">
+        <input type="checkbox" :checked="props.planned" data-testid="include-planned" @change="emit('planned', ($event.target as HTMLInputElement).checked)" /> Include planned
+      </label>
       <p v-if="!openChecks.length" class="muted small">Nothing to check in this chapter.</p>
       <div v-for="c in openChecks" :key="c.rule + c.key" class="finding">
-        <div class="small">{{ c.message }}</div>
+        <div class="small">{{ c.message }}<span v-if="c.planned" class="pill" data-testid="planned-tag"> planned</span></div>
         <div class="qrow">
           <button v-for="e in c.entities" :key="e.id" type="button" class="qchip" :class="`k-${e.kind}`" @click="props.actions.open(e)">{{ e.name }}</button>
           <button v-if="c.rule === 'fact_conflict' && c.label && c.kind" type="button" class="qchip" title="The label holds several values at once for this kind" @click="props.actions.several(c.kind, c.label)">Both are true (several values)</button>

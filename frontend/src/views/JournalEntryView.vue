@@ -18,6 +18,10 @@ import { recordEvent, undoRecord } from "../history";
 import {
   deleteEntry,
   entryItems,
+  entryNote,
+  saveEntryNote,
+  sinceThis,
+  type SinceThis,
   entryTies,
   getEntry,
   journalDay,
@@ -31,7 +35,7 @@ import { usePrefs } from "../prefs";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import type { EntityRef, JournalDetail } from "../types";
-import { useCards } from "../world/cards";
+import { kindsOf, useCards } from "../world/cards";
 import { analyse, linkKey, type Finding } from "../world/findings";
 import { unitOf } from "../world/when";
 import NotFoundView from "./NotFoundView.vue";
@@ -187,8 +191,10 @@ const worldHooks: WorldHooks = {
   link: (id) => ({
     names: () => cards.names,
     options: (other) => {
-      const from = cards.byId.get(id)?.kind ?? "other";
-      return typeOptions(cards.types, from, other.kind).map((o) => ({ key: `${o.type.id}|${o.forward}`, reads: o.reads }));
+      // any of each one's kinds (docs/SPEC.md §14.8)
+      const me = cards.byId.get(id);
+      const them = cards.byId.get(other.id);
+      return typeOptions(cards.types, me ? kindsOf(me) : ["other"], them ? kindsOf(them) : [other.kind]).map((o) => ({ key: `${o.type.id}|${o.forward}`, reads: o.reads }));
     },
     add: (other, key) => {
       const [typeId, forward] = key.split("|");
@@ -208,7 +214,7 @@ function historyActions(raw: string): HistoryActions {
   return {
     named,
     events: () => {
-      const events = cards.names.filter((n) => n.kind === "event");
+      const events = cards.names.filter((n) => cards.hasKind(n.id, "event"));
       return [...events].sort((a, b) => Number(!named.some((n) => n.id === a.id)) - Number(!named.some((n) => n.id === b.id)));
     },
     relatedTo: (eventId) => new Set((cards.byId.get(eventId)?.relations ?? []).map((r) => r.other.id)),
@@ -295,6 +301,48 @@ function passageContext(): PassageContext {
     saved: itemSaved,
     failed: (m) => (error.value = m),
   };
+}
+
+// ---- the note for next time (docs/SPEC.md §14.4), and since this was written (§14.5) ----
+const nextNote = ref("");
+const backIn = ref<{ context: string; note: string; cursor: number } | null>(null);
+const since = ref<SinceThis | null>(null);
+async function loadNote(e: JournalDetail) {
+  const [note, s] = await Promise.allSettled([entryNote(worldSlug.value, e.id), sinceThis(worldSlug.value, e.id)]);
+  if (entry.value?.id !== e.id) return;
+  if (s.status === "fulfilled") since.value = s.value;
+  if (note.status !== "fulfilled") return;
+  nextNote.value = note.value.note;
+  const body = prose.value?.view.state.doc.toString() ?? e.body;
+  if (note.value.note || (note.value.cursor > 0 && note.value.cursor <= body.length)) {
+    const at = Math.min(note.value.cursor, body.length);
+    const start = body.lastIndexOf("\n", at - 1) + 1;
+    const context = body.slice(Math.max(start, at - 60), at).trim();
+    backIn.value = context || note.value.note ? { context, note: note.value.note, cursor: at } : null;
+  }
+}
+/** Where the writer is, and their note, kept for next time (best effort: offline it waits for the next visit). */
+function keepPlace() {
+  const e = entry.value;
+  const p = prose.value;
+  if (!e || !p) return;
+  void saveEntryNote(worldSlug.value, e.id, nextNote.value, p.view.state.selection.main.head).catch(() => {});
+}
+function saveNote(text: string) {
+  nextNote.value = text.trim();
+  keepPlace();
+}
+// leaving an entry after writing 30 words or more: a note for next time, asked once and skippably, as for chapters
+let wordsAtOpen = 0;
+let asked = false;
+const leaving = ref<string | null>(null);
+const leaveNote = ref("");
+const leaveBox = ref<HTMLInputElement | null>(null);
+async function finishLeave(save: boolean) {
+  if (save) nextNote.value = leaveNote.value.trim();
+  const target = leaving.value;
+  leaving.value = null;
+  if (target) await router.push(target);
 }
 
 // ---- the companion: Proofreader, Connections (Record how: planned), Archivist, Loose ends; no Continuity ----
@@ -462,11 +510,17 @@ const panelActions: PanelActions = {
   },
   endBefore: () => undefined,
   reAnchor: () => undefined,
-  // the note for next time in the Journal comes with phase 13b
-  saveNote: () => undefined,
+  saveNote: (text) => saveNote(text),
   stash: () => void openStash(),
   update: analyseNow,
-  goBack: () => undefined,
+  goBack() {
+    const p = prose.value;
+    const b = backIn.value;
+    if (!p || !b) return;
+    p.view.dispatch({ selection: { anchor: Math.min(b.cursor, p.view.state.doc.length) }, effects: EditorView.scrollIntoView(b.cursor, { y: "center" }) });
+    p.view.focus();
+    backIn.value = null;
+  },
   question: (f) => {
     const text = prose.value?.view.state.doc.toString() ?? "";
     const at = placeOf(f);
@@ -530,6 +584,8 @@ function mount(e: JournalDetail) {
   prose.value?.destroy();
   saver?.close();
   words.value = countWords(e.body);
+  wordsAtOpen = words.value;
+  asked = false;
   if (!host.value) return;
   prose.value = createProse(host.value, {
     doc: e.body,
@@ -601,6 +657,7 @@ async function load() {
   mount(e);
   await recoverDraft(e);
   void loadCompanion(e);
+  void loadNote(e);
   openAt();
 }
 
@@ -644,7 +701,10 @@ async function recoverDraft(e: JournalDetail) {
 }
 
 function onHide() {
-  if (document.visibilityState === "hidden") void saver?.leave();
+  if (document.visibilityState === "hidden") {
+    keepPlace();
+    void saver?.leave();
+  }
 }
 function onUnload(ev: BeforeUnloadEvent) {
   if (saver?.dirty) {
@@ -660,11 +720,22 @@ onMounted(async () => {
 });
 watch(() => route.params.id, async (id, old) => {
   if (id && id !== old) {
+    keepPlace();
     await saver?.leave();
     await load();
   }
 });
-onBeforeRouteLeave(async () => {
+onBeforeRouteLeave(async (to) => {
+  // wrote something this time: ask (once, skippably) for a note for next time
+  if (!asked && prefs.askNote && entry.value && words.value - wordsAtOpen >= 30) {
+    asked = true;
+    leaving.value = to.fullPath;
+    leaveNote.value = nextNote.value;
+    await nextTick();
+    leaveBox.value?.focus();
+    return false;
+  }
+  keepPlace();
   await saver?.leave();
 });
 onBeforeUnmount(() => {
@@ -810,6 +881,12 @@ const unit = computed(() => unitOf(world.value));
         <input id="stash-thought" ref="stashBox" v-model="thought" type="text" maxlength="2000" @keydown.esc="(stashing = false), prose?.view.focus()" />
         <button class="btn btn-sm btn-primary" type="submit">Stash</button>
       </form>
+      <form v-if="leaving" class="checkpoint-bar leave-bar" data-testid="leave-note" @submit.prevent="finishLeave(true)">
+        <label for="leave-note">Before you go: what's next here?</label>
+        <input id="leave-note" ref="leaveBox" v-model="leaveNote" type="text" maxlength="2000" placeholder="A note for next time" />
+        <button class="btn btn-sm btn-primary" type="submit">Save and go</button>
+        <button class="btn btn-sm" type="button" @click="finishLeave(false)">Skip</button>
+      </form>
       <form v-if="asking" class="checkpoint-bar" data-testid="ask-bar" @submit.prevent="keepQuestion">
         <label for="ask-line">A question from “{{ asking.passage.slice(0, 60) }}”</label>
         <input id="ask-line" ref="askBox" v-model="askLine" type="text" maxlength="2000" placeholder="Your line (optional)" @keydown.esc="(asking = null), prose?.view.focus()" />
@@ -838,14 +915,15 @@ const unit = computed(() => unitOf(world.value));
       :findings="findings"
       :checks="[]"
       :items="items"
-      note=""
-      :back-in="null"
+      :note="nextNote"
+      :back-in="backIn"
       :drafting="mode === 'drafting'"
       :stale="stale"
       :types="cards.types"
       :world="world.slug"
       :actions="panelActions"
       journal
+      @dismiss-back="backIn = null"
       @tab="onTab"
     >
       <JournalSide
@@ -858,6 +936,9 @@ const unit = computed(() => unitOf(world.value));
         :asof="asOf.asof ?? ''"
         :at="asOf.at ?? null"
         :era-of="cards.eraOf"
+        :note="nextNote"
+        :since="since"
+        @note="saveNote"
         @checkpoint="checkpoint"
         @history="showHistory = true"
         @asof="setAsOf"

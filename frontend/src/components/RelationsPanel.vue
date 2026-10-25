@@ -10,6 +10,7 @@ import EntityPicker from "./EntityPicker.vue";
 import InlineText from "./InlineText.vue";
 import SpanPicker from "./SpanPicker.vue";
 import PlannedIn from "./PlannedIn.vue";
+import { kindsOf, useCards } from "../world/cards";
 
 // An entry's relationships, grouped by how they read from this entry, and adding one: pick who or what, then how. A
 // type with a role ("member of") carries the holder's role in the group, with the roles used on it offered
@@ -28,6 +29,7 @@ const props = defineProps<{
   /** the journal entries relationships were planned in (docs/SPEC.md §14.1.2) */
   journalEntries?: Record<string, { id: string; date: string; title: string | null; body: string }>;
 }>();
+const cards = useCards();
 const off = (r: Relationship) => props.asOf !== null && !holds(r, props.asOf, props.indexOf);
 const setSpan = (r: Relationship, span: Span) => run(() => updateRelationship(props.world, r, span));
 const emit = defineEmits<{ changed: []; error: [message: string] }>();
@@ -44,7 +46,12 @@ const choice = ref("");
 const standing = ref<Standing>("planned");
 const note = ref("");
 const role = ref("");
-const options = computed(() => (target.value ? typeOptions(props.types, props.entity.kind, target.value.kind) : []));
+// any of each one's kinds (docs/SPEC.md §14.8)
+const kindsOfRef = (r: { id: string; kind: string }) => {
+  const c = cards.byId.get(r.id);
+  return c ? kindsOf(c) : [r.kind];
+};
+const options = computed(() => (target.value ? typeOptions(props.types, [props.entity.kind, ...(props.entity.also_kinds ?? [])], kindsOfRef(target.value)) : []));
 const STANDINGS: Standing[] = ["canon", "planned", "rumour"];
 const chosenType = computed(() => props.types.find((t) => t.id === choice.value.split("|")[0]));
 // the group a new relationship's role is in: the B side

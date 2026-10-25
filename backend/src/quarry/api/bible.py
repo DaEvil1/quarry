@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import any_, delete, func, literal, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -110,6 +110,8 @@ class EntityUpdate(BaseModel):
     outside_time: bool | None = None
     # an era's colour: one of the palette's eight names
     era_colour: Literal["amber", "moss", "teal", "sky", "indigo", "plum", "rose", "rust"] | None = None
+    # the kinds it is as well, in order (docs/SPEC.md §14.8); never the main kind
+    also_kinds: list[Kind] | None = Field(default=None, max_length=10)
 
 
 class EntityOut(BaseModel):
@@ -135,6 +137,17 @@ class EntityOut(BaseModel):
     # an event's "when" (a chapter, a time or outside time; null for not placed yet), and an era's colour
     when: dict | None = None
     era_colour: str | None = None
+    # the kinds it is as well, in the order added (docs/SPEC.md §14.8)
+    also_kinds: list[str] = Field(default_factory=list)
+
+
+def clean_kinds(main: str, kinds: list[str]) -> list[str]:
+    """Added kinds in order, each once, never the main kind."""
+    out: list[str] = []
+    for k in kinds:
+        if k != main and k not in out:
+            out.append(k)
+    return out
 
 
 def _clean_aliases(name: str, aliases: list[str]) -> list[str]:
@@ -159,7 +172,8 @@ def _out(e: Entity, count: int = 0, projects: dict[uuid.UUID, str] | None = None
                      match_case=e.match_case, first_name_alias=e.first_name_alias, exclusions=list(e.exclusions),
                      version=e.version, updated_at=e.updated_at, mention_count=count,
                      project=(projects or {}).get(e.project_id) if e.project_id else None, gender=e.gender,
-                     named_in=named_in or [], when=event_when(e), era_colour=e.era_colour)
+                     named_in=named_in or [], when=event_when(e), era_colour=e.era_colour,
+                     also_kinds=list(e.also_kinds or []))
 
 
 def _slugs(world: World) -> dict[uuid.UUID, str]:
@@ -207,7 +221,8 @@ def list_entities(slug: str, kind: Kind | None = None, user: User = Depends(curr
     world, _ = member_world(db, user, slug)
     q = select(Entity).where(Entity.world_id == world.id)
     if kind:
-        q = q.where(Entity.kind == kind)
+        # an entry of more than one kind is listed under each (docs/SPEC.md §14.8)
+        q = q.where((Entity.kind == kind) | (literal(kind) == any_(Entity.also_kinds)))
     counts = dict(db.execute(
         select(Mention.entity_id, func.count()).where(Mention.world_id == world.id, Mention.kind != "near_miss")
         .group_by(Mention.entity_id)).all())
@@ -338,9 +353,13 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
         aliases = _clean_aliases(e.name, aliases)
         names_changed |= aliases != list(e.aliases)
         e.aliases = aliases
+    before_kinds = [e.kind, *(e.also_kinds or [])]
     if body.kind is not None:
-        names_changed |= body.kind != e.kind  # first names belong to characters only
         e.kind = body.kind
+    if body.also_kinds is not None or body.kind is not None:
+        e.also_kinds = clean_kinds(e.kind, body.also_kinds if body.also_kinds is not None else list(e.also_kinds or []))
+    # first names belong to characters only (whichever of its kinds)
+    names_changed |= ("character" in before_kinds) != ("character" in [e.kind, *e.also_kinds])
     if body.body is not None:
         e.body = body.body
     if "project" in body.model_fields_set:

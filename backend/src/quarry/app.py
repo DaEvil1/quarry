@@ -19,6 +19,7 @@ from .api import (
     chart,
     companion,
     decisions,
+    front,
     demo,
     history,
     items,
@@ -153,6 +154,7 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.include_router(decisions.router)
     app.include_router(bible.router)
     app.include_router(journal.router)
+    app.include_router(front.router)
     # before the manuscript's /chapters/{id}: /chapters/ties and /chapters/retire
     app.include_router(restructure.router)
     app.include_router(manuscript.router)

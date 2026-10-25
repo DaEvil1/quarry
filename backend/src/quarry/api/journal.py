@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import date, datetime
+from collections import defaultdict
+from datetime import UTC, date, datetime, time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -28,6 +29,7 @@ from ..models import (
     Item,
     ItemLink,
     JournalEntry,
+    JournalNote,
     Mention,
     Relationship,
     Revision,
@@ -61,6 +63,8 @@ class EntryOut(BaseModel):
     words: int = 0
     created_at: datetime
     updated_at: datetime
+    # decisions and changes since its date touching what it names (docs/SPEC.md §14.5); on the list only
+    since: int | None = None
 
 
 class EntryDetail(EntryOut):
@@ -175,7 +179,9 @@ def list_journal(slug: str, project: str | None = None, limit: int = Query(200, 
                  user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[EntryOut]:
     world, _ = member_world(db, user, slug)
     q = _query(world, project).order_by(JournalEntry.entry_date.desc(), JournalEntry.created_at.desc()).limit(limit)
-    return [_out(j, world) for j in db.scalars(q)]
+    entries = list(db.scalars(q))
+    counts = Since(db, world).counts(entries)
+    return [_out(j, world).model_copy(update={"since": counts.get(j.id, 0)}) for j in entries]
 
 
 @router.post("/journal", status_code=201)
@@ -381,3 +387,139 @@ def planning(slug: str, entity: list[uuid.UUID] = Query(..., max_length=10), use
                                                             Decision.id.in_(decision_ids))
                                      .order_by(Decision.decided_on, Decision.created_at))] if decision_ids else []
     return {"items": items, "decisions": decisions}
+
+
+# the note for next time (docs/SPEC.md §14.4) ---------------------------------------------------------------------
+
+
+class NoteIn(BaseModel):
+    note: str = Field(default="", max_length=2000)
+    cursor: int = Field(default=0, ge=0)
+
+
+@router.get("/journal/{entry_id}/session-note")
+def get_note(slug: str, entry_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    world, _ = member_world(db, user, slug)
+    j = _entry(db, world, entry_id)
+    n = db.get(JournalNote, (j.id, user.id))
+    return {"note": n.note if n else "", "cursor": n.cursor if n else 0,
+            "updated_at": n.updated_at.isoformat() if n and n.updated_at else None}
+
+
+@router.put("/journal/{entry_id}/session-note")
+def put_note(slug: str, entry_id: uuid.UUID, body: NoteIn, user: User = Depends(current_user),
+             db: Session = Depends(get_db)) -> dict:
+    world, _ = member_world(db, user, slug)
+    j = _entry(db, world, entry_id)
+    n = db.get(JournalNote, (j.id, user.id))
+    if n is None:
+        n = JournalNote(journal_id=j.id, user_id=user.id)
+        db.add(n)
+    n.note = body.note.strip()
+    n.cursor = body.cursor
+    db.commit()
+    db.refresh(n)
+    return {"note": n.note, "cursor": n.cursor, "updated_at": n.updated_at.isoformat() if n.updated_at else None}
+
+
+# since this was written (docs/SPEC.md §14.5) ----------------------------------------------------------------------
+
+
+def _end_of(d: date) -> datetime:
+    return datetime.combine(d, time.max, tzinfo=UTC)
+
+
+def _later(*xs: datetime | None) -> datetime | None:
+    xs2 = [x for x in xs if x is not None]
+    return max(xs2) if xs2 else None
+
+
+class Since:
+    """What happened to the entries a journal entry names after its date, from links Quarry already keeps: decisions
+    dated after it that name or are tagged with them; their facts and relationships recorded or changed since and
+    their own pages changed since (each row once, on its later day); and later journal entries naming them. Rough:
+    nothing removed is seen."""
+
+    def __init__(self, db: Session, world: World) -> None:
+        self.named: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+        decision_named: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+        for m in db.scalars(select(Mention).where(Mention.world_id == world.id, Mention.kind.in_(("exact", "alias")),
+                                                  Mention.source_table.in_(("journal", "decision")))):
+            (self.named if m.source_table == "journal" else decision_named)[m.source_id].add(m.entity_id)
+        for dl in db.execute(select(DecisionLink).join(Decision, Decision.id == DecisionLink.decision_id)
+                             .where(Decision.world_id == world.id)).scalars():
+            decision_named[dl.decision_id].add(dl.entity_id)
+        self.decisions = [(d, decision_named.get(d.id, set())) for d in
+                          db.scalars(select(Decision).where(Decision.world_id == world.id)
+                                     .order_by(Decision.decided_on.desc(), Decision.created_at.desc()))]
+        self.facts = list(db.scalars(select(Fact).where(Fact.world_id == world.id)))
+        self.rels = list(db.scalars(select(Relationship).where(Relationship.world_id == world.id)))
+        self.entities = {e.id: e for e in db.scalars(select(Entity).where(Entity.world_id == world.id))}
+        self.entries = {j.id: j for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id))}
+
+    def of(self, j: JournalEntry) -> dict:
+        named = [e for e in sorted(self.named.get(j.id, set()), key=lambda x: self.entities[x].name.lower()
+                                   if x in self.entities else "") if e in self.entities]
+        after = _end_of(j.entry_date)
+        out = []
+        decisions_seen: set[uuid.UUID] = set()
+        changes_seen: set[tuple[str, uuid.UUID]] = set()
+        later_seen: set[uuid.UUID] = set()
+        for eid in named:
+            e = self.entities[eid]
+            decisions = [{"id": str(d.id), "date": d.decided_on.isoformat(), "text": d.text}
+                         for d, about in self.decisions if d.decided_on > j.entry_date and eid in about]
+            decisions_seen |= {uuid.UUID(x["id"]) for x in decisions}
+            changes = []
+            for f in self.facts:
+                when = _later(f.created_at, f.updated_at)
+                if f.entity_id == eid and when is not None and when > after:
+                    changes.append({"what": f"{f.label}{': ' + f.value if f.value else ''} recorded"
+                                    if f.created_at > after else f"{f.label} changed", "date": when.date().isoformat()})
+                    changes_seen.add(("fact", f.id))
+            for r in self.rels:
+                when = _later(r.created_at, r.updated_at)
+                if eid in (r.a_id, r.b_id) and when is not None and when > after:
+                    other = self.entities.get(r.b_id if r.a_id == eid else r.a_id)
+                    changes.append({"what": f"relationship with {other.name if other else 'another entry'} "
+                                    f"{'recorded' if r.created_at > after else 'changed'}",
+                                    "date": when.date().isoformat()})
+                    changes_seen.add(("rel", r.id))
+            if e.updated_at is not None and e.updated_at > after:
+                changes.append({"what": "page changed", "date": e.updated_at.date().isoformat()})
+                changes_seen.add(("page", e.id))
+            changes.sort(key=lambda c: c["date"], reverse=True)
+            later = [x for x in self.entries.values()
+                     if x.id != j.id and x.entry_date > j.entry_date and eid in self.named.get(x.id, set())]
+            later_seen |= {x.id for x in later}
+            out.append({"entity": {"id": str(e.id), "name": e.name, "kind": e.kind}, "decisions": decisions,
+                        "changes": changes, "later": len(later)})
+        edited = j.updated_at.date() if j.updated_at and j.updated_at.date() > j.entry_date else None
+        return {"date": j.entry_date.isoformat(), "edited": edited.isoformat() if edited else None,
+                "decisions": len(decisions_seen), "changes": len(changes_seen), "later": len(later_seen),
+                "entities": [x for x in out if x["decisions"] or x["changes"] or x["later"]]}
+
+    def counts(self, entries: list[JournalEntry]) -> dict[uuid.UUID, int]:
+        """Per entry: its decisions and changes since (the dimmed "16 since" on the list)."""
+        out = {}
+        for j in entries:
+            named = self.named.get(j.id, set())
+            if not named:
+                continue
+            after = _end_of(j.entry_date)
+            n = sum(1 for d, about in self.decisions if d.decided_on > j.entry_date and about & named)
+            n += sum(1 for f in self.facts if f.entity_id in named and (_later(f.created_at, f.updated_at) or after) > after)
+            n += sum(1 for r in self.rels if (r.a_id in named or r.b_id in named)
+                     and (_later(r.created_at, r.updated_at) or after) > after)
+            n += sum(1 for eid in named if eid in self.entities and self.entities[eid].updated_at
+                     and self.entities[eid].updated_at > after)
+            if n:
+                out[j.id] = n
+        return out
+
+
+@router.get("/journal/{entry_id}/since")
+def since(slug: str, entry_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    world, _ = member_world(db, user, slug)
+    j = _entry(db, world, entry_id)
+    return Since(db, world).of(j)

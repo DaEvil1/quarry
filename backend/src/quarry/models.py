@@ -57,6 +57,8 @@ GENDERS = ("female", "male", "nonbinary")
 # how a chapter is told, when not in the present of the story (docs/SPEC.md §13.1.2)
 TOLD_AS = ("flashback", "tale")
 INSERT_SIDES = ("before", "after")
+# what a world is being worked on as now, per person (docs/SPEC.md §14.9)
+FOCUSES = ("writing", "planning")
 # an era's colour (docs/SPEC.md §13.2.1): one of eight that work in both themes, each a pair of tokens
 ERA_COLOURS = ("amber", "moss", "teal", "sky", "indigo", "plum", "rose", "rust")
 
@@ -106,6 +108,8 @@ class World(Base):
     time_units: Mapped[str] = mapped_column(String(40), nullable=False, default="years", server_default="years")
     # the chart's settings (docs/SPEC.md §13.7.2): {"shapes": {"duchy": "hexagon"}}, shapes for the world's own types
     chart: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    # one optional line: what this world is about (docs/SPEC.md §14.4), up to 300 characters
+    premise: Mapped[str | None] = mapped_column(String(300))
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
@@ -118,12 +122,15 @@ class World(Base):
 
 class WorldMember(Base):
     __tablename__ = "world_members"
-    __table_args__ = (CheckConstraint(_in("role", MEMBER_ROLES), name="ck_world_members_role"),)
+    __table_args__ = (CheckConstraint(_in("role", MEMBER_ROLES), name="ck_world_members_role"),
+                      CheckConstraint(_in("focus", FOCUSES), name="ck_world_members_focus"))
 
     world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True,
                                                index=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="owner")
+    # what is up front for this person: writing (the default) or planning (docs/SPEC.md §14.9)
+    focus: Mapped[str] = mapped_column(String(20), nullable=False, default="writing", server_default="writing")
     created_at: Mapped[datetime] = _created()
 
 
@@ -294,6 +301,9 @@ class Entity(Base):
                                                                         use_alter=True))
     # an era's colour (an event whose type is "era")
     era_colour: Mapped[str | None] = mapped_column(String(20))
+    # the kinds it is as well, in the order added; never the main kind (docs/SPEC.md §14.8)
+    also_kinds: Mapped[list[str]] = mapped_column(ARRAY(String(20)), nullable=False, default=list,
+                                                  server_default="{}")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -682,6 +692,19 @@ class SessionNote(Base):
     __tablename__ = "session_notes"
 
     chapter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chapters.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cursor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = _updated()
+
+
+class JournalNote(Base):
+    """Getting back into a journal entry (docs/SPEC.md §14.4): where the writer stopped and the note they left for next
+    time, as for a chapter (session_notes)."""
+
+    __tablename__ = "journal_notes"
+
+    journal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("journal.id", ondelete="CASCADE"), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     note: Mapped[str] = mapped_column(Text, nullable=False, default="")
     cursor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

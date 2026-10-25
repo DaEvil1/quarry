@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { focusOf, writeLastPlace } from "../focus";
 import { readLastUsed, writeLastUsed } from "../lastUsed";
 import { syncWorld } from "../offline";
 import { ENTITY_KINDS } from "../types";
@@ -41,6 +42,19 @@ watch(
   },
   { immediate: true },
 );
+
+// the last place used in each world, for opening it there under Writing (docs/SPEC.md §14.9)
+watch(
+  () => route.fullPath,
+  (path) => {
+    if (worldSlug.value && route.name !== "world" && route.name !== "not-found") writeLastPlace(worldSlug.value, path);
+  },
+  { immediate: true },
+);
+// the nav's groups in the focus's order: Writing puts the projects first, Planning the planning links (with the
+// Journal at their head and the Timeline after Decisions); nothing is hidden under either
+const planning = computed(() => focusOf(world.value) === "planning");
+const groups = computed(() => (planning.value ? ["planning", "world", "projects"] : ["projects", "planning", "world"]));
 
 // the inbox count in the nav follows the world on screen, and catches up when captures sync
 watch(
@@ -95,67 +109,82 @@ async function signOut() {
           <RouterLink :to="to('world')">
             <Icon name="world" /><span>Overview</span>
           </RouterLink>
-          <RouterLink :to="to('capture')">
-            <Icon name="capture" /><span>Capture</span>
-          </RouterLink>
-          <RouterLink :to="to('inbox')" data-testid="nav-inbox">
-            <Icon name="inbox" /><span>Inbox</span>
-            <span v-if="openCount" class="badge">{{ openCount }}</span>
-          </RouterLink>
-          <RouterLink :to="to('triage')">
-            <Icon name="triage" /><span>Triage</span>
-          </RouterLink>
-          <RouterLink :to="to('decisions')">
-            <Icon name="decisions" /><span>Decisions</span>
-          </RouterLink>
-          <RouterLink :to="to('journal')">
-            <Icon name="journal" /><span>Journal</span>
-          </RouterLink>
-          <div class="nav-title">World</div>
-          <RouterLink
-            v-for="k in kinds"
-            :key="k.value"
-            :to="world ? { name: 'bible-kind', params: { world: world.slug, kind: k.value } } : { name: 'home' }"
-            :class="`k-${k.value}`"
-            :data-testid="`nav-kind-${k.value}`"
-          >
-            <span class="kdot nav-kdot" /><span>{{ k.plural }}</span>
-            <span v-if="k.count" class="badge dim">{{ k.count }}</span>
-          </RouterLink>
-          <RouterLink :to="to('bible')">
-            <Icon name="bible" /><span>All entries</span>
-          </RouterLink>
-          <RouterLink :to="to('graph')" data-testid="nav-graph">
-            <Icon name="graph" /><span>Graph</span>
-          </RouterLink>
-          <RouterLink :to="to('chart')" data-testid="nav-chart">
-            <Icon name="chart" /><span>Chart</span>
-          </RouterLink>
-          <RouterLink :to="to('timeline')" data-testid="nav-timeline">
-            <Icon name="timeline" /><span>Timeline</span>
-          </RouterLink>
-          <RouterLink :to="to('where')" data-testid="nav-where">
-            <Icon name="where" /><span>Where everyone is</span>
-          </RouterLink>
-          <RouterLink :to="to('checks')" data-testid="nav-checks">
-            <Icon name="checks" /><span>Checks</span>
-          </RouterLink>
-          <RouterLink :to="to('names')" data-testid="nav-names">
-            <Icon name="names" /><span>Name check</span>
-            <span v-if="nearMissCount" class="badge warn">{{ nearMissCount }}</span>
-          </RouterLink>
-          <div class="nav-title">Projects</div>
-          <RouterLink
-            v-for="p in world.projects"
-            :key="p.id"
-            :to="{ name: 'project', params: { world: world.slug, project: p.slug } }"
-          >
-            <Icon name="project" /><span>{{ p.name }}</span>
-            <span v-if="session.counts?.world === world.slug && session.counts.open_by_project[p.slug]" class="badge dim">
-              {{ session.counts.open_by_project[p.slug] }}
-            </span>
-          </RouterLink>
-          <p v-if="!world.projects.length" class="nav-empty">No projects yet</p>
+          <template v-for="g in groups" :key="g">
+            <template v-if="g === 'planning'">
+              <RouterLink v-if="planning" :to="to('journal')" data-testid="nav-journal">
+                <Icon name="journal" /><span>Journal</span>
+              </RouterLink>
+              <RouterLink :to="to('capture')">
+                <Icon name="capture" /><span>Capture</span>
+              </RouterLink>
+              <RouterLink :to="to('inbox')" data-testid="nav-inbox">
+                <Icon name="inbox" /><span>Inbox</span>
+                <span v-if="openCount" class="badge">{{ openCount }}</span>
+              </RouterLink>
+              <RouterLink :to="to('triage')">
+                <Icon name="triage" /><span>Triage</span>
+              </RouterLink>
+              <RouterLink :to="to('decisions')">
+                <Icon name="decisions" /><span>Decisions</span>
+              </RouterLink>
+              <RouterLink v-if="planning" :to="to('timeline')" data-testid="nav-timeline">
+                <Icon name="timeline" /><span>Timeline</span>
+              </RouterLink>
+              <RouterLink v-if="!planning" :to="to('journal')" data-testid="nav-journal">
+                <Icon name="journal" /><span>Journal</span>
+              </RouterLink>
+            </template>
+            <template v-else-if="g === 'world'">
+              <div class="nav-title">World</div>
+              <RouterLink
+                v-for="k in kinds"
+                :key="k.value"
+                :to="world ? { name: 'bible-kind', params: { world: world.slug, kind: k.value } } : { name: 'home' }"
+                :class="`k-${k.value}`"
+                :data-testid="`nav-kind-${k.value}`"
+              >
+                <span class="kdot nav-kdot" /><span>{{ k.plural }}</span>
+                <span v-if="k.count" class="badge dim">{{ k.count }}</span>
+              </RouterLink>
+              <RouterLink :to="to('bible')">
+                <Icon name="bible" /><span>All entries</span>
+              </RouterLink>
+              <RouterLink :to="to('graph')" data-testid="nav-graph">
+                <Icon name="graph" /><span>Graph</span>
+              </RouterLink>
+              <RouterLink :to="to('chart')" data-testid="nav-chart">
+                <Icon name="chart" /><span>Chart</span>
+              </RouterLink>
+              <RouterLink v-if="!planning" :to="to('timeline')" data-testid="nav-timeline">
+                <Icon name="timeline" /><span>Timeline</span>
+              </RouterLink>
+              <RouterLink :to="to('where')" data-testid="nav-where">
+                <Icon name="where" /><span>Where everyone is</span>
+              </RouterLink>
+              <RouterLink :to="to('checks')" data-testid="nav-checks">
+                <Icon name="checks" /><span>Checks</span>
+              </RouterLink>
+              <RouterLink :to="to('names')" data-testid="nav-names">
+                <Icon name="names" /><span>Name check</span>
+                <span v-if="nearMissCount" class="badge warn">{{ nearMissCount }}</span>
+              </RouterLink>
+            </template>
+            <template v-else>
+              <div class="nav-title">Projects</div>
+              <RouterLink
+                v-for="p in world.projects"
+                :key="p.id"
+                :to="{ name: 'project', params: { world: world.slug, project: p.slug } }"
+                data-testid="nav-project"
+              >
+                <Icon name="project" /><span>{{ p.name }}</span>
+                <span v-if="session.counts?.world === world.slug && session.counts.open_by_project[p.slug]" class="badge dim">
+                  {{ session.counts.open_by_project[p.slug] }}
+                </span>
+              </RouterLink>
+              <p v-if="!world.projects.length" class="nav-empty">No projects yet</p>
+            </template>
+          </template>
         </template>
       </nav>
       <div class="nav-foot">

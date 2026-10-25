@@ -26,6 +26,9 @@ export interface World {
   /** what in-world time is counted in, one and several (docs/SPEC.md §13.1.1) */
   time_unit?: string;
   time_units?: string;
+  /** one optional line about the world (docs/SPEC.md §14.4), and this person's focus in it (§14.9) */
+  premise?: string | null;
+  focus?: "writing" | "planning";
 }
 
 export interface User {
@@ -118,6 +121,8 @@ export interface Entity extends EntityRef {
   /** its level: the project whose part of the bible it is in, or null for the world (docs/SPEC.md §12.4) */
   project: string | null;
   gender: Gender | null;
+  /** the kinds it is as well, in the order added (docs/SPEC.md §14.8) */
+  also_kinds?: EntityKind[];
   /** in the bible's list: the projects whose current chapters name it */
   named_in: string[];
   /** an event's when (docs/SPEC.md §13.2.1): a chapter it happens in, a time, or outside time; null: not placed yet */
@@ -256,6 +261,8 @@ export interface JournalEntry {
   version: number;
   /** words in the entry (a %% line counts: in the Journal it is ordinary text) */
   words?: number;
+  /** on the list: decisions and changes since its date touching what it names (docs/SPEC.md §14.5) */
+  since?: number | null;
   created_at: string;
   updated_at: string;
 }

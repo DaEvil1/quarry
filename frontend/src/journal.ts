@@ -1,7 +1,7 @@
 // Journal calls (docs/SPEC.md §14.1): entries are written in the chapter editor and saved like chapters, with
 // revisions; the date and project are labels; what was planned in an entry is said before it is deleted.
 
-import { ApiError, del, get, patch, post } from "./api";
+import { ApiError, del, get, patch, post, put } from "./api";
 import { DocConflict, type RevisionInfo } from "./manuscript";
 import type { ItemOrigin, JournalDetail, JournalEntry } from "./types";
 
@@ -82,6 +82,29 @@ export const planning = (world: string, entities: string[]) =>
   get<{ items: PlanningItem[]; decisions: PlanningDecision[] }>(
     `${base(world)}/planning?${entities.map((e) => `entity=${encodeURIComponent(e)}`).join("&")}`,
   );
+
+// ---- the note for next time (docs/SPEC.md §14.4) and since this was written (§14.5) ----
+
+export const entryNote = (world: string, id: string) =>
+  get<{ note: string; cursor: number; updated_at: string | null }>(`${base(world)}/journal/${id}/session-note`);
+export const saveEntryNote = (world: string, id: string, note: string, cursor: number) =>
+  put<{ note: string; cursor: number }>(`${base(world)}/journal/${id}/session-note`, { note, cursor });
+
+export interface SinceEntity {
+  entity: { id: string; name: string; kind: string };
+  decisions: { id: string; date: string; text: string }[];
+  changes: { what: string; date: string }[];
+  later: number;
+}
+export interface SinceThis {
+  date: string;
+  edited: string | null;
+  decisions: number;
+  changes: number;
+  later: number;
+  entities: SinceEntity[];
+}
+export const sinceThis = (world: string, id: string) => get<SinceThis>(`${base(world)}/journal/${id}/since`);
 
 // ---- where an item came from ----
 

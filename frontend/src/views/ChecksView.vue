@@ -4,6 +4,7 @@ import { useRoute } from "vue-router";
 
 import { endBefore, setLabelSwitches } from "../bible";
 import { checks, resolutions, resolve, unresolve, type Check, type Resolution } from "../companion";
+import { includePlanned, setIncludePlanned } from "../focus";
 import { useSession } from "../stores/session";
 import NotFoundView from "./NotFoundView.vue";
 
@@ -17,12 +18,19 @@ const list = ref<Check[]>([]);
 const settled = ref<Resolution[]>([]);
 const error = ref("");
 const loaded = ref(false);
+// Include planned (docs/SPEC.md §14.6): starts from the world's focus; set by hand, it stays until the focus changes
+const planned = ref(includePlanned(world.value));
+watch(() => world.value?.focus, () => (planned.value = includePlanned(world.value)));
+watch(planned, (on) => {
+  if (world.value) setIncludePlanned(world.value, on);
+  void load();
+});
 
 async function load() {
   if (!world.value) return;
   error.value = "";
   try {
-    [list.value, settled.value] = await Promise.all([checks(worldSlug.value), resolutions(worldSlug.value)]);
+    [list.value, settled.value] = await Promise.all([checks(worldSlug.value, undefined, planned.value), resolutions(worldSlug.value)]);
     loaded.value = true;
   } catch (e) {
     error.value = (e as Error).message;
@@ -88,6 +96,11 @@ async function reopen(r: Resolution) {
           the prose.
         </p>
       </div>
+      <div class="actions">
+        <label class="toggle" title="Planned facts and relationships count too, as if they were canon; rumour never does">
+          <input v-model="planned" type="checkbox" data-testid="include-planned" /> Include planned
+        </label>
+      </div>
     </div>
 
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
@@ -100,7 +113,7 @@ async function reopen(r: Resolution) {
       </h2>
       <ul class="rows">
         <li v-for="c in g.items" :key="c.rule + c.key" data-testid="check">
-          <span class="grow">{{ c.message }}</span>
+          <span class="grow">{{ c.message }}<span v-if="c.planned" class="pill" data-testid="planned-tag"> planned</span></span>
           <RouterLink v-for="e in c.entities" :key="e.id" class="kname small" :class="`k-${e.kind}`" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink>
           <button v-if="c.rule === 'fact_conflict' && c.label && c.kind" type="button" class="btn btn-sm" title="The label holds several values at once for this kind" @click="bothTrue(c)">Both are true (several values)</button>
           <button v-if="c.rule === 'role_clash' && c.end && c.before" type="button" class="btn btn-sm" data-testid="end-before" @click="handOver(c)">End {{ c.end.name }}'s before {{ c.before.name }}'s</button>

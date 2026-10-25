@@ -19,7 +19,7 @@ export function hideCard(now = false) {
   else closeTimer = window.setTimeout(close, 200);
 }
 
-export function showCard(anchor: HTMLElement, card: Card | undefined, open: () => void, delay: number, several?: (kind: string, label: string) => boolean) {
+export function showCard(anchor: HTMLElement, card: Card | undefined, open: () => void, delay: number, several?: (kind: string, label: string) => boolean, extra?: () => HTMLElement | null) {
   window.clearTimeout(openTimer);
   window.clearTimeout(closeTimer);
   openTimer = window.setTimeout(() => {
@@ -32,6 +32,8 @@ export function showCard(anchor: HTMLElement, card: Card | undefined, open: () =
       },
       several,
     });
+    const more = extra?.();
+    if (more) dom.append(more);
     dom.classList.add("qcard-floating");
     dom.addEventListener("mouseenter", () => window.clearTimeout(closeTimer));
     dom.addEventListener("mouseleave", () => hideCard());

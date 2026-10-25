@@ -2,7 +2,9 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
+import { worldTarget } from "../focus";
 import type { World } from "../types";
+import FocusSwitch from "./FocusSwitch.vue";
 
 const props = defineProps<{ worlds: World[]; current?: World }>();
 
@@ -40,11 +42,12 @@ watch(() => route.fullPath, () => (open.value = false));
       <span class="label">{{ props.current?.name ?? "Choose a world" }}</span>
       <span class="caret" aria-hidden="true">▼</span>
     </button>
+    <FocusSwitch v-if="props.current" :world="props.current" />
     <div v-if="open" class="switcher-menu" role="menu">
       <RouterLink
         v-for="w in props.worlds"
         :key="w.id"
-        :to="{ name: 'world', params: { world: w.slug } }"
+        :to="worldTarget(w)"
         role="menuitem"
         :class="{ current: w.id === props.current?.id }"
         >{{ w.name }}</RouterLink

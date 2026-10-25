@@ -31,6 +31,8 @@ export interface Card {
   /** its level: a project's slug, or null for the world */
   project?: string | null;
   gender?: Gender | null;
+  /** the kinds it is as well, in the order added (docs/SPEC.md §14.8) */
+  also_kinds?: EntityKind[];
   /** an event's when (a chapter, a time, or outside time), and an era's colour (docs/SPEC.md §13.2.1) */
   when?: { chapter: string | null; at: number | null; end: number | null; label: string | null; approx: boolean; outside: boolean };
   era_colour?: string;
@@ -95,6 +97,9 @@ interface Kept {
 }
 
 const key = (world: string) => `cards:${world}`;
+
+/** An entry's kinds: the main one first, then the ones added (docs/SPEC.md §14.8). */
+export const kindsOf = (c: Pick<Card, "kind" | "also_kinds">): EntityKind[] => [c.kind, ...(c.also_kinds ?? [])];
 
 export const useCards = defineStore("cards", {
   state: () => ({
@@ -177,10 +182,19 @@ export const useCards = defineStore("cards", {
       for (const x of s.switches) if (x.expected) out.set(x.kind, [...(out.get(x.kind) ?? []), x.label]);
       return (kind: string) => out.get(kind) ?? [];
     },
+    /** counted under each of its kinds (docs/SPEC.md §14.8) */
     counts: (s) => {
       const out: Partial<Record<EntityKind, number>> = {};
-      for (const c of s.cards) out[c.kind] = (out[c.kind] ?? 0) + 1;
+      for (const c of s.cards) for (const k of kindsOf(c)) out[k] = (out[k] ?? 0) + 1;
       return out;
+    },
+    /** does this entry have this kind, main or added? */
+    hasKind(): (id: string, kind: string) => boolean {
+      const byId = this.byId;
+      return (id, kind) => {
+        const c = byId.get(id);
+        return !!c && kindsOf(c).includes(kind as EntityKind);
+      };
     },
   },
   actions: {

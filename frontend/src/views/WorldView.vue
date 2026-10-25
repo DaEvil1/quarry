@@ -1,87 +1,85 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 
-import { del, get, patch, post, put } from "../api";
+import { get, patch, post, put } from "../api";
+import FocusSwitch from "../components/FocusSwitch.vue";
 import InlineText from "../components/InlineText.vue";
+import { getFront, howLongAgo, lately, type Front, type FrontNote } from "../front";
+import { journalDay, listJournal } from "../journal";
 import { exportUrl } from "../manuscript";
+import { localJournal } from "../offline";
 import { useSession } from "../stores/session";
 import { PROJECT_KINDS, kindLabel, type Project, type ProjectKind, type World } from "../types";
+import { markers } from "../world/markers";
 import NotFoundView from "./NotFoundView.vue";
 
-const route = useRoute();
-const router = useRouter();
-const session = useSession();
+// The world's front page (docs/SPEC.md §14.4): the place to get back in after weeks or years away. A premise, the
+// latest note for next time, what has been happening lately, the latest decisions, the open questions, and the
+// projects. Every section hides while it would be empty. Rename, the time unit and Delete are on World settings.
 
-// deleting the whole world: only its owner, and only by typing its name
-const deleting = ref(false);
-const deleteName = ref("");
-const deleteError = ref("");
-async function deleteWorld() {
+const route = useRoute();
+const session = useSession();
+const world = computed(() => session.world(String(route.params.world)));
+const front = ref<Front | null>(null);
+const error = ref("");
+const unsure = ref(0);
+
+async function load() {
   const w = world.value;
   if (!w) return;
-  deleteError.value = "";
+  error.value = "";
   try {
-    await del(`/api/worlds/${encodeURIComponent(w.slug)}`, { name: deleteName.value });
-    session.dropWorld(w.slug);
-    await router.push({ name: "home" });
+    front.value = await getFront(w.slug);
   } catch (e) {
-    deleteError.value = (e as Error).message;
+    front.value = null;
+    error.value = (e as Error).message;
   }
+  // the ?? markers in the Journal, counted on the device (docs/SPEC.md §14.3.2)
+  const entries = await listJournal(w.slug).catch(() => localJournal(w.slug));
+  if (world.value?.slug === w.slug) unsure.value = entries.reduce((n, j) => n + markers(j.body).filter((m) => m.kind === "??").length, 0);
 }
+watch(() => world.value?.slug, load, { immediate: true });
 
-const world = computed(() => session.world(String(route.params.world)));
-
-// rename / change address
-const editing = ref(false);
-const editName = ref("");
-const editSlug = ref("");
-const editError = ref("");
-watch(world, () => (editing.value = false));
-
-function startEdit() {
-  if (!world.value) return;
-  editName.value = world.value.name;
-  editSlug.value = world.value.slug;
-  editError.value = "";
-  editing.value = true;
-}
-
-async function saveEdit() {
-  if (!world.value) return;
-  editError.value = "";
-  const old = world.value.slug;
-  try {
-    const w = await patch<World>(`/api/worlds/${old}`, { name: editName.value, slug: editSlug.value.trim() });
-    session.putWorld(w, old);
-    editing.value = false;
-    if (w.slug !== old) await router.replace({ name: "world", params: { world: w.slug } });
-  } catch (e) {
-    editError.value = (e as Error).message;
-  }
-}
-
-// what in-world time is counted in (docs/SPEC.md §13.1.1): the words only, numbers are left as they are
-async function setUnit(field: "time_unit" | "time_units", value: string) {
+async function setPremise(v: string) {
   const w = world.value;
-  if (!w || !value.trim()) return;
+  if (!w) return;
   try {
-    session.putWorld(await patch<World>(`/api/worlds/${w.slug}`, { [field]: value.trim() }));
+    session.putWorld(await patch<World>(`/api/worlds/${w.slug}`, { premise: v }));
   } catch (e) {
-    editError.value = (e as Error).message;
+    error.value = (e as Error).message;
   }
 }
 
-// new project
+// where you left off
+const showAllNotes = ref(false);
+const notes = computed(() => front.value?.notes ?? []);
+const fmtAgo = (iso: string | null) => (iso ? howLongAgo(iso.slice(0, 10)) : "");
+function noteWhere(n: FrontNote): string {
+  if (n.source === "journal") return `the Journal, ${n.date ? journalDay(n.date) : ""}${n.title ? ` · ${n.title}` : ""}`;
+  return `${n.position ? `chapter ${n.position}, ` : ""}${n.title ?? ""}`;
+}
+const continueTo = (n: FrontNote) => ({
+  name: n.source === "journal" ? "journal-entry" : "chapter",
+  params: { world: world.value!.slug, id: n.id },
+  query: { at: String(n.cursor) },
+});
+
+// lately, grouped by day on this device
+const days = computed(() => lately(front.value?.lately ?? []));
+const projectName = (slug: string | null) => world.value?.projects.find((p) => p.slug === slug)?.name ?? slug ?? "";
+const dayTitle = (d: string) => `${journalDay(d)} · ${howLongAgo(d)}`;
+const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+
+// projects: order, a new one
+const adding = ref(false);
 const newName = ref("");
 const newKind = ref<ProjectKind>("novel");
 const newError = ref("");
 const busy = ref(false);
-
 async function refresh(slug: string) {
   session.putWorld(await get<World>(`/api/worlds/${slug}`));
 }
-
 async function addProject() {
   if (!world.value) return;
   newError.value = "";
@@ -90,13 +88,14 @@ async function addProject() {
     await post<Project>(`/api/worlds/${world.value.slug}/projects`, { name: newName.value, kind: newKind.value });
     await refresh(world.value.slug);
     newName.value = "";
+    adding.value = false;
+    void load();
   } catch (e) {
     newError.value = (e as Error).message;
   } finally {
     busy.value = false;
   }
 }
-
 async function move(index: number, by: -1 | 1) {
   const w = world.value;
   if (!w) return;
@@ -106,6 +105,7 @@ async function move(index: number, by: -1 | 1) {
   await put(`/api/worlds/${w.slug}/project-order`, { ids });
   await refresh(w.slug);
 }
+const projectInfo = (slug: string) => front.value?.projects.find((p) => p.slug === slug);
 </script>
 
 <template>
@@ -115,110 +115,121 @@ async function move(index: number, by: -1 | 1) {
       <div>
         <div class="crumbs">World</div>
         <h1>{{ world.name }}</h1>
+        <p class="premise" data-testid="premise">
+          <InlineText :value="world.premise ?? ''" label="Premise" placeholder="Add a premise" :maxlength="300" @save="setPremise" />
+        </p>
       </div>
       <div class="actions">
+        <FocusSwitch :world="world" />
         <a class="btn btn-sm" :href="exportUrl(world.slug)" download data-testid="export">Export</a>
-        <button v-if="!editing" type="button" class="btn btn-sm" @click="startEdit">Rename</button>
+        <RouterLink class="btn btn-sm" :to="{ name: 'world-settings', params: { world: world.slug } }" data-testid="world-settings">World settings</RouterLink>
       </div>
     </div>
+    <div v-if="error" class="notice error" role="alert">{{ error }}</div>
 
-    <form v-if="editing" class="card form" @submit.prevent="saveEdit">
-      <div class="field">
-        <label for="w-name">Name</label>
-        <input id="w-name" v-model="editName" type="text" maxlength="200" required />
-      </div>
-      <div class="field">
-        <label for="w-slug">Address</label>
-        <input id="w-slug" v-model="editSlug" type="text" maxlength="60" spellcheck="false" required />
-        <div class="hint">Shown in links as /w/{{ editSlug || "…" }}. Lowercase letters, digits and hyphens.</div>
-      </div>
-      <div v-if="editError" class="notice error" role="alert">{{ editError }}</div>
-      <div class="actions">
-        <button class="btn btn-primary" type="submit">Save</button>
-        <button class="btn" type="button" @click="editing = false">Cancel</button>
-      </div>
-    </form>
+    <section v-if="notes.length" class="card front-section" data-testid="left-off">
+      <div class="card-head"><h2>Where you left off</h2></div>
+      <template v-for="(n, i) in showAllNotes ? notes : notes.slice(0, 1)" :key="n.source + n.id">
+        <p :class="i ? 'small' : ''">
+          <template v-if="n.note">“{{ n.note }}” — </template>{{ noteWhere(n) }}<span class="muted"> · {{ fmtAgo(n.updated_at) }}</span>
+          · <RouterLink :to="continueTo(n)" :data-testid="i ? undefined : 'continue'">Continue</RouterLink>
+        </p>
+      </template>
+      <button v-if="notes.length > 1 && !showAllNotes" type="button" class="linkish small" @click="showAllNotes = true">{{ notes.length - 1 }} more</button>
+    </section>
 
-    <section class="card time-unit" data-testid="time-unit">
-      <p class="small">
-        Time is counted in
-        <InlineText :value="world.time_unit ?? 'year'" label="One unit of time" :maxlength="40" @save="(v) => setUnit('time_unit', v)" />
-        /
-        <InlineText :value="world.time_units ?? 'years'" label="Several units of time" :maxlength="40" @save="(v) => setUnit('time_units', v)" />
-        <span class="muted"> · chapters and history are set in numbers of these (year 312, year −800); nothing is converted.</span>
+    <section v-if="days.length" class="card front-section" data-testid="lately">
+      <div class="card-head"><h2>Lately</h2></div>
+      <div v-for="d in days" :key="d.day" class="lately-day" data-testid="lately-day">
+        <h3 class="small">{{ dayTitle(d.day) }}</h3>
+        <p class="small">
+          <template v-for="w in d.words" :key="w.project ?? '-'">
+            <RouterLink v-if="w.project" :to="{ name: 'project', params: { world: world.slug, project: w.project } }">{{ plural(w.n, "word", "words") }} in {{ projectName(w.project) }}</RouterLink> ·
+          </template>
+          <template v-if="d.journal"><RouterLink :to="{ name: 'journal', params: { world: world.slug } }">{{ plural(d.journal, "journal entry", "journal entries") }}</RouterLink> · </template>
+          <template v-if="d.entities.length">
+            <template v-for="(e, k) in d.entities.slice(0, 3)" :key="e.id"><RouterLink class="kname" :class="`k-${e.kind}`" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink>{{ k < Math.min(d.entities.length, 3) - 1 ? ", " : "" }}</template>
+            <template v-if="d.entities.length > 3"> and {{ d.entities.length - 3 }} more</template>
+            {{ d.entities.every((e) => e.added) ? "added" : "changed" }} ·
+          </template>
+          <template v-if="d.facts">{{ plural(d.facts, "fact", "facts") }} recorded · </template>
+          <template v-if="d.relationships">{{ plural(d.relationships, "relationship", "relationships") }} recorded · </template>
+          <template v-if="d.captured"><RouterLink :to="{ name: 'inbox', params: { world: world.slug } }">{{ plural(d.captured, "item", "items") }} captured</RouterLink> · </template>
+          <template v-if="d.closed">{{ plural(d.closed, "item", "items") }} closed · </template>
+          <template v-if="d.decisions"><RouterLink :to="{ name: 'decisions', params: { world: world.slug } }">{{ plural(d.decisions, "decision", "decisions") }}</RouterLink></template>
+        </p>
+      </div>
+    </section>
+
+    <section v-if="front?.decisions.length" class="card front-section" data-testid="latest-decisions">
+      <div class="card-head">
+        <h2>Latest decisions</h2>
+        <RouterLink class="small" :to="{ name: 'decisions', params: { world: world.slug } }">Decisions</RouterLink>
+      </div>
+      <ul class="plain-list">
+        <li v-for="d in front.decisions" :key="d.id" class="small">
+          <span class="muted">{{ journalDay(d.decided_on) }}<template v-if="d.project"> · {{ projectName(d.project) }}</template></span> {{ d.text }}
+        </li>
+      </ul>
+    </section>
+
+    <section v-if="front?.questions.count || unsure" class="card front-section" data-testid="open-questions">
+      <div class="card-head"><h2>Open questions</h2></div>
+      <ul class="plain-list">
+        <li v-for="q in front?.questions.latest ?? []" :key="q.id" class="small">
+          <RouterLink :to="{ name: 'item', params: { world: world.slug, id: q.id } }">{{ q.title || q.body.split("\n")[0] }}</RouterLink>
+        </li>
+      </ul>
+      <p v-if="(front?.questions.count ?? 0) > (front?.questions.latest.length ?? 0)" class="small muted">
+        {{ front!.questions.count }} open questions<template v-if="front!.questions.oldest"> · oldest from {{ front!.questions.oldest.slice(0, 4) }}</template>
+      </p>
+      <p v-if="unsure" class="small">
+        <RouterLink :to="{ name: 'journal', params: { world: world.slug }, query: { tab: 'loose' } }" data-testid="unsure-count">{{ unsure }} ?? in the Journal</RouterLink>
       </p>
     </section>
 
     <section class="card">
-      <div class="card-head"><h2>Projects</h2></div>
+      <div class="card-head">
+        <h2>Projects</h2>
+        <button v-if="!adding" type="button" class="btn btn-sm" data-testid="new-project" @click="adding = true">New project</button>
+      </div>
+      <form v-if="adding" class="form" @submit.prevent="addProject">
+        <div class="field">
+          <label for="p-name">Name</label>
+          <input id="p-name" v-model="newName" type="text" maxlength="200" required />
+        </div>
+        <div class="field">
+          <label for="p-kind">Kind</label>
+          <select id="p-kind" v-model="newKind">
+            <option v-for="k in PROJECT_KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
+          </select>
+        </div>
+        <div v-if="newError" class="notice error" role="alert">{{ newError }}</div>
+        <div class="actions">
+          <button class="btn btn-primary" type="submit" :disabled="busy">Add project</button>
+          <button class="btn" type="button" @click="adding = false">Cancel</button>
+        </div>
+      </form>
       <ul v-if="world.projects.length" class="rows">
         <li v-for="(p, i) in world.projects" :key="p.id">
-          <RouterLink class="grow" :to="{ name: 'project', params: { world: world.slug, project: p.slug } }">{{
-            p.name
-          }}</RouterLink>
+          <RouterLink class="grow" :to="{ name: 'project', params: { world: world.slug, project: p.slug } }">{{ p.name }}</RouterLink>
+          <span v-if="projectInfo(p.slug)" class="muted small">
+            {{ projectInfo(p.slug)!.words.toLocaleString() }} words<template v-if="projectInfo(p.slug)!.last_written"> · last written {{ fmtAgo(projectInfo(p.slug)!.last_written) }}</template>
+          </span>
           <span class="pill">{{ kindLabel(p.kind) }}</span>
-          <button
-            type="button"
-            class="icon-btn"
-            :disabled="i === 0"
-            :aria-label="`Move ${p.name} up`"
-            @click="move(i, -1)"
-          >
+          <button type="button" class="icon-btn" :disabled="i === 0" :aria-label="`Move ${p.name} up`" @click="move(i, -1)">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path d="M3 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
           </button>
-          <button
-            type="button"
-            class="icon-btn"
-            :disabled="i === world.projects.length - 1"
-            :aria-label="`Move ${p.name} down`"
-            @click="move(i, 1)"
-          >
+          <button type="button" class="icon-btn" :disabled="i === world.projects.length - 1" :aria-label="`Move ${p.name} down`" @click="move(i, 1)">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
           </button>
         </li>
       </ul>
-      <p v-else class="empty">No projects in this world yet.</p>
-    </section>
-
-    <form class="card form" @submit.prevent="addProject">
-      <h2>New project</h2>
-      <div class="field">
-        <label for="p-name">Name</label>
-        <input id="p-name" v-model="newName" type="text" maxlength="200" required />
-      </div>
-      <div class="field">
-        <label for="p-kind">Kind</label>
-        <select id="p-kind" v-model="newKind">
-          <option v-for="k in PROJECT_KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
-        </select>
-      </div>
-      <div v-if="newError" class="notice error" role="alert">{{ newError }}</div>
-      <div class="actions">
-        <button class="btn btn-primary" type="submit" :disabled="busy">Add project</button>
-      </div>
-    </form>
-
-    <section v-if="world.role === 'owner'" class="card danger" data-testid="delete-world">
-      <button v-if="!deleting" type="button" class="linkish small" @click="deleting = true">Delete this world…</button>
-      <form v-else class="form" @submit.prevent="deleteWorld">
-        <p class="small">
-          This deletes <strong>{{ world.name }}</strong> with all its projects, chapters, history, bible and planning.
-          It can't be undone. <a :href="exportUrl(world.slug)" download>Export it first</a> if you might want it back.
-        </p>
-        <div class="field">
-          <label for="delete-name">Type the world's name to delete it</label>
-          <input id="delete-name" v-model="deleteName" type="text" autocomplete="off" />
-        </div>
-        <div v-if="deleteError" class="notice error" role="alert">{{ deleteError }}</div>
-        <div class="actions">
-          <button class="btn btn-danger" type="submit" :disabled="deleteName.trim() !== world.name">Delete forever</button>
-          <button class="btn" type="button" @click="(deleting = false), (deleteName = '')">Cancel</button>
-        </div>
-      </form>
+      <p v-else-if="!adding" class="empty">No projects in this world yet.</p>
     </section>
   </template>
 </template>

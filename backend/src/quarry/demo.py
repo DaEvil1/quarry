@@ -31,6 +31,11 @@ For planning before writing (docs/SPEC.md §14.1–§14.3) its Journal goes back
 Wardens want", with a fact on the Wardens and an event (the First Toll) recorded from it as planned, the event's
 passage kept as a note; an entry of 2021 with "??" markers; Hesper's trade, planned in an entry of 2014 and made canon
 in "The Cartographer"; a question made from a passage of chapter 3; and a spark parked from the Journal.
+
+For getting back in and checking (docs/SPEC.md §14.4–§14.9) it has a premise, a note for next time left in a journal
+entry, an old entry with decisions and changes since, Brother Cade's death planned (a finding once "Include planned" is on),
+four events joined by "caused" and "followed from" (the Mountain Fires placed after the Flood of Lanterns they caused,
+which is a finding), and the Ninefold Delta, a place that is also a character.
 """
 
 from __future__ import annotations
@@ -42,12 +47,13 @@ from sqlalchemy.orm import Session
 
 from .api.manuscript import words
 from .api.transfer import FORMAT, KIND_FOLDERS, _doc, restore_files
-from .models import Chapter, Item, ItemLink, Project, Revision, SessionNote, User, World
+from .models import Chapter, Item, ItemLink, JournalEntry, JournalNote, Project, Revision, SessionNote, User, World
 from .wordhistory import word_changes
 from .vocabulary import STARTING_TYPES
 
 ROOT = "ninefold-delta-demo"
 NAME = "The Ninefold Delta (demo)"
+PREMISE = "A ferry-girl, a delta of nine channels, and the Wardens who would lock them."
 
 
 def _p(*paragraphs: str) -> str:
@@ -183,7 +189,9 @@ BIBLE: list[dict] = [
     {
         "id": "cade", "name": "Brother Cade", "kind": "character", "gender": "male",
         "summary": "A monk of the Ashen Order at Saltreach Abbey; takes Tamsin in.",
-        "facts": [{"label": "age", "value": "about sixty", "standing": "planned"}],
+        "facts": [{"label": "age", "value": "about sixty", "standing": "planned"},
+                  # planned, not on the page: with Include planned, Ash Season naming him is a finding (§14.6)
+                  {"label": "status", "value": "dead", "standing": "planned", "from": "b1-c3"}],
         "relationships": [
             # he was on the causeway that night
             {"type": "witnessed", "type_kinds": ["character", "event"], "to": "flood"},
@@ -229,7 +237,7 @@ BIBLE: list[dict] = [
     },
     # places
     {
-        "id": "delta", "name": "The Ninefold Delta", "kind": "place", "aliases": ["the delta"],
+        "id": "delta", "name": "The Ninefold Delta", "kind": "place", "aliases": ["the delta"], "also": ["character"],
         "summary": "Nine channels, a thousand islands, and water that never stays where it was put.",
         # the chart (docs/SPEC.md §13.7): a land holding its towns, bordering the sea around an island
         "facts": [{"label": "type", "value": "land"},
@@ -372,6 +380,9 @@ BIBLE: list[dict] = [
         "id": "fires", "name": "The Mountain Fires", "kind": "event", "aliases": ["the mountains burned"],
         "when": {"at": 413},
         "summary": "The summer the mountains burned and the ash came down the river for a month.",
+        # planted: the fires (413) caused the Flood of Lanterns (412), which comes before them: a finding
+        "relationships": [{"type": "followed from", "type_kinds": ["event", "event"], "to": "spring-flood"},
+                          {"type": "caused", "type_kinds": ["event", "*"], "to": "flood"}],
         "body": _p(""),
     },
     # history: two eras (one nested in the other), the raising of the locks (told in chapter 3), a death, a prophecy
@@ -394,6 +405,8 @@ BIBLE: list[dict] = [
         "relationships": [
             {"type": "involved", "type_kinds": ["event", "*"], "to": "wardens", "established_in": "b1-c3"},
             {"type": "happened at", "type_kinds": ["event", "place"], "to": "marrow-locks", "established_in": "b1-c3"},
+            # cause arrows on the Timeline (docs/SPEC.md §14.7)
+            {"type": "caused", "type_kinds": ["event", "*"], "to": "spring-flood"},
         ],
         "tellings": [{"chapter": "b1-c3", "passage": "Brother Cade said the River Wardens raised Marrow Locks the year "
                       "his own teacher was born, and that the Ninefold Delta has never forgiven them."}],
@@ -729,6 +742,7 @@ def demo_files() -> dict[str, str]:
         "relation_types": [{"a": a, "b": b, "label": label, "reverse": reverse} for a, b, label, reverse in STARTING_TYPES],
         "fact_labels": FACT_LABELS,
         "roles": ROLES,
+        "premise": PREMISE,
     }, "")
     names = {e["id"]: e["name"] for e in BIBLE}
     for e in BIBLE:
@@ -737,6 +751,8 @@ def demo_files() -> dict[str, str]:
                 "exclusions": e.get("exclusions", []), "project": e.get("project")}
         if e.get("gender"):
             meta["gender"] = e["gender"]
+        if e.get("also"):
+            meta["also"] = e["also"]
         if e.get("facts"):
             meta["facts"] = [{"label": f["label"], "value": f["value"], "standing": f.get("standing", "canon"),
                               "evidence": f.get("evidence"), "note": f.get("note"),
@@ -869,5 +885,10 @@ def create_demo(db: Session, user: User) -> World:
     # where the writer stopped last time, with a note for next time
     db.add(SessionNote(chapter_id=third.id, user_id=user.id, note="Tamsin opens the compass in front of Brother Cade",
                        cursor=third.body.find("Home, then.")))
+    # and one in a journal entry (docs/SPEC.md §14.4)
+    loose = db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id,
+                                                  JournalEntry.title == "Loose threads")).one()
+    db.add(JournalNote(journal_id=loose.id, user_id=user.id, note="Settle Hesper's age before chapter two of Ash Season",
+                       cursor=len(loose.body)))
     db.flush()
     return world
