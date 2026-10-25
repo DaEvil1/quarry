@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..margin import story_text
-from ..mentions import refresh_source
+from ..mentions import COUNTED, refresh_source
 from ..models import (
     Chapter,
     ChapterStatus,
@@ -346,7 +346,7 @@ def cast(db: Session, world: World, chapter_ids: list[uuid.UUID], limit: int = 8
     rows = db.execute(
         select(Mention.source_id, Entity.id, Entity.name, Entity.kind, func.count())
         .join(Entity, Entity.id == Mention.entity_id)
-        .where(Mention.source_table == "chapter", Mention.source_id.in_(chapter_ids), Mention.kind != "near_miss",
+        .where(Mention.source_table == "chapter", Mention.source_id.in_(chapter_ids), Mention.kind.in_(COUNTED),
                Entity.kind.in_(("character", "place")))
         .group_by(Mention.source_id, Entity.id, Entity.name, Entity.kind)
     ).all()

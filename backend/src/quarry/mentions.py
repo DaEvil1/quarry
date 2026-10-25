@@ -29,9 +29,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from .margin import story_text
-from .models import Chapter, Decision, Entity, Item, JournalEntry, Mention, NameIgnore, Project
+from .models import Chapter, Decision, Entity, Item, JournalEntry, Mention, NameIgnore, Project, World
 
 SUFFIX = r"(?:'s|’s|s)?"
+# what counts as naming an entry: a name or other name, or a shared name settled for it; an ambiguous one never counts
+COUNTED = ("exact", "alias")
+# bumped when the matcher reads texts differently: worlds whose stored mentions are older are worked out again
+MENTIONS_VERSION = 1
 # a word: letters, with apostrophes or hyphens inside ("O'Neil", "Sea-born")
 WORD_RE = re.compile(r"(?<![\w'’-])[^\W\d_][^\W_]*(?:['’-][^\W_]+)*")
 POSSESSIVE_RE = re.compile(r"(?:'s|’s)$")
@@ -311,6 +315,9 @@ def forget_source(db: Session, table: str, source_id: uuid.UUID) -> None:
 def refresh_world(db: Session, world_id: uuid.UUID) -> None:
     """Rescan every text of a world: names, aliases or "not a typo" words changed."""
     m = matcher_for(db, world_id)
+    w = db.get(World, world_id)
+    if w is not None:
+        w.mentions_version = MENTIONS_VERSION
     db.execute(delete(Mention).where(Mention.world_id == world_id))
     db.flush()
     for i in db.scalars(select(Item).where(Item.world_id == world_id)):
@@ -324,3 +331,17 @@ def refresh_world(db: Session, world_id: uuid.UUID) -> None:
     for c in db.scalars(select(Chapter).join(Project, Project.id == Chapter.project_id)
                         .where(Project.world_id == world_id)):
         _store(db, world_id, "chapter", c.id, scan_source(m, "chapter", c.body))
+
+
+def rescan_stale(db: Session) -> int:
+    """Work out the mentions again for every world whose stored ones are older than the matcher (at startup, after an
+    upgrade that reads texts differently). Committed per world; answers how many were done."""
+    done = 0
+    for world_id in list(db.scalars(select(World.id).where(World.mentions_version < MENTIONS_VERSION))):
+        refresh_world(db, world_id)
+        w = db.get(World, world_id)
+        if w is not None:
+            w.mentions_version = MENTIONS_VERSION
+        db.commit()
+        done += 1
+    return done
