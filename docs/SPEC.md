@@ -23,7 +23,7 @@ Single-user today; the data model leaves room for co-writers later (§7).
 | **Chapter** | A unit of manuscript prose in a project. State is `current` (in the book), `experiment` (an alternate draft tied to an experiment item) or `retired` (salvage). Ordered by `position` among current chapters. Optional POV entity. |
 | **Entity** | A bible page in a world: character, species, place, faction, culture, event, object, term or other. Has a name, aliases and a body. Lives at world level (shared by every project) or in one project's part of the bible (§12.4); either way it is matched in every project. |
 | **Item** | Anything that needs attention: `spark`, `question`, `task` or `experiment`. Status is `open`, `accepted`, `rejected`, `harvested` or `deferred`. Belongs to a world and optionally to one project (an idea about the world in general has no project). Can link to entities and chapters. |
-| **Journal entry** | Dated thinking-on-paper (the "What now?" kind of writing). World-level or project-level. Editable, but conceptually append-only. |
+| **Journal entry** | Dated thinking-on-paper (the "What now?" kind of writing). World-level or project-level. Editable, but conceptually append-only. From phase 13 written in the editor, with the world tools; facts and relationships can say they were planned in one (§14). |
 | **Decision** | A dated one-line verdict ("chapter 3 is now told by the sister"), optionally tied to the item it closes. World-level or project-level. |
 | **Harvest note** | A short note on what was alive in a retired chapter or rejected experiment. Shown in the Salvage view. |
 | **Cut** | A passage cut from a chapter into the project's cuts bin, labelled with the chapter it came from. Shown in Salvage; can be put back (§11). |
@@ -134,7 +134,7 @@ Bible pages show:
 - **Manuscript.** The project's current chapters in drag-to-reorder order, with word counts, POV and a derived POV tally. Experiments appear indented under the chapter they would replace.
 - **Experiments.** Starting an experiment creates an `experiment` item and a draft chapter; it can begin from scratch (the old chapter is hidden while writing) or from a copy. Closing it as *accepted* swaps the draft into the manuscript and retires the old chapter. Closing it as *harvested* or *rejected* retires the draft and asks for a harvest note. From phase 12 an experiment can replace a range of chapters with several drafts, and retiring reviews what is tied to the chapters first (§13.6).
 - **Salvage.** Retired chapters, each with its harvest notes and full-text search.
-- **Journal** and **Decisions**: chronological lists with search.
+- **Journal** and **Decisions**: chronological lists with search. From phase 13 a journal entry opens in the editor, with the world tools (§14.1).
 
 ### Editor requirements
 
@@ -161,6 +161,9 @@ Bible pages show:
   From phase 12, chapters also carry when they are set and whether they are told as a tale or flashback, events their
   time and tellings, facts and relationships their time bounds, relationships their role, and `world.md` the time
   unit and the one-at-a-time roles (§13).
+  From phase 13, facts and relationships also carry where they were planned (`planned_in:`, `planned_evidence:`),
+  events their notes from the Journal, items the chapter or journal entry and passage they came from, entries their
+  added kinds (`also:`), and `world.md` the premise (§14).
 - **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. Revision history stays in the database and is not part of an export.
 - **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
@@ -201,6 +204,13 @@ quarry/                      # public GitHub repo (code only)
 10. **Revising and salvaging**: renames that keep the old name, chapter summaries and statuses, a cuts bin, reading one entry's thread, word history, changes since a checkpoint, and find and replace across chapters. Designed in §11, with a *done when* per part.
 11. **More views of the bible**: a mentions strip on each entry page, a family tree with kin worked out, a grid of any entries across chapters, world entries and project entries, the *witnessed* type, a *gender* field on characters and a *pronunciation* fact, and labels and values (value suggestions, filtering by a value, a Labels page, labels with several values, expected labels). Designed in §12, with a *done when* per part.
 12. **Time, history and kinds of being**: in-world time on one axis under the chapters (a sortable number with a free label), chapters set in time and marked as told as a tale or flashback, facts, relationships and the checks read in happened order, a Timeline with happened and told orders, history, recording an event from a passage, ages, Species as a ninth kind, roles in groups with a one-at-a-time check, more starting vocabulary, restructuring (experiments across several chapters, and a review of everything tied to chapters before they are retired), and the chart (a schematic map of how places nest, border and connect). Designed in §13, with a *done when* per part; built as four phases, in the order 12c, 12a, 12b, 12d (§13.9).
+13. **Planning before writing**: journal entries in the editor with the world tools, what was planned in the
+    Journal kept beside what is canon in the book (recording a fact from a passage, *Make it canon here*), reading an
+    entry's thread through the planning, sparks and questions from a passage, loose ends in the Journal, a front page
+    for getting back into a world, "since this was written" on journal entries, "Include planned" on the Continuity
+    checks, cause arrows on the Timeline, entries of more than one kind, and a focus per world (writing or
+    planning). Designed in §14, with a *done when* per
+    part; built after phase 12 is merged, as two build phases, 13a and 13b (§14.11).
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -1745,7 +1755,7 @@ the end of the story (or as of the chosen point, §13.7.4).
 - **Smooth** at a few hundred places: the same budget as the graph's.
 - **From the Timeline**: brushing a span there drives the chart's *as of* (§13.7.5).
 - **Not a drawn map.** The chart doesn't replace an uploaded map image with pinned places, which stays on the later
-  list (WORLD-MODEL.md §6; §14).
+  list (WORLD-MODEL.md §6; §15).
 
 **Data:**
 
@@ -1873,7 +1883,576 @@ time shown; one at a time per role across the world; a computed age that disagre
 *keep* without a time holds throughout; an experiment may only add; and the build order is 12c, 12a, 12b, then the
 chart as 12d.
 
-## 14. Out of scope (for now)
+## 14. Planning before writing (phase 13)
+
+Phases 6–12 made the world model work from the prose: names light up in chapters, facts and events are recorded
+from passages, the checks read what the chapters say, and getting back in is per chapter. A world can also live
+mostly in planning: years of dated notes, decisions and questions, worked out long before (or instead of) the
+chapters. Then the knowledge sits in the Journal, which today is a plain text box that the world tools never see.
+Phase 13 makes the planning a first-class place to work: the **editor's world tools in the Journal**, with what was
+**planned in the Journal** kept beside what is **canon in the book**; a way to **read an entry's thread through the
+planning**; **turning a passage into a spark or question**; a **front page** for getting back into a world after a
+long gap; **"since this was written"** on old notes; **"Include planned"** on the Continuity checks; **cause arrows**
+on the Timeline; **entries of more than one kind** (a world that is a place and acts); and a **focus** per world,
+*Writing* or *Planning*, that decides what is up front.
+
+The approach is *dump freely, then sweep*: write in the Journal as before, and classify afterwards with the same
+gestures as in a chapter (the quick-fix strip, F8, recording from a selection). There are no questionnaires and no
+prompts to fill in. The principles hold: nothing here writes or suggests story content; nothing has to be filled in
+(the new fields, a premise and more kinds for an entry, are optional); everything else is worked out from links Quarry already keeps; and the
+compiled manuscript stays pure prose. **Planning isn't story order**: a journal entry's date is never a place on the
+clock or in the book, so nothing here changes what the Continuity checks, the mentions strip, first appearance or
+the told order read. The one part that widens the checks, *Include planned* (§14.6), is a switch that starts off.
+
+**Built after phase 12 is merged.** It is specced against §13, not against phase 12's code: *Record as event*,
+tellings and the Timeline come from 12b, time bounds and *as of a time* from 12a.
+
+Examples use made-up names. The Journal of the world has an entry dated 2 March 2019, *What the Guild wants*, that
+names Varren, Isolde and the Lamp Guild; the book has only a few chapters so far.
+
+### 14.1 The world tools in the Journal
+
+#### 14.1.1 Journal entries in the editor
+
+- **The list and the entry.** `/w/<world>/journal` stays the chronological list with search and the project filter.
+  Each entry shows its date, title, project and its first lines with names coloured (as the inbox shows items), and
+  the quiet count of §14.5. **New entry** makes an entry dated today and opens it. Opening an entry opens it in the
+  editor at `/w/<world>/journal/<id>`, the way a chapter opens. The form with a text box goes.
+- **The head** has the title and the date, edited in place, and the project (or *Whole world*). Changing the date
+  moves the entry in the list; it is a label, saved without the version check, as a chapter's summary is.
+- **Saving, as for chapters** (§4): autosave after about 1.5 s, revisions on the same rules, **Checkpoint** (Ctrl+S)
+  with a label, **History** with word diffs and restore, conflict copies when another device saved first. Today a
+  journal entry is saved only with a Save button and has no history.
+- **Offline.** The offline copy carries journal entries as it carries chapters, each with its last 30 revisions, so
+  the Journal opens, reads and edits on the phone with no network. Typed text is kept on the device until the server
+  has it. A new entry made offline gets an id chosen on the device and waits in the outbox, as captures do.
+- **What comes along** from the chapter editor, unchanged: names coloured by kind, cards on hover or long-press,
+  likely misspellings and possible new names, the quick-fix strip, Alt+Enter, the **F8** sweep, the selection strip,
+  **Drafting/Revising** (Drafting the default, as for chapters), focus mode, typewriter scrolling, search in the
+  entry (Ctrl+F), the word count, and *stash a thought* (Ctrl+Shift+S), whose spark is tied to the entry.
+- **What stays with chapters**: POV, summary, status, *set in* and *told as*, "is at" and *Moved…*, *Cut to bin*,
+  find and replace across chapters, changes since a checkpoint, experiments and retiring, margin notes (a `%%` line in
+  the Journal is ordinary text: the whole entry is a note to yourself), and word history (it counts the book).
+- **The side panel** has the names in the entry (the cast, below), the items linked to it, History, the note for next
+  time (§14.4) and *Since this was written* (§14.5).
+- **The companion's tabs** in a journal entry:
+  - **Proofreader**, as in a chapter.
+  - **Connections**: unrecorded connections by strength, as in a chapter. *Record how* records the relationship as
+    *planned*, planned in this entry (§14.1.2). No *Where are they?*: "is at" is per
+    chapter.
+  - **Archivist**: possible new names, entries without a one-liner, other names worth adding. A new entry made from a
+    journal entry starts in its project's bible when it has a project and the world has several (§12.4), otherwise in
+    the world's.
+  - **Loose ends**: TK and `??` markers in the entry (§14.3.2), open items linked to it, the note for next time.
+  - No **Continuity** tab: the checks are about chapters on the clock, and a journal entry has no place there.
+- **Cards and the cast.** A journal entry has no chapter, so its cards read as of **the end of the story**, as the
+  bible's tables do. The side panel has the *as of* selector of §13.1.6 (a chapter or a time) for planning about a
+  particular point; the choice is kept per entry on the device. Cards in the Journal also show **planned** facts and
+  relationships, marked `planned`, since in planning they are often all there is; a chapter's cards keep showing
+  canon only. The cards on the device carry planned rows for this.
+- **Performance.** The typing budget is the chapter's (DECISIONS, 2026-10-22): a 10,000-word entry with 400 entries
+  in the bible, also at 4× slower CPU.
+
+**Data:**
+
+```sql
+revisions      doc_table + 'journal'               -- the CHECK widens; REVISION_DOCS gains journal
+```
+
+Journal entries go through the same saver as chapters (`PATCH /journal/<id>` with `base_version`, a draft on the
+device, snapshots), and `GET /offline` gains the journal entries changed since the given time, with their revisions
+and the ids of every entry that still exists. Existing entries get their first revision the first time they are
+saved after the upgrade.
+
+*Done when* opening *What the Guild wants* shows it in the editor with Varren, Isolde and the Lamp Guild coloured by
+kind; F8 steps through its possible new names and `+ Faction` adds one to the world's bible; it autosaves, has a
+History with a checkpoint that can be restored, and opens and takes typing on the phone in airplane mode; Varren's
+card shows a planned fact marked `planned`; and the Continuity tab isn't there.
+
+#### 14.1.2 Planned in the Journal, canon in the book
+
+Evidence and *established in* point at a chapter today: where something is on the page. From phase 13 a fact or
+relationship can also say where it was **planned**: a journal entry and the passage it was worked out in. The two are
+separate, and a fact can have both: planned in the Journal in 2019, established in chapter 9 once it was written.
+
+- **The rule for standing** (Thomas): something is **planned** until it is in the book or is explicitly marked canon.
+  - Recorded **from a chapter** (*Record a fact*, *Link to…*, *Record how*, *Record as event*, *Set born/died here*):
+    *canon*, as today.
+  - Recorded **anywhere else** (from a journal entry, on an entry page, in the companion outside a chapter): it starts
+    as *planned*, with one click to *canon* in the form. On an entry page this changes today's default, which is
+    canon. Rows that exist already keep their standing.
+  - Marking it canon by hand is the standing pill, as today.
+- **Record a fact** (new, in chapters and journal entries alike; WORLD-MODEL.md §2 describes it, and it was never
+  built). Selecting a passage offers *Record a fact* in the selection strip, on the desk and the phone. The strip grows
+  into a small form in place, as *Record as event* does (§13.2.3):
+  1. **The entry**: a chip for each entry named in the selection (the first one chosen), or *Other…*.
+  2. **Label and value**, with the label and value suggestions of §12.6.
+  3. **When it holds**: the span picker of §13.1.5 (chapters and times). In a chapter it starts on *from this
+     chapter*; in a journal entry it starts empty (holds throughout).
+  4. **Standing**, by the rule above.
+  5. **Save** (Enter). From a chapter, the fact is *established in* the chapter with the passage as its evidence;
+     from a journal entry, it is *planned in* the entry with the passage. A toast says
+     `Recorded "status: dead" on Seyla · Open · Undo`.
+
+  The strip opens only for a selection, never while typing. It appears for any selection a passage action can use,
+  as 12b's *Record as event* needs; for a selection longer than a name it offers only the passage actions (*Record a
+  fact*, *Record as event*, *Spark*, *Question* and, in a chapter, *Cut to bin*).
+- **Make it canon here.** In a chapter, when what is being recorded is already there as *planned* (a fact with the
+  same label on the entry; a relationship of the same type between the same two; an event's planned participant),
+  the form says so and offers that instead of a second row:
+  `Planned: status dead (Journal, 2 March 2019) · Make it canon here`. It sets the standing to *canon*, the chapter
+  as *established in* with the passage as evidence, and the span the form chose; where it was planned stays. *Record
+  a new one* is still there, for when the plan changed.
+- **Link to…** from a card in a journal entry records the relationship as *planned in* the entry, as *Record how*
+  does.
+- **Record as event** (§13.2.3) from a journal passage works as from a chapter, except that:
+  - the participants are recorded as *planned*, planned in the journal entry;
+  - the passage is kept as a **note** on the event, not a telling: the event's page lists it under *Noted in*, apart
+    from *Told in*, each with its date and entry, linking into the Journal at the passage;
+  - *When* offers a time, a chapter, or outside time; there is no "this chapter's time".
+  *Set born here · died here* is not offered in the Journal: there is no "here". A *born* fact with a time does it.
+- **How *planned in* is read.** It is a pointer back to where something was thought out, never a place in the story:
+  - it bounds nothing, as *established in* bounds nothing; *from* and *until* stay a chapter or a time;
+  - the Continuity checks read only chapters' names, so nothing named in the Journal is ever "named after being
+    recorded dead" or "named before being born"; a note on an event is not a telling, so it doesn't hide names from
+    that check either;
+  - the Timeline's **told** view lists only tellings in chapters: an event noted only in the Journal is under *Not in
+    the book yet*, and its card says `noted in the Journal 3 times`;
+  - the review before retiring (§13.6.2) and evidence in Salvage (§13.6.3) are about chapters and never list it;
+  - the entry page shows it beside the fact as `planned in the Journal, 2 March 2019 · What the Guild wants`, after
+    the chapter's evidence when there is one, linking into the entry at the passage (found by its text; if it can't
+    be found, the entry opens at the top and the line is marked `passage changed`).
+- **Deleting a journal entry** that something was planned in says so first: `2 facts, 1 relationship and 1 event note
+  were planned in this entry. They keep their passage, without the entry.` The link is then cleared; the passage text
+  stays.
+- **Export** writes `planned_in:` (the journal entry's id) and `planned_evidence:` beside `established_in:` and
+  `evidence:` for a fact or relationship, and an event's notes as `notes:` (journal id and passage) beside
+  `tellings:`. Journal files already carry their `id`. **Restore** relinks them by id; it keeps a map from the
+  export's journal ids to the new rows, as it does for chapters (today it doesn't, since nothing points at a journal
+  entry). An older export has none of this.
+
+**Data:**
+
+```sql
+facts          + planned_in_journal_id NULL, planned_evidence text NULL    -- ON DELETE SET NULL
+relationships  + planned_in_journal_id NULL, planned_evidence text NULL    -- ON DELETE SET NULL
+tellings       + journal_id NULL                    -- §13.2; ON DELETE SET NULL; a note, not a telling
+               -- CHECK (chapter_id IS NULL OR journal_id IS NULL)
+```
+
+A pair of columns beside the chapter's pair rather than a source table and id: each keeps its foreign key and `SET
+NULL`, and a fact can have both. `POST /entities/<id>/facts` and the relationship endpoints take
+`planned_in_journal_id` and `planned_evidence`, and `make_canon` (the planned row's id) for *Make it canon here*;
+`POST /events/record` takes a journal entry in place of a chapter.
+
+*Done when* selecting "the Guild has kept the Lamp lit for three hundred years" in *What the Guild wants* and
+choosing *Record a fact* offers the Lamp Guild, saves *age: three hundred years* as *planned* with the passage, and
+the guild's page shows `planned in the Journal, 2 March 2019 · What the Guild wants`, linking back to the passage; a
+fact added on an entry page starts as *planned*; *Record as event* on a passage there makes *The Founding* with its
+participants planned and the passage under *Noted in*, while the Timeline's told view lists it under *Not in the book
+yet*; *Record a fact* in chapter 9 for Seyla's *status: dead*, planned in the Journal, offers *Make it canon here*,
+after which the fact is canon, established in chapter 9 with that passage, and still shows where it was planned;
+Checks gives no finding for a name in the Journal; and exporting and restoring the world keeps all of it.
+
+### 14.2 Reading an entry's thread through the planning
+
+What did the notes say about Varren over the years? §11.4 reads him through the book; this reads him through the
+planning, **oldest first**.
+
+- **Where.** The thread reading gets a switch at the top: **The book** (§11.4, as today) · **The planning**. An entry's
+  page has *Read where Varren appears* and, beside it, *… in the planning*. `/w/<world>/bible/<id>/read?in=planning`.
+- **What it reads**, each kind a chip at the top, all on to start:
+  - **journal entries** that name him;
+  - **items** (sparks, questions, tasks, experiments; open and closed) that name him or are tagged with him;
+  - **decisions** that name him or are tagged with him.
+
+  Naming is found by the same matcher as in the book (any of his names). An item or decision tagged with him but not
+  naming him is shown with a small `tagged` mark.
+- **In date order**, oldest first: a journal entry by its date, an item by when it was captured, a decision by its
+  date; on the same day, journal entries, then items, then decisions. A heading marks each year, and between two
+  sources more than a year apart a quiet `· 3 years ·` says so.
+- **Two ways to read**, as in §11.4:
+  - *Paragraphs* (the default): each journal paragraph that names him, under its entry's date and title, with
+    `⋯ 6 paragraphs` between paragraphs that aren't next to each other. Items and decisions are short, so they are
+    always shown whole: an item with its kind, status and closing note, a decision as its line.
+  - *Entries*: every journal entry that names him, in full.
+- A count at the top: `Varren in the planning: 48 paragraphs in 19 journal entries, 11 items, 6 decisions ·
+  2014–2026`.
+- **With…** works as in §11.4: only what names (or is tagged with) both.
+- The **project filter** as on the Journal page: the whole world, or one project and the world's own planning.
+- Names are coloured as in the editor and his own marked strongly. Each paragraph links into the journal entry at
+  that place; each item opens the item; each decision its line on the Decisions page.
+- **The book and the planning are never mixed** into one reading: a note's date isn't a place in the story.
+- **Built on the device** from the offline journal (§14.1.1) and the matcher, like §11.4. Items and decisions are read
+  online (`GET /planning?entity=<id>` returns those that name or are tagged with the entry, from the stored mentions
+  and links); offline, the reading shows the journal entries and says `Items and decisions need the network`.
+
+**Data:** none. A query parameter, and `GET /planning`.
+
+*Done when* Varren's page opens a planning reading that lists, oldest first, a 2014 journal paragraph that names him,
+a question captured in 2016 tagged with him, a decision of 2019 that names him and the 2019 entry *What the Guild
+wants*, with a year heading over each and `· 2 years ·` between 2014 and 2016; *Entries* shows the journal entries
+in full; *With…* Isolde leaves only what names both; and in airplane mode the journal part still shows.
+
+### 14.3 From a passage to a spark or question
+
+#### 14.3.1 Spark or question from a selection
+
+Old planning holds ideas that aren't settled and may belong somewhere else; prose holds doubts noticed while
+writing. Either becomes an item in one gesture, without leaving the text.
+
+- **In the selection strip** of a chapter or a journal entry, on the desk and the phone: **Spark** · **Question**. The
+  strip grows into a small form in place (Esc goes straight back to the text):
+  1. **Kind**: spark, question or task, starting on the one chosen.
+  2. **A line of your own**, optional: what the item is about, in your words. The item's text is that line followed
+     by the passage as a quote; with no line typed, just the quote.
+  3. **Entries**: a chip for each entry named in the passage, ticked, to tag the item with them.
+  4. **Project**: the source's (the chapter's project, or the journal entry's project or none).
+  5. **Park it**: a chip that saves the item as *deferred* instead of open, for an old idea to keep without it
+     waiting in the inbox.
+  6. **Save** (Enter). The toast says `Question saved · Open · Undo`.
+- **The text stays where it is.** It is copied, never cut.
+- **Linked back to the passage.** The item is linked to its chapter or journal entry, with the passage. In the inbox,
+  Triage, on the Board and on the item: `From chapter 4, *The Quay*` or `From the Journal, 2 March 2019`, with the
+  passage quoted and a link into the editor at the passage (found by its text, or the top of the text with `passage
+  changed`).
+- **In the editor**, the Loose ends tab lists the open items linked to the chapter or entry, each with its passage;
+  resting on one marks the passage in the text. While Revising a small mark in the margin sits beside each passage
+  with an open item.
+- **Offline** it goes through the outbox like a capture, with its links and passage.
+- **Keyboard**: Alt+Enter on a selection opens the strip with the keyboard in it, as for names.
+
+#### 14.3.2 Loose ends in the Journal
+
+- **`??` is a marker**, like TK: two or more question marks that don't follow a letter (`Varren's age ?? maybe 40`,
+  `(??)`, a line that is just `???`), so a question in dialogue (`What??`) is not one. It is a marker in chapters too.
+- **In an entry's Loose ends tab** (§14.1.1): each TK and `??` line, with **Make a question**, which opens the form of
+  §14.3.1 with that line as the passage.
+- **On the Journal page**, a *Loose ends* tab lists every entry with TK or `??` markers, oldest entry first, each
+  marker line quoted with a link into the entry at it: `31 markers in 14 entries`. Worked out on the device from the
+  offline journal.
+
+**Data:**
+
+```sql
+item_links  target_table + 'journal'               -- the CHECK widens: entity, chapter, journal
+            + passage text NULL                    -- for a chapter or journal link: the passage it came from
+```
+
+`POST /items` takes `chapter_id` or `journal_id` with a `passage`. **Export** writes an item's links to chapters and
+journal entries into its frontmatter (`from:` a chapter or journal id, with `passage:`); **Restore** relinks them by
+id.
+
+*Done when* selecting a sentence in *What the Guild wants* and choosing *Question* saves an open question tagged with
+the Lamp Guild, showing `From the Journal, 2 March 2019` with the passage, and its link opens the entry at the
+sentence; *Park it* saves a spark as deferred; the same in a chapter links the item to the chapter and lists it in
+the editor's Loose ends; a `??` in a journal entry shows in its Loose ends tab and on the Journal page's *Loose ends*,
+and *Make a question* turns it into a question linked to that line; and `What??` in dialogue is not listed.
+
+### 14.4 A front page for the world
+
+The world page, `/w/<world>`, becomes the place to get back in after weeks or years away: a premise, and what has
+been happening, worked out for you.
+
+- **The premise.** One optional line under the world's name, edited in place, up to 300 characters: what this world
+  is about, in your words. Empty, the page shows only a faint *Add a premise*.
+- **Where you left off.** The latest note for next time (from a chapter or a journal entry), with where and when:
+  `"Isolde has to find out before the flood" — chapter 4, The Quay · 3 weeks ago · Continue`. *Continue* opens it at
+  the place where you stopped. Older notes fold under it (`2 more`).
+- **The note for next time in the Journal.** Leaving a journal entry after writing 30 or more words asks once,
+  skippably, for a note for next time, as leaving a chapter does (DECISIONS, 2026-10-22), with the same setting. It
+  shows when the entry opens again and in the entry's Loose ends tab, and is per user and not exported, as for
+  chapters.
+- **Lately.** What changed recently, newest first, grouped by day: the last ten days on which anything happened,
+  however long ago. Each day says how long ago it was (`14 March 2023 · three years ago`), so a long gap is plain
+  without being judged.
+  - Per day: words written per project (from word history, §11.5), journal entries written or changed, bible entries
+    added or changed, facts and relationships recorded, items captured and closed, and decisions; each line a link.
+    `14 March 2023 · 1,240 words in The Salt Road · 2 journal entries · Varren, Old Harbour changed · 3 facts recorded
+    · 1 question captured`.
+  - Worked out from revisions and from when rows were created or last changed. It is a rough picture: a row changed
+    twice counts once, on the later day, and nothing removed is seen (nothing is logged).
+- **Latest decisions**: the last five, dated, with their project, and a link to Decisions.
+- **Open questions**: the open question items, newest first (five, then `12 open questions · oldest from 2015`), and
+  the count of `??` markers in the Journal (§14.3.2), linking to its *Loose ends*.
+- **Projects**, as today, each with its word count and when it was last written in.
+- **Every section** hides while it would be empty, so a new world shows its name, *Add a premise* and its projects.
+- **What moves where.** Today the page holds the projects with their order, a New project form, Rename, Export and
+  Delete.
+  - **Stay** on the front page: the projects list with its up and down arrows, and **Export** in the head.
+  - **New project** becomes a button beside *Projects* that opens the form in place.
+  - **Rename** (name and address), the world's **time unit** (§13.1.1, from 12a) and **Delete this world…** move to
+    a new **World settings** page, `/w/<world>/settings`, linked from the head.
+- **Getting there.** The world's name in the nav always leads to the front page, and a world whose focus is
+  *Planning* opens on it (§14.9).
+- **On the phone** the sections stack in the order above.
+- **Export** writes `premise:` into `world.md`; **Restore** reads it back.
+
+**Data:**
+
+```sql
+worlds         + premise text NULL                 -- up to 300 characters
+session_notes  + journal_id NULL                   -- ON DELETE CASCADE; chapter_id becomes NULL-able
+               -- CHECK exactly one of chapter_id, journal_id; unique per (chapter, user) and per (journal entry, user)
+```
+
+`GET /worlds/<slug>/front` returns the latest notes, *Lately*, the latest decisions and the open questions; the `??`
+count is worked out on the device. `PATCH /worlds/<slug>` takes `premise`. `GET`/`PUT /journal/<id>/session-note` as
+for chapters.
+
+*Done when* the demo world's page shows a premise edited in place, the latest note for next time with *Continue*,
+*Lately* with the days on which words, journal entries, facts and items were added (each dated and with how long ago),
+the last decisions and the open questions with the `??` count; leaving a journal entry after writing 30 words asks for
+a note that then leads *Where you left off*; Rename, the time unit and Delete are on *World settings*; and exporting
+and restoring the world keeps the premise.
+
+### 14.5 Since this was written
+
+An old note may rest on things that have since changed. Each journal entry shows how much has happened to what it
+names since its date, worked out from links Quarry already keeps. Nothing is marked by hand, and nothing is said
+about whether the note is still right.
+
+- **What it counts**, for the entries a journal entry names (its stored mentions) after the entry's date:
+  - **decisions** dated after it that name or are tagged with any of them;
+  - **changes**: their facts and relationships recorded or changed since, and their own pages changed since (name,
+    other names, one-liner, notes);
+  - **later notes**: other journal entries, dated after it, that name them.
+- **In the journal entry's side panel**: `Since this was written: 4 decisions and 12 changes touch Varren, the Lamp
+  Guild and 2 more · 6 later notes`. It opens to a list per named entry, newest first: the decisions (dated, quoted),
+  the changes (`status: dead recorded · 2023-05-01`, `page changed · 2024-01-03`), and `6 later notes name Varren ·
+  Read them`, which opens the planning reading (§14.2) from this entry's date. If the entry itself was edited later,
+  the line says so: `written 2 March 2019 · last edited 2021-06-01`.
+- **On the Journal list**, an entry with any decisions or changes since gets a quiet, dimmed `16 since` after its date.
+  No colour, no warning, no threshold, and it can't be dismissed: it is a count, not a task.
+- **Rough, like *Lately*** (§14.4): a fact changed twice counts once; something removed isn't seen.
+- **Only for journal entries.** A chapter's own history is its revisions.
+
+**Data:** none. `GET /journal` gains, per entry, its count of decisions and changes since; `GET /journal/<id>/since`
+returns the list.
+
+*Done when* *What the Guild wants* (2 March 2019), naming Varren and the Lamp Guild, says `Since this was written: 2
+decisions and 3 changes` after a decision of 2021 tagged with Varren, a fact on the guild recorded in 2022 and two
+relationships changed in 2024; the list names each with its date; *Read them* opens the planning reading from 2019;
+the Journal list shows `5 since` dimmed beside it; and an entry written today shows nothing.
+
+### 14.6 "Include planned" on the Continuity checks
+
+In a world with little or no prose, much of what is recorded is honestly *planned*: true in your head, not on the page
+yet. The checks read canon only, so they see nothing there. This adds the Graph's standing switch to them.
+
+- **The switch.** *Include planned*, on the Checks page and in the editor's Continuity tab. It starts from the
+  world's focus (§14.9): off under *Writing*, the default focus, and on under *Planning*; set by hand, it stays until
+  the focus changes. So the default is unchanged: under *Writing* **the checks look at canon**, as today.
+- **With it on**, every check that reads canon only also reads planned facts and relationships, as if they were
+  canon: *named after being recorded dead*, *named before coming into the story*, *two values at once*, *a place
+  inside itself*, *their own ancestor*, and phase 12's *two holders of a one-at-a-time role* and *an age that
+  disagrees*, and *an effect before its cause* (§14.7). *Spans that run backwards* already reads every standing.
+- **Rumour stays out**: a rumour is what someone in the story believes, and is expected to contradict the truth.
+- **Findings that rest on a planned row say so**, with a small `planned` tag and the row:
+  `Seyla is named in chapter 12, but is planned dead from chapter 9`. A planned row that contradicts canon is a
+  finding too: the plan and the page disagree.
+- **Resolutions** are kept as today, by rule and key; a finding resolved as *intentional* stays resolved whether or
+  not the switch is on.
+- **Without chapters** the checks that read names in chapters have nothing to read, and the rest still work: two
+  values whose spans are bounded by times are compared on the clock by their numbers (§13.1.5), as are role holders;
+  places inside themselves and ancestors of themselves need no time at all. Such findings are listed under *The whole
+  world*, as a place inside itself is today.
+- **No new standing.** There is no *undecided*: an alternative not yet chosen is a question item (§14.3), and
+  choosing it is a decision.
+
+**Data:** none. `GET /checks` takes `planned=1`.
+
+*Done when*, with Seyla *planned* dead from chapter 9 and named in chapter 12, Checks lists nothing until *Include
+planned* is on, and then lists the finding tagged `planned`; two planned values of a label bounded by overlapping
+times, in a world with no chapters, are listed under *The whole world*; a rumoured death is never listed; and with
+the switch off every existing test gives the findings it gave before.
+
+### 14.7 Cause arrows on the Timeline
+
+Events are already related by *caused* / *caused by* (event – anything) and *followed from* / *led to* (event –
+event). The Timeline can draw them for one event at a time.
+
+- **Showing them.** Resting on an event's mark (a long-press on the phone) shows its card, as in §13.2.6, and while
+  the card shows, the event's direct causes and effects are drawn as arrows. Moving on hides both. Clicking still
+  opens the event, as before. Nothing is stored.
+- **Keeping them.** The event's card has **Keep arrows**: the card and the arrows then stay while the Timeline is
+  panned, zoomed or brushed, and resting on other marks shows their cards as usual. Esc (before it clears a brushed
+  span) or the card's `×` lets them go. A kept event is kept in the address, like a brushed span.
+- **The arrows** run from cause to effect, curving above the main lane. They are read from event – event
+  relationships by label, as the family tree reads parent types: a type reading *caused* (or its reverse *caused by*)
+  or *led to* (or *followed from*), whatever the capitals, so a renamed type still counts if it reads that way. *A
+  caused B* and *B followed from A* both draw A → B.
+- **The whole chain.** *Whole chain* on the card (which keeps the arrows too) follows causes back and effects
+  forward, each event once (a loop stops where it closes), each step further a little fainter.
+- **Standing.** Planned and rumoured links are dashed, and the Timeline's standing filter hides them as it hides
+  other planned and rumoured marks.
+- **Edges of the view.**
+  - An event off screen: the arrow runs to the edge with the event's name; clicking the name pans to it.
+  - An event inside a cluster (zoomed out): the arrow ends at the cluster.
+  - An event outside time: the arrow ends at the outside-time strip.
+  - An event not placed yet: no arrow; the card lists it, `led to: the Second Flood (not placed yet) · When…`.
+- **An effect before its cause** on the clock is drawn anyway, running left, labelled `before its cause`, and is a
+  **Continuity** finding (Thomas): `The Lamp Wars (year 40) caused the Founding (year 0), which comes before it.`
+  - Both events need a place on the clock: a time, or a chapter with a set time. Events not placed yet, outside time,
+    or in a chapter with no set time are skipped. Spans compare by their starts; two events at the same time are not
+    a finding.
+  - Canon relationships, and planned ones with *Include planned* (§14.6). Rumour never.
+  - Listed under the effect's chapter when it happens in one, otherwise under *The whole world*; resolved like any
+    finding (*update*, *intentional*, *later*). Rule `cause_after_effect`, keyed by the relationship.
+- **Happened view only.** The told view draws no arrows; events related to anything but events (*caused* to a
+  character) aren't drawn.
+
+**Data:** none; read from the graph's relationships the Timeline already loads. The finding is one more rule in the
+server's checks.
+
+*Done when*, with *The Founding caused the Lamp Wars* and *the Burning of the Quay followed from the Lamp Wars*,
+resting on *The Founding* shows its card with an arrow to the Lamp Wars, and moving on hides it; *Keep arrows* keeps
+them while panning; *Whole chain* adds the arrow on to the Burning of the Quay; a planned cause is dashed and
+disappears with the standing filter; a caused event off screen gives an arrow to the edge with its name; a click
+still opens the event; the told view draws none; and giving the Lamp Wars year −20 lists `before its cause` on
+Checks.
+
+### 14.8 An entry of more than one kind
+
+Some entries are more than one kind: a world that is a place and, later in the planning, acts; a sun that is a place
+and a being. Today an entry has one kind and names are unique, so one side has to give way. From phase 13 an entry
+can **add a kind** and stay one entry (Thomas: "at first I make the world, and then it acts").
+
+- **Adding a kind.** On the entry page, beside the kind: **Also a…** picks another kind (Character, Faction, …). The
+  same is under *More…* on the name's card. Nothing is copied: it is the same entry, with one name, one page, its
+  mentions, facts and relationships.
+- **Its kinds, in order.** The kinds are kept in the order they were added; the first is the **main kind**. The page
+  heads with them: `Place · also a character`. *Make main* on an added kind moves it first.
+- **Where it shows.** In every one of its kinds' tables, with the nav counts counting it in each. In an added kind's
+  table it carries a small tag, `place, also a character`, and sorts and filters as any row there. Pickers that list
+  a kind list it too. It is still one entry everywhere: one page, matched once in the prose, one node on the graph.
+- **The colour** is the main kind's, in the prose, on the card and on the graph; the card adds `also a character`.
+- **Relationships.** The types offered are those for any of its kinds: Ashgard can *contain* Old Harbour as a place
+  and *lead* the Lamp Guild as a character. The type says which side is used; relationships are stored as today.
+- **Every reader of a kind reads all of its kinds.** As a place it nests in the place tree, takes a shape on the
+  chart, and can be where someone "is at"; as a character it can have a gender, a species, an age and a POV chapter,
+  sits in the family tree and the companion's cast, and the checks for characters (named after being recorded dead,
+  and so on) apply. A kind's suggested facts are offered for each of its kinds.
+- **Not in time.** An added kind isn't bounded by chapters or times: when the world starts to act in the story is
+  told by its facts and relationships (*awake: yes from year 300*, *leads the Lamp Guild from chapter 12*).
+- **Removing an added kind** says what uses it (`3 relationships use Ashgard as a character`); they stay, as they do
+  today when an entry's kind is changed. Changing the main kind works as changing the kind does today.
+- **Export** writes the main kind as `kind:` and the added ones as `also: [character]`; the file stays in the main
+  kind's folder. **Restore** reads them back; an older export has none.
+
+**Data:**
+
+```sql
+entities  + also_kinds text[] default '{}'     -- in the order added; never the main kind; each one of the kinds
+```
+
+The cards carry it, so the tables, pickers and the editor know it offline. `PATCH /entities/<id>` takes `also_kinds`.
+
+*Done when* Ashgard, a place holding Old Harbour, gets *Also a character*; it is listed under Places and under
+Characters (tagged there, and counted in both), its page heads `Place · also a character`, it can be recorded as
+*leads* the Lamp Guild and still nests Old Harbour in the place tree and on the chart; its card in the prose has the
+place colour and says `also a character`; *Make main* on Character colours it as a character; and exporting and
+restoring the world keeps both kinds in order.
+
+### 14.9 A focus per world
+
+A world is worked on in stretches: months of planning, then a run of writing, then back. A **focus** says which one
+it is now (Thomas: "I just choose the 'current' phase really so I can go back and forth"). Everything works under
+either focus; it only changes what is up front.
+
+- **Two focuses**: **Writing** (the default, and every existing world's) and **Planning**.
+- **Switching** at any time: a small two-way switch beside the world's name in the world switcher and in the front
+  page's head (`Writing · Planning`). It takes effect at once, without leaving the page. It is kept on the server, per
+  person and world, so the phone and the desk agree.
+- **Where the world opens.** Opening the world (from the switcher, or the app on the desk) lands:
+  - under *Writing*, at the last place used in it on this device, as today;
+  - under *Planning*, on the front page (§14.4).
+
+  The world's name in the nav always leads to the front page. The phone still starts at Capture, as the installed
+  app does today. There is no rule about time spent away.
+- **The order of the nav.** The desk nav has three groups today: the planning links (Capture, Inbox, Triage,
+  Decisions, Journal), the world (the kinds, Bible, Graph, the Timeline and the chart from phase 12, Where everyone is,
+  Checks, Name check) and the projects with their manuscripts. Nothing is hidden under either focus, and no link
+  moves between groups except the Timeline:
+  - *Writing*: the projects first, then the planning links, then the world;
+  - *Planning*: the planning links first, with the Journal at their head and the Timeline after Decisions; then the
+    world; then the projects.
+
+  The phone's bottom tab bar stays as it is; its *World* tab opens the front page.
+- **Include planned** (§14.6) starts **on** under *Planning* and **off** under *Writing*. Switched by hand on the
+  Checks page or in the Continuity tab, it stays as set until the focus changes, which sets it again.
+- **Nothing else** follows the focus: Drafting/Revising, the editor's settings, the companion's tabs and the Graph's
+  standing switches are as they were.
+- Not exported, like the note for next time: it is how one person is working on the world, not part of it.
+
+**Data:**
+
+```sql
+world_members  + focus text default 'writing' CHECK (focus IN ('writing', 'planning'))
+```
+
+`PUT /worlds/<slug>/focus`; `GET /worlds` and `GET /worlds/<slug>` carry it.
+
+*Done when* switching the demo world to *Planning* on the front page reorders the nav at once (Journal first in the
+planning links, the Timeline after Decisions, the projects last), turns *Include planned* on in Checks, and opening
+the world again on the desk lands on the front page, while the phone shows *Planning* too; switching back to
+*Writing* puts the projects first, turns *Include planned* off, and the world opens at the last chapter used.
+
+### 14.10 Data model, in one place
+
+```sql
+revisions      doc_table + 'journal'                                        -- §14.1.1
+facts          + planned_in_journal_id NULL, planned_evidence NULL          -- §14.1.2; beside established in
+relationships  + planned_in_journal_id NULL, planned_evidence NULL          -- §14.1.2
+tellings       + journal_id NULL                                            -- §14.1.2; a note in the Journal
+item_links     target_table + 'journal'; + passage text NULL                -- §14.3
+worlds         + premise text NULL                                          -- §14.4
+session_notes  + journal_id NULL; chapter_id NULL-able, exactly one of them -- §14.4
+entities       + also_kinds text[]                                          -- §14.8
+world_members  + focus text default 'writing'                               -- §14.9; writing | planning
+```
+
+Endpoints: the journal is saved like a chapter, with revisions, and joins `GET /offline` (§14.1.1); facts and
+relationships take where they were planned and *make canon*, and `POST /events/record` takes a journal entry
+(§14.1.2); `GET /planning` (§14.2); `POST /items` takes a chapter or journal entry with a passage (§14.3); `GET
+/worlds/<slug>/front`, `premise` on `PATCH /worlds/<slug>`, and the journal's session notes (§14.4); `GET
+/journal/<id>/since` and counts on `GET /journal` (§14.5); `planned=1` on `GET /checks` (§14.6); one more check
+(§14.7); `also_kinds` on `PATCH /entities/<id>` (§14.8); `PUT /worlds/<slug>/focus` (§14.9). The planning reading, loose ends, *Lately*, *since this was
+written* and the cause arrows are worked out when read, never stored.
+
+**Phase 13 is done when** each part's *done when* above holds, and the demo world (The Ninefold Delta) shows it: a
+premise; a few journal entries over several years (made up), one with a fact and an event recorded from it as planned
+and one with `??` markers; a planned fact made canon in a chapter; a question made from a passage in a chapter and one
+parked spark from the Journal; a note for next time left in a journal entry; an old entry with decisions and changes
+since; a planned death that *Include planned* turns into a finding; three events joined by *caused* and *followed
+from*, one of them before its cause; and an entry that is a place and also a character.
+
+### 14.11 Two build phases
+
+Phase 13 is built **after phase 12 is merged**, as two build phases, by one build session, as **stacked pull
+requests**: 13a off master, 13b off 13a's branch. These are only the order the code is written in; nothing in the
+app is split by them.
+
+1. **13a, the Journal as a workplace** (§14.1–§14.3): journal entries in the editor with revisions and the offline
+   copy, planned in the Journal and canon in the book with *Record a fact* and *Make it canon here*, the planning
+   reading, sparks and questions from a passage, and loose ends in the Journal. Most of the work is here, and the rest
+   reads what it adds.
+2. **13b, getting back in and checking** (§14.4–§14.9): the front page and World settings, the Journal's note for next
+   time, *since this was written*, *Include planned*, cause arrows and their check, entries of more than one kind, and
+   the focus.
+   Each is small and works from existing links.
+
+Each phase updates the demo world with its own parts, and each pull request lists what it leaves for the next.
+
+### 14.12 Open questions for phase 13
+
+None left. Thomas's answers are in DECISIONS.md (2026-10-25): something is planned until it is in the book or marked
+canon, with *Make it canon here* (§14.1.2); cause arrows show on hover and can be kept, and a click still opens
+(§14.7); an effect before its cause is a Continuity finding (§14.7); an entry can add a kind and stay one entry
+(§14.8); a focus per world, *Writing* or *Planning*, decides where the world opens, the nav's order and where
+*Include planned* starts (§14.9); and two build phases (§14.11).
+
+## 15. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -1883,8 +2462,18 @@ chart as 12d.
 - A git mirror of the content (§8)
 - A drawn map: uploaded map images with pinned places stay on the later list (WORLD-MODEL.md §6). The chart (§13.7)
   is schematic and doesn't replace them.
+- From the plan-first comparison (phase 13, §14), deliberately not built:
+  - questionnaires, templates or prompts for worldbuilding: the Journal is written freely and swept afterwards
+    (§14.1);
+  - a rules engine for magic or other forces: a system is a Term entry with facts, and Quarry doesn't evaluate it;
+  - a motif tracker: a motif can be a Term entry, and its mentions strip and both thread readings (§11.4, §14.2)
+    show where it recurs;
+  - forking a world for versions: alternatives are question items, choosing one is a decision, and the Journal keeps
+    the dated thinking; experiments stay for chapters;
+  - calendars, or packs of real history: time stays a sortable number (§13.1.1);
+  - a soundtrack feature: the share target already records where a link came from.
 
-## 15. Open questions
+## 16. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?
