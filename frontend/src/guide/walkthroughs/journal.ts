@@ -98,6 +98,41 @@ const steps: Step[] = [
     say: "2014 comes first, with the years between marked. She began as a mapmaker from Greywater whose maps go out of date.",
   },
   {
+    go: "/w/{w}",
+    target: { css: tid("follow-through-line"), text: "Brother Cade dies" },
+    say: "Decisions can have follow-ups. The front page's To follow through lists those with something still to do, oldest first.",
+  },
+  {
+    target: { css: `${tid("follow-through-line")} ${tid("fu-pill")}` },
+    act: { click: true },
+    wait: { css: tid("fu-list") },
+    say: "1 of 2 to do, worked out from the follow-ups themselves: there is no box to tick.",
+  },
+  {
+    target: { css: tid("fu-list") },
+    say: "His death, planned from chapter 3, is still to do. The task about the bells was accepted, so it is done.",
+  },
+  {
+    target: { css: `${tid("follow-through-line")} ${tid("written")}` },
+    act: { click: true },
+    wait: { css: tid("gap-line") },
+    say: "Chapter 3 is written, so the plan meets you there, in its Loose ends.",
+  },
+  {
+    target: { css: tid("gap-line") },
+    say: "The decision, and the planned change not in the book yet. Quarry doesn't read the prose to check; it only knows the chapter has text.",
+  },
+  {
+    target: { css: tid("gap-canon") },
+    say: "Once the chapter shows it, Make it canon here records it, with a selected passage as the evidence. Not now: the next part needs his death still planned.",
+  },
+  {
+    target: { css: tid("gap-not-yet") },
+    act: { click: true },
+    wait: { css: tid("gap-later") },
+    say: "Not yet folds it away in this chapter. The decision stays 1 of 2 to do.",
+  },
+  {
     go: "/w/{w}/checks",
     target: { css: tid("include-planned") },
     act: { click: true },
@@ -113,8 +148,8 @@ const steps: Step[] = [
 export const journal: Tour = {
   id: "journal",
   title: "Planning in the Journal",
-  blurb: "Journal entries with the world tools, planned facts, questions from a passage, the planning reading, and Include planned.",
-  minutes: 2,
-  covers: ["Journal", "Planned facts", "Sparks and questions", "Planning reading", "Include planned"],
+  blurb: "Journal entries with the world tools, planned facts, questions from a passage, the planning reading, decisions to follow through, and Include planned.",
+  minutes: 2.5,
+  covers: ["Journal", "Planned facts", "Sparks and questions", "Planning reading", "Follow-ups", "Include planned"],
   steps,
 };

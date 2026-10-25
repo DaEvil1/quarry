@@ -60,9 +60,65 @@ const steps: Step[] = [
     say: "Triage sorts the inbox one item at a time from the keyboard: a, r, h and d, with u to undo.",
   },
   {
+    target: { css: tid("triage-item"), text: "Wardens' toll" },
+    say: "First, the oldest: the spark about the Wardens' toll, tagged with the River Wardens.",
+  },
+  {
+    target: { css: ".triage-keys button", text: "Accept" },
+    act: { key: "a" },
+    wait: { css: "#triage-prompt" },
+    say: "a accepts it.",
+  },
+  {
+    target: { css: "#triage-prompt" },
+    act: { fill: "The toll is paid in lanterns, from The Crossing on" },
+    say: "With a decision.",
+  },
+  {
+    target: { css: ".triage-prompt button.verb" },
+    act: { click: true },
+    wait: { css: tid("followup-row") },
+    say: "Accept.",
+  },
+  {
+    target: { css: tid("followup-row") },
+    say: "A row offers follow-ups, the things that carry the decision out: f a planned fact, w a relationship, t a task, x one that exists. Enter skips it, and so does any Triage key.",
+  },
+  {
+    target: { css: tid("followup-step") },
+    act: { key: "t" },
+    wait: { css: tid("fu-task-form") },
+    say: "t makes a task.",
+  },
+  {
+    target: { css: `${tid("fu-task-form")} input[aria-label="Follow-up task"]` },
+    act: { fill: "Show a lantern paid at the lock" },
+    say: "In your own words. The River Wardens are ticked already, from the spark.",
+  },
+  {
+    target: { css: tid("fu-task-chapter"), text: "The Crossing" },
+    act: { click: true },
+    say: "The Crossing, which the decision names, is offered but never ticked for you. Ticked, the task waits in that chapter's Loose ends.",
+  },
+  {
+    target: { css: `${tid("fu-task-form")} button.btn-primary` },
+    act: { click: true },
+    wait: { css: tid("followup-row"), text: "+ another" },
+    say: "Save. The row comes back for another.",
+  },
+  {
+    target: { css: tid("followup-step") },
+    act: { key: "Enter" },
+    say: "Enter: done.",
+  },
+  {
     go: "/w/{w}/decisions",
     target: { css: "li", text: "The bell rings before floods" },
-    say: "And the decision is in the log, dated, next to the earlier ones.",
+    say: "Both decisions are in the log, dated, next to the earlier ones.",
+  },
+  {
+    target: { css: `li ${tid("fu-pill")}`, text: "1 of 1 to do" },
+    say: "The toll's says 1 of 1 to do, worked out from its task: done once the task is. There is nothing to tick.",
   },
 ];
 
@@ -70,7 +126,7 @@ export const capture: Tour = {
   id: "capture",
   title: "A spark on the phone, sorted at the desk",
   blurb: "Capture on the phone, then the inbox, closing with a decision, and Triage.",
-  minutes: 1,
-  covers: ["Capture", "Inbox", "Triage", "Decisions"],
+  minutes: 1.5,
+  covers: ["Capture", "Inbox", "Triage", "Decisions", "Follow-ups"],
   steps,
 };

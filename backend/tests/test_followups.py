@@ -106,6 +106,20 @@ def test_a_decision_with_no_project_offers_a_chapter_per_project(world: Client):
     assert named[0]["label"] == "chapter 9, The Drowned Bell (The Salt Road)"
 
 
+def test_the_step_offers_the_entries_tagged_on_the_item_a_close_logged(world: Client):
+    chapters(world)
+    varren, isolde = add(world, "Varren"), add(world, "Isolde")
+    add(world, "the Bell", "object")
+    q = world.post(f"{W}/items", json={"body": "When?", "kind": "question", "entities": [isolde["id"], varren["id"]]}).json()
+    closed = world.post(f"{W}/items/{q['id']}/close", json={"status": "accepted",
+                                                           "decision": f"{DEATH}, under the Bell"}).json()
+    offers = world.get(f"{W}/decisions/{closed['decision_id']}/offers").json()
+    # tagged (here through the item): the one the text names first; then those it names untagged
+    assert [(e["name"], e["tagged"]) for e in offers["entities"]] == [("Varren", True), ("Isolde", True),
+                                                                      ("the Bell", False)]
+    assert [c["n"] for c in offers["chapters"]] == [9]
+
+
 # follow-ups (§16.1) ---------------------------------------------------------------------------------------------
 
 
