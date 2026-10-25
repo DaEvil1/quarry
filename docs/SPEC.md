@@ -2815,15 +2815,20 @@ keep up to date.
 
 A follow-up is **to do** while:
 
-- a fact or relationship is *planned*;
+- a fact or relationship is *planned* or *rumour*: a change set to rumour stays to do until it is made canon or dropped
+  (Thomas);
 - a task is *open* or *deferred*.
 
 It is **done** when:
 
 - a fact or relationship is *canon* (by *Make it canon here*, the standing pill, or anywhere else);
-- a task is *accepted*, *rejected* or *harvested*: closed, however;
-- it was **dropped**: by *Drop*, by deleting its row, or by changing a fact or relationship to *rumour* (a rumour is what
-  someone in the story believes, not a plan for what is true; §14.6).
+- a task is *accepted* or *harvested*.
+
+It is **dropped** when:
+
+- it was dropped by *Drop*, or by deleting its row;
+- a task was closed as *rejected*. It counts toward the decision being done, but is listed as *dropped*, dated its
+  close, so the list shows it wasn't carried out (Thomas).
 
 Done and dropped both count as not to do; the follow-up list tells them apart. Reopening a task or setting a canon row
 back to planned makes the follow-up to do again, and the decision's state follows.
@@ -2857,8 +2862,9 @@ whose chapter is written adds the quiet `chapter 9 is written`, the same test as
 *Done when* a decision with no follow-ups shows no pill; adding a planned fact makes it `1 of 1 to do` on the
 Decisions page, on Varren's page, in his planning reading and on the front page; *Make it canon here* on that fact
 turns it to `done` everywhere; adding a task makes it `1 of 2 to do` again; deferring the task leaves it to do,
-rejecting it makes the decision done; reopening the task makes it `1 of 2 to do` again; changing a planned
-relationship that follows it to *rumour* lists it as dropped; and there is nowhere to tick a decision done.
+rejecting it makes the decision done, with the task listed as dropped; reopening the task makes it `1 of 2 to do`
+again; changing a planned relationship that follows it to *rumour* leaves it to do; and there is nowhere to tick a
+decision done.
 
 ### 16.3 Where follow-ups are added
 
@@ -2909,10 +2915,15 @@ from a decision is tied to it.
 
 **The rule.** For a current chapter C, a **gap line** is shown for each follow-up of any decision that is:
 
-- a fact or relationship, still *planned* (not dropped);
-- tied to C: its *from* chapter, its *until* chapter or its *established in* chapter is C. A bound that is a time, not a
-  chapter, ties it to no chapter (§16.9);
+- a fact or relationship that is still to do (§16.2);
+- tied to C, in either of two ways:
+  - its *from* chapter, its *until* chapter or its *established in* chapter is C;
+  - its *from* or *until* is a time (§13.1.5), and C is set at that time (§13.1.2): C's time, or the span from it to
+    its end, includes it (Thomas). A chapter with no set time is tied by chapter bounds only, and a change *outside
+    time* is tied to no chapter;
 - and C **has text**: at least one word of prose, margin notes not counted.
+
+A change bounded by a time can so be tied to several chapters, each with its own line and its own *Not yet*.
 
 Experiment drafts and retired chapters have no gap lines.
 
@@ -2963,7 +2974,8 @@ status: dead, from this chapter · not in the book yet`; *Not yet* hides the lin
 leaves the decision `1 of 1 to do`, and *Show again* brings it back; moving the fact's span to chapter 10 (which has
 text) shows the line there, and moving it back shows it in chapter 9 again only after *Show again*; *Make it canon here*
 with a sentence selected makes the fact canon, established in chapter 9 with that sentence, and the decision `done`;
-the line is the same with *Include planned* on or off; with it on, Checks' finding for Varren named in chapter 12 adds
+a fact planned from year 412 shows the line in each chapter set in 412 that has text, and in none set in 413 or with
+no set time; the line is the same with *Include planned* on or off; with it on, Checks' finding for Varren named in chapter 12 adds
 `decided 12 Oct 2026`; and nothing appears or changes while typing.
 
 ### 16.5 Surfacing
@@ -2997,7 +3009,7 @@ decision_followups (
   relationship_id  → relationships  ON DELETE SET NULL,  NULL
   item_id          → items          ON DELETE SET NULL,  NULL
   what             text NOT NULL,   -- the row in words, kept for when it is gone
-  dropped_on       date NULL,       -- by Drop, by deleting its row, or by a change to rumour
+  dropped_on       date NULL,       -- by Drop, or by deleting its row
   created_by, created_at
 )
 -- CHECK num_nonnulls(fact_id, relationship_id, item_id) <= 1
@@ -3020,9 +3032,9 @@ decision_followups (
 - `what` is written when the follow-up is made, and again whenever its row is saved through the facts, relationships or
   items endpoints, so it reads right when the row is later gone (`Varren · status: dead · from chapter 9`, `task: Plant
   the bell's crack in chapter 4`).
-- Deleting a fact, relationship or item through the API sets `dropped_on` on its follow-ups in the same transaction,
-  and so does a change of standing to *rumour*; a change back clears it. A row lost by a cascade (its entry deleted)
-  leaves a follow-up with no row and no date, shown as `dropped`.
+- Deleting a fact, relationship or item through the API sets `dropped_on` on its follow-ups in the same transaction.
+  A task closed as rejected is worked out as dropped from its status, not stored. A row lost by a cascade (its entry
+  deleted) leaves a follow-up with no row and no date, shown as `dropped`.
 - An entry's delete warning (`3 relationships use…`) adds `2 of its facts follow decisions`.
 - Done and to do are never stored (§16.2).
 
@@ -3110,18 +3122,16 @@ line and the front page's *To follow through*; and both walkthroughs play with n
 
 ### 16.9 Open questions for phase 14
 
-1. **A rejected task counts as done** here (closed however, like a dropped change). Or should a rejected task count as
-   *dropped*, apart from accepted ones, in the list?
-2. **Rumour counts as dropped.** Is that right, or should a rumour stay to do until it is made canon or dropped?
-3. **A settled decision shows no pill.** Should it say `settled`, as the three states are named here?
-4. **Time bounds.** A planned change bounded by a time, not a chapter, gives no gap line. Should it count as tied to
-   every chapter set at that time (§13.1.2)?
-5. **Closing an experiment** with a decision offers the follow-up step too (§16.3). Keep, or only Triage and the
-   inbox?
-6. **Keys.** `f` fact, `w` relationship, `t` task, `x` attach, chosen because none is a Triage key. Better letters?
-7. **One build phase.** Phase 14 is small enough for one pull request: the table and endpoints, the forms and the step,
-   the state and its pills, the gap line, the filter and the front page section, export and Restore, the demo and the
-   two Guide steps. Or split the gap line and surfacing into a second?
+None left. Thomas's answers are in DECISIONS.md (2026-10-25):
+
+- a task closed as rejected counts toward done but is listed as dropped (§16.2);
+- a change set to rumour stays to do until it is canon or dropped (§16.2);
+- a decision with no follow-ups shows no pill (§16.2);
+- a change bounded by a time gives the gap line in the chapters set at that time that have text (§16.4);
+- closing an experiment with a decision offers the follow-up step too (§16.3);
+- the keys are `f`, `w`, `t` and `x` (§16.3);
+- and phase 14 is built as one pull request: the table and endpoints, the forms and the step, the state and its pills,
+  the gap line, the filter and the front page section, export and Restore, the demo and the two Guide steps.
 
 ## 17. Out of scope (for now)
 
