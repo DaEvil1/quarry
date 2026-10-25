@@ -47,6 +47,7 @@ export const router = createRouter({
         { path: "w/:world/triage", name: "triage", component: () => import("./views/TriageView.vue") },
         { path: "w/:world/decisions", name: "decisions", component: () => import("./views/DecisionsView.vue") },
         { path: "w/:world/journal", name: "journal", component: () => import("./views/JournalView.vue") },
+        { path: "w/:world/journal/:id", name: "journal-entry", component: () => import("./views/JournalEntryView.vue") },
         { path: "w/:world/bible", name: "bible", component: () => import("./views/BibleView.vue") },
         { path: "w/:world/bible/k/:kind", name: "bible-kind", component: () => import("./views/BibleView.vue") },
         { path: "w/:world/bible/types", name: "relation-types", component: () => import("./views/RelationTypesView.vue") },

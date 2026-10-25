@@ -122,7 +122,7 @@ export function sourceLink(world: string, table: SourceTable, id: string) {
     case "decision":
       return { name: "decisions", params: { world } };
     case "journal":
-      return { name: "journal", params: { world }, hash: `#entry-${id}` };
+      return { name: "journal-entry", params: { world, id } };
     case "entity":
       return { name: "entity", params: { world, id } };
     case "chapter":

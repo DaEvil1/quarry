@@ -28,6 +28,7 @@ import { ageText, birthOf, deathOf, ERA_COLOURS } from "../world/eras";
 import { entitySlice } from "../world/slice";
 import { timeText } from "../world/when";
 import UndoToast from "../components/UndoToast.vue";
+import { journalDay } from "../journal";
 import { readLastUsed } from "../lastUsed";
 import { useSession } from "../stores/session";
 import { ENTITY_KINDS, GENDERS, type EntityDetail, type EntityKind, type Gender, type RelationType, type SourceRef } from "../types";
@@ -370,6 +371,7 @@ async function notForThisOne(label: string) {
         <RouterLink class="btn btn-sm" :to="{ name: 'entity-read', params: { world: world.slug, id: detail.entity.id } }" data-testid="read-thread">
           Read where {{ detail.entity.name }} appears
         </RouterLink>
+        <RouterLink class="btn btn-sm" :to="{ name: 'entity-read', params: { world: world.slug, id: detail.entity.id }, query: { in: 'planning' } }" data-testid="read-planning-link">… in the planning</RouterLink>
         <RouterLink v-if="detail.entity.kind === 'place'" class="btn btn-sm" :to="{ name: 'chart', params: { world: world.slug }, query: { focus: detail.entity.id, ...(asOfId ? { asof: asOfId } : {}) } }" data-testid="on-the-chart">On the chart</RouterLink>
         <RouterLink v-if="hasFamily" class="btn btn-sm" :to="{ name: 'graph', params: { world: world.slug }, query: { view: 'family', centre: detail.entity.id, ...(asOfId ? { asof: asOfId } : {}) } }" data-testid="family-tree-link">Family tree</RouterLink>
         <select class="filter" :value="detail.entity.kind" aria-label="Kind" @change="save({ kind: ($event.target as HTMLSelectElement).value as EntityKind })">
@@ -475,6 +477,16 @@ async function notForThisOne(label: string) {
           </footer>
         </blockquote>
       </div>
+      <div v-if="detail.notes?.length" class="told-in" data-testid="noted-in">
+        <h3 class="small muted">Noted in</h3>
+        <blockquote v-for="n in detail.notes" :key="n.id" class="telling" data-testid="note">
+          <p class="prose">“{{ n.passage }}”</p>
+          <footer class="small">
+            <RouterLink :to="{ name: 'journal-entry', params: { world: world.slug, id: n.journal.id }, query: n.changed ? {} : { passage: n.passage } }">the Journal, {{ journalDay(n.journal.date) }}<template v-if="n.journal.title"> · {{ n.journal.title }}</template></RouterLink>
+            <span v-if="n.changed" class="pill warn">passage changed</span>
+          </footer>
+        </blockquote>
+      </div>
     </section>
 
     <FactsPanel
@@ -484,6 +496,7 @@ async function notForThisOne(label: string) {
       :suggestions="suggestions[detail.entity.kind] ?? { labels: [], common: [], values: {} }"
       :several="(label: string) => cards.several(detail!.entity.kind, label)"
       :chapter-titles="detail.chapter_titles"
+      :journal-entries="detail.journal_entries"
       :timeline="cards.timeline"
       :as-of="asOf"
       :index-of="cards.indexOf"
@@ -499,6 +512,7 @@ async function notForThisOne(label: string) {
       :relationships="detail.relationships"
       :types="types"
       :names="cards.names"
+      :journal-entries="detail.journal_entries"
       :timeline="cards.timeline"
       :as-of="asOf"
       :index-of="cards.indexOf"

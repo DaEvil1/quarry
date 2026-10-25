@@ -88,19 +88,22 @@ export function cardDom(
   if (card.whenText) root.append(el("div", `qcard-when era-tint${card.whenColour ? ` era-${card.whenColour}` : ""}`, card.whenText));
   if (card.aliases.length) root.append(el("div", "qcard-also", `also ${card.aliases.join(", ")}`));
   // the first few facts; a label that holds several values shows them as chips side by side
-  const facts: { label: string; values: string[]; several: boolean }[] = [];
+  const facts: { label: string; values: string[]; several: boolean; planned: boolean }[] = [];
   for (const f of card.facts) {
     if (isPronunciation(f.label)) continue;
     const several = !!actions.several?.(card.kind, f.label);
-    const row = several ? facts.find((x) => x.several && x.label.toLowerCase() === f.label.toLowerCase()) : undefined;
+    const planned = !!f.planned;
+    const row = several ? facts.find((x) => x.several && x.planned === planned && x.label.toLowerCase() === f.label.toLowerCase()) : undefined;
     if (row) row.values.push(f.value);
-    else facts.push({ label: f.label, values: [f.value], several });
+    else facts.push({ label: f.label, values: [f.value], several, planned });
   }
   if (facts.length) {
     const dl = el("dl", "qcard-facts");
-    for (const f of facts.slice(0, 4)) {
+    // canon first, then planned (marked): a card in the Journal shows both (docs/SPEC.md §14.1.1)
+    for (const f of [...facts.filter((x) => !x.planned).slice(0, 4), ...facts.filter((x) => x.planned).slice(0, 3)]) {
       const dd = el("dd", "", f.several ? "" : f.values[0] || "—");
       if (f.several) for (const v of f.values) dd.append(el("span", "qcard-chip", v || "—"));
+      if (f.planned) dd.append(el("span", "qcard-standing", " planned"));
       dl.append(el("dt", "", f.label), dd);
     }
     root.append(dl);

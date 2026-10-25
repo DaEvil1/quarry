@@ -216,6 +216,9 @@ async function openAt() {
   const p = prose.value;
   const ch = chapter.value;
   if (!p || !ch) return;
+  // at a passage (where something was planned or made from, docs/SPEC.md §14.3.1): found by its text
+  const passage = typeof route.query.passage === "string" ? route.query.passage : "";
+  if (passage && !p.markPassage(passage, true)) notice.value = "That passage has changed since; the chapter opens at the top.";
   const at = typeof route.query.at === "string" ? Number(route.query.at) : NaN;
   if (Number.isFinite(at)) {
     const pos = Math.max(0, Math.min(at, p.view.state.doc.length));

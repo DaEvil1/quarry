@@ -846,7 +846,7 @@ void nextTick;
       <template v-if="told.notInBook.length">
         <h2 class="small muted">Not in the book yet</h2>
         <ul class="plain-list inline">
-          <li v-for="e in told.notInBook" :key="e.id"><RouterLink class="kname k-event" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink></li>
+          <li v-for="e in told.notInBook" :key="e.id"><RouterLink class="kname k-event" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink><span v-if="chron?.notes?.[e.id]" class="muted small" data-testid="noted-count"> · noted in the Journal {{ chron.notes[e.id] === 1 ? "once" : `${chron.notes[e.id]} times` }}</span></li>
         </ul>
       </template>
     </section>
