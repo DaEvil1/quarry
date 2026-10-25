@@ -131,7 +131,10 @@ const markerCount = computed(() => loose.value.reduce((n, x) => n + x.marks.leng
       <input v-model="search" type="search" class="filter journal-search" placeholder="Search the Journal" aria-label="Search the Journal" />
       <article v-for="e in shown" :id="`entry-${e.id}`" :key="e.id" class="card journal-entry" data-testid="journal-entry">
         <RouterLink class="journal-link" :to="{ name: 'journal-entry', params: { world: world.slug, id: e.id } }">
-          <div class="muted small">{{ journalDay(e.entry_date) }}<template v-if="e.project"> · {{ projectName(e.project) }}</template></div>
+          <div class="muted small">
+            {{ journalDay(e.entry_date) }}<template v-if="e.project"> · {{ projectName(e.project) }}</template>
+            <span v-if="e.since" class="since-count" data-testid="since-count" title="Decisions and changes since this was written, touching what it names">{{ e.since }} since</span>
+          </div>
           <h2>{{ e.title || "Untitled" }}</h2>
         </RouterLink>
         <p class="prose item-text">

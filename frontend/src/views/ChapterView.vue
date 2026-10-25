@@ -69,6 +69,7 @@ import { useSession } from "../stores/session";
 import { localToday, type EntityRef, type Presence } from "../types";
 import { useCards } from "../world/cards";
 import { chapterWhen, timeText, unitOf } from "../world/when";
+import { includePlanned, setIncludePlanned } from "../focus";
 import { norm } from "../world/time";
 import { analyse, linkKey, storyText, type Finding } from "../world/findings";
 import NotFoundView from "./NotFoundView.vue";
@@ -677,7 +678,7 @@ async function loadCompanion(ch: Chapter) {
   const [pairs, res, chk, its, note] = await Promise.allSettled([
     linkedPairs(w),
     resolutions(w),
-    loadChecksApi(w, ch.id),
+    loadChecksApi(w, ch.id, planned.value),
     chapterItems(w, ch.id),
     sessionNote(w, ch.id),
   ]);
@@ -698,8 +699,16 @@ async function loadCompanion(ch: Chapter) {
   }
   analyseNow();
 }
+// Include planned (docs/SPEC.md §14.6): starts from the world's focus; set by hand, it stays until the focus changes
+const planned = ref(includePlanned(world.value));
+watch(() => world.value?.focus, () => (planned.value = includePlanned(world.value)));
+function setPlanned(on: boolean) {
+  planned.value = on;
+  if (world.value) setIncludePlanned(world.value, on);
+  void loadChecks();
+}
 const loadChecks = async () => {
-  if (chapter.value) chapterChecks.value = await loadChecksApi(worldSlug.value, chapter.value.id).catch(() => chapterChecks.value);
+  if (chapter.value) chapterChecks.value = await loadChecksApi(worldSlug.value, chapter.value.id, planned.value).catch(() => chapterChecks.value);
 };
 
 /** Where the writer is, and their note, kept for next time (best effort: offline it waits for the next visit). */
@@ -1367,8 +1376,10 @@ const experimentText = computed(() => {
       :types="cards.types"
       :world="world.slug"
       :actions="panelActions"
+      :planned="planned"
       @dismiss-back="backIn = null"
       @tab="onTab"
+      @planned="setPlanned"
     >
       <ChapterSide
         :world="world.slug"

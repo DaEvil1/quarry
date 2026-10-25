@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteLocationRaw } from "vue-router";
 
 import { get } from "./api";
+import { focusOf } from "./focus";
 import { isPhone, readLastUsed } from "./lastUsed";
 import { sharedText } from "./share";
 import { useSession } from "./stores/session";
@@ -42,6 +43,7 @@ export const router = createRouter({
         { path: "new-world", name: "new-world", component: () => import("./views/NewWorldView.vue") },
         { path: "settings", name: "settings", component: () => import("./views/SettingsView.vue") },
         { path: "w/:world", name: "world", component: () => import("./views/WorldView.vue") },
+        { path: "w/:world/settings", name: "world-settings", component: () => import("./views/WorldSettingsView.vue") },
         { path: "w/:world/capture", name: "capture", component: () => import("./views/CaptureView.vue") },
         { path: "w/:world/inbox", name: "inbox", component: () => import("./views/InboxView.vue") },
         { path: "w/:world/triage", name: "triage", component: () => import("./views/TriageView.vue") },
@@ -89,6 +91,8 @@ export function homeTarget(phone = isPhone()): RouteLocationRaw {
   const world = currentWorld();
   if (!world) return { name: "new-world" };
   if (phone) return { name: "capture", params: { world: world.slug } };
+  // under Planning the world opens on its front page (docs/SPEC.md §14.9)
+  if (focusOf(world) === "planning") return { name: "world", params: { world: world.slug } };
   if (last.world === world.slug && last.project && s.project(world.slug, last.project)) {
     return { name: "project", params: { world: world.slug, project: last.project } };
   }

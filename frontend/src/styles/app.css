@@ -971,3 +971,8 @@ svg.chart:active { cursor: grabbing; }
 .planning-year { margin: 24px 0 6px; font-size: 1.1rem; color: var(--muted); }
 .planning-gap { text-align: center; margin: 6px 0; }
 .planning-item .prose, .planning-decision .prose { display: block; color: inherit; }
+.since-count { margin-left: 8px; opacity: 0.7; }
+.since-list { margin-top: 6px; }
+.premise { margin: 4px 0 0; color: var(--muted); }
+.front-section h3 { margin: 10px 0 2px; }
+.focus-switch { margin-top: 6px; }

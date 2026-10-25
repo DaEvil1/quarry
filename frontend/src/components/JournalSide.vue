@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 
+import { journalDay, type SinceThis } from "../journal";
 import type { JournalDetail, StoryChapter } from "../types";
 import type { Era } from "../world/eras";
 import type { Unit } from "../world/when";
@@ -18,8 +19,20 @@ const props = defineProps<{
   asof: string;
   at: number | null;
   eraOf?: (t: number | null | undefined) => Era | null;
+  /** the note for next time (docs/SPEC.md §14.4), and what happened since it was written (§14.5) */
+  note: string;
+  since: SinceThis | null;
 }>();
-const emit = defineEmits<{ checkpoint: []; history: []; asof: [choice: { asof?: string; at?: number }]; remove: [] }>();
+const emit = defineEmits<{ checkpoint: []; history: []; asof: [choice: { asof?: string; at?: number }]; remove: []; note: [text: string] }>();
+const openSince = ref(false);
+const noteDraft = ref(props.note);
+watch(() => props.note, (n) => (noteDraft.value = n));
+const names = computed(() => {
+  const s = props.since;
+  if (!s) return "";
+  const list = s.entities.map((x) => x.entity.name);
+  return list.length > 2 ? `${list.slice(0, 2).join(", ")} and ${list.length - 2} more` : list.join(" and ");
+});
 
 const named = computed(() => {
   const counts = new Map<string, { id: string; name: string; kind: string | undefined; count: number }>();
@@ -35,6 +48,33 @@ const named = computed(() => {
 
 <template>
   <div class="side-chapter" data-testid="journal-side">
+    <section data-testid="entry-note">
+      <h3 class="small muted"><label for="entry-next-note">A note for next time</label></h3>
+      <input id="entry-next-note" v-model="noteDraft" class="filter" type="text" maxlength="2000" placeholder="What's next?" @change="emit('note', noteDraft)" />
+    </section>
+    <section v-if="props.since && (props.since.decisions || props.since.changes || props.since.later || props.since.edited)" data-testid="since-this">
+      <h3 class="small muted">Since this was written</h3>
+      <p class="small">
+        <button type="button" class="linkish" @click="openSince = !openSince">
+          <template v-if="props.since.decisions || props.since.changes">{{ props.since.decisions }} decision{{ props.since.decisions === 1 ? "" : "s" }} and {{ props.since.changes }} change{{ props.since.changes === 1 ? "" : "s" }} touch {{ names }}</template>
+          <template v-if="props.since.later"> · {{ props.since.later }} later note{{ props.since.later === 1 ? "" : "s" }}</template>
+        </button>
+      </p>
+      <p v-if="props.since.edited" class="small muted">written {{ journalDay(props.since.date) }} · last edited {{ props.since.edited }}</p>
+      <div v-if="openSince" class="since-list">
+        <div v-for="x in props.since.entities" :key="x.entity.id" class="small">
+          <RouterLink class="kname" :class="`k-${x.entity.kind}`" :to="{ name: 'entity', params: { world: props.world, id: x.entity.id } }">{{ x.entity.name }}</RouterLink>
+          <ul class="plain-list">
+            <li v-for="d in x.decisions" :key="d.id"><span class="muted">{{ d.date }}</span> “{{ d.text }}”</li>
+            <li v-for="(c, i) in x.changes" :key="i">{{ c.what }} · <span class="muted">{{ c.date }}</span></li>
+            <li v-if="x.later">
+              {{ x.later }} later note{{ x.later === 1 ? "" : "s" }} name{{ x.later === 1 ? "s" : "" }} {{ x.entity.name }} ·
+              <RouterLink :to="{ name: 'entity-read', params: { world: props.world, id: x.entity.id }, query: { in: 'planning', from: props.since.date } }">Read them</RouterLink>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
     <section>
       <h3 class="small muted">Cards as of</h3>
       <AsOfPicker :timeline="props.timeline" :unit="props.unit" :asof="props.asof" :at="props.at" :times="props.times" :era-of="props.eraOf" testid="entry-as-of" label="Cards as of" @pick="(c) => emit('asof', c)" />

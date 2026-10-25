@@ -18,6 +18,8 @@ export interface Check {
   /** a conflicting fact's label and the entry's kind, for "Both are true (several values)" */
   label?: string;
   kind?: EntityKind;
+  /** it rests on a planned fact or relationship (Include planned) */
+  planned?: boolean;
   /** two holders of a one-at-a-time role: the earlier relationship, and the later one it can end before */
   end?: { id: string; name: string };
   before?: { id: string; name: string } | null;
@@ -31,8 +33,12 @@ export interface Resolution {
   note: string | null;
 }
 
-export const checks = (world: string, chapterId?: string) =>
-  get<Check[]>(`${base(world)}/checks${chapterId ? `?chapter=${encodeURIComponent(chapterId)}` : ""}`);
+/** The checks, for the world or one chapter; `planned`: planned facts and relationships count too (Include planned,
+ * docs/SPEC.md §14.6). */
+export const checks = (world: string, chapterId?: string, planned = false) => {
+  const q = [chapterId ? `chapter=${encodeURIComponent(chapterId)}` : "", planned ? "planned=1" : ""].filter(Boolean).join("&");
+  return get<Check[]>(`${base(world)}/checks${q ? `?${q}` : ""}`);
+};
 export const resolutions = (world: string) => get<Resolution[]>(`${base(world)}/resolutions`);
 export const resolve = (world: string, rule: string, key: string, outcome: Resolution["outcome"], note: string | null = null) =>
   put<Resolution>(`${base(world)}/resolutions`, { rule, key, outcome, note });

@@ -26,6 +26,9 @@ export interface World {
   /** what in-world time is counted in, one and several (docs/SPEC.md §13.1.1) */
   time_unit?: string;
   time_units?: string;
+  /** one optional line about the world (docs/SPEC.md §14.4), and this person's focus in it (§14.9) */
+  premise?: string | null;
+  focus?: "writing" | "planning";
 }
 
 export interface User {
@@ -256,6 +259,8 @@ export interface JournalEntry {
   version: number;
   /** words in the entry (a %% line counts: in the Journal it is ordinary text) */
   words?: number;
+  /** on the list: decisions and changes since its date touching what it names (docs/SPEC.md §14.5) */
+  since?: number | null;
   created_at: string;
   updated_at: string;
 }
