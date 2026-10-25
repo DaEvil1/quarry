@@ -976,3 +976,13 @@ svg.chart:active { cursor: grabbing; }
 .premise { margin: 4px 0 0; color: var(--muted); }
 .front-section h3 { margin: 10px 0 2px; }
 .focus-switch { margin-top: 6px; }
+
+/* cause arrows on the Timeline (docs/SPEC.md §14.7) */
+.tl-arrow { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+.tl-arrow.dashed { stroke-dasharray: 5 4; }
+.tl-arrow.before { stroke: var(--warn); }
+.tl-arrowhead { fill: var(--accent); }
+.tl-arrow-note { font-size: 11px; fill: var(--warn); }
+.tl-arrow-edge { font-size: 11px; fill: var(--accent); cursor: pointer; }
+.kept-card { position: absolute; right: 12px; top: 12px; max-width: 320px; z-index: 5; }
+.timeline-wrap { position: relative; }
