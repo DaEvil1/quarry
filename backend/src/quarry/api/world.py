@@ -21,6 +21,7 @@ from ..mentions import first_name_aliases
 from ..models import Chapter, Entity, Fact, FactLabel, JournalEntry, Project, RelationType, Relationship, User, World
 from ..vocabulary import HAS_ROLE_LABELS, STARTING_TYPES, SUGGESTED_FACTS, SUGGESTED_VALUES
 from .deps import current_user
+from .followups import drop_for_deleted, follows_of, refresh_what
 from .storytime import check_span
 from .worlds import member_world
 
@@ -438,6 +439,15 @@ def add_fact(slug: str, entity_id: uuid.UUID, body: FactIn, user: User = Depends
     e = _entity(db, world, entity_id)
     if body.make_canon is not None:
         return _make_fact_canon(db, world, e, body, user)
+    f, prompt = new_fact(db, world, e, body, user)
+    db.commit()
+    out = fact_out(f)
+    out.prompt = prompt
+    return out
+
+
+def new_fact(db: Session, world: World, e: Entity, body: FactIn, user: User) -> tuple[Fact, dict | None]:
+    """A new fact on an entry, flushed (not committed), with the one-time label prompt if it brings one."""
     top = db.scalar(select(func.max(Fact.position)).where(Fact.entity_id == e.id))
     label = " ".join(body.label.split())
     had_it = any(norm(x) == norm(label) for x in db.scalars(select(Fact.label).where(Fact.entity_id == e.id)))
@@ -455,10 +465,7 @@ def add_fact(slug: str, entity_id: uuid.UUID, body: FactIn, user: User = Depends
     from .history import assign_era_colour
 
     assign_era_colour(db, world, e)
-    db.commit()
-    out = fact_out(f)
-    out.prompt = prompt
-    return out
+    return f, prompt
 
 
 def _make_fact_canon(db: Session, world: World, e: Entity, body: FactIn, user: User) -> FactOut:
@@ -481,6 +488,8 @@ def _make_fact_canon(db: Session, world: World, e: Entity, body: FactIn, user: U
     check_span(db, world, f)
     f.version += 1
     f.updated_by = user.id
+    db.flush()
+    refresh_what(db, world, "fact", f)
     db.commit()
     return fact_out(f)
 
@@ -523,6 +532,7 @@ def update_fact(slug: str, fact_id: uuid.UUID, body: FactUpdate, user: User = De
     e = db.get(Entity, f.entity_id)
     if e is not None:
         assign_era_colour(db, world, e)
+    refresh_what(db, world, "fact", f)
     db.commit()
     return fact_out(f)
 
@@ -530,7 +540,9 @@ def update_fact(slug: str, fact_id: uuid.UUID, body: FactUpdate, user: User = De
 @router.delete("/facts/{fact_id}", status_code=204)
 def delete_fact(slug: str, fact_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
     world, _ = member_world(db, user, slug)
-    db.delete(_fact(db, world, fact_id))
+    f = _fact(db, world, fact_id)
+    drop_for_deleted(db, world, "fact", f)
+    db.delete(f)
     db.commit()
 
 
@@ -634,11 +646,23 @@ def list_relationships(slug: str, user: User = Depends(current_user),
 def add_relationship(slug: str, body: RelationshipIn, user: User = Depends(current_user),
                      db: Session = Depends(get_db)) -> RelationshipOut:
     world, _ = member_world(db, user, slug)
+    if body.make_canon is not None:
+        t = _type(db, world, body.type_id)
+        _check_pair(t, _entity(db, world, body.a_id), _entity(db, world, body.b_id))
+        return _make_relationship_canon(db, world, body, user)
+    r = new_relationship(db, world, body, user)
+    db.commit()
+    t = db.get(RelationType, r.type_id)
+    a, b = db.get(Entity, r.a_id), db.get(Entity, r.b_id)
+    assert t is not None and a is not None and b is not None
+    return relationship_out(r, t, a, b)
+
+
+def new_relationship(db: Session, world: World, body: RelationshipIn, user: User) -> Relationship:
+    """A new relationship, flushed (not committed)."""
     t = _type(db, world, body.type_id)
     a, b = _entity(db, world, body.a_id), _entity(db, world, body.b_id)
     _check_pair(t, a, b)
-    if body.make_canon is not None:
-        return _make_relationship_canon(db, world, body, user)
     r = Relationship(world_id=world.id, type_id=t.id, a_id=a.id, b_id=b.id, standing=body.standing,
                      evidence=_clean(body.evidence), note=_clean(body.note),
                      established_in_chapter_id=_chapter_in_world(db, world, body.established_in_chapter_id),
@@ -648,8 +672,8 @@ def add_relationship(slug: str, body: RelationshipIn, user: User = Depends(curre
     set_planned_in(db, world, r, body, body.model_fields_set)
     check_span(db, world, r)
     db.add(r)
-    db.commit()
-    return relationship_out(r, t, a, b)
+    db.flush()
+    return r
 
 
 def _make_relationship_canon(db: Session, world: World, body: RelationshipIn, user: User) -> RelationshipOut:
@@ -670,6 +694,8 @@ def _make_relationship_canon(db: Session, world: World, body: RelationshipIn, us
     check_span(db, world, r)
     r.version += 1
     r.updated_by = user.id
+    db.flush()
+    refresh_what(db, world, "relationship", r)
     db.commit()
     t = db.get(RelationType, r.type_id)
     a, b = db.get(Entity, r.a_id), db.get(Entity, r.b_id)
@@ -716,6 +742,8 @@ def update_relationship(slug: str, rel_id: uuid.UUID, body: RelationshipUpdate, 
     check_span(db, world, r)
     r.version += 1
     r.updated_by = user.id
+    db.flush()
+    refresh_what(db, world, "relationship", r)
     db.commit()
     t = db.get(RelationType, r.type_id)
     assert t is not None
@@ -726,7 +754,9 @@ def update_relationship(slug: str, rel_id: uuid.UUID, body: RelationshipUpdate, 
 def delete_relationship(slug: str, rel_id: uuid.UUID, user: User = Depends(current_user),
                         db: Session = Depends(get_db)) -> None:
     world, _ = member_world(db, user, slug)
-    db.delete(_relationship(db, world, rel_id))
+    r = _relationship(db, world, rel_id)
+    drop_for_deleted(db, world, "relationship", r)
+    db.delete(r)
     db.commit()
 
 
@@ -938,5 +968,12 @@ def entity_world_detail(db: Session, world: World, e: Entity) -> dict:
         for j in db.scalars(select(JournalEntry).where(JournalEntry.id.in_(jids))):
             journal_entries[str(j.id)] = {"id": str(j.id), "date": j.entry_date.isoformat(), "title": j.title,
                                           "body": j.body}
+    # the decisions each follows (docs/SPEC.md §16.1)
+    ff = follows_of(db, "fact", [uuid.UUID(f["id"]) for f in facts])
+    rf = follows_of(db, "relationship", [uuid.UUID(r["id"]) for r in rels])
+    for f in facts:
+        f["follows"] = ff.get(uuid.UUID(f["id"]), [])
+    for r in rels:
+        r["follows"] = rf.get(uuid.UUID(r["id"]), [])
     return {"facts": facts, "relationships": rels, "chapter_titles": chapter_titles,
             "journal_entries": journal_entries}

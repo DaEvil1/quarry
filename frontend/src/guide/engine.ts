@@ -179,6 +179,23 @@ export async function perform(el: HTMLElement, act: Act, opts: { slow: boolean; 
   }
 }
 
+/** Room under the page for `bringIntoView` (none when `px` is 0 or less), kept until the next step needs other room or
+ * the walkthrough stops. */
+export function makeRoom(doc: Document, px: number): void {
+  let room = doc.getElementById("guide-room");
+  if (px <= 0) {
+    room?.remove();
+    return;
+  }
+  if (!room) {
+    room = doc.createElement("div");
+    room.id = "guide-room";
+    room.setAttribute("aria-hidden", "true");
+    doc.body.appendChild(room);
+  }
+  room.style.height = `${Math.ceil(px)}px`;
+}
+
 /** The CodeMirror view an element is in (or the page's editor, for a step that points elsewhere). */
 function editorOf(el: HTMLElement): EditorView | null {
   const dom = el.closest(".cm-editor") ?? el.ownerDocument.querySelector(".cm-editor");
@@ -208,7 +225,14 @@ export async function bringIntoView(el: HTMLElement, opts: { smooth: boolean; st
   if (comfortable(r0, view)) return;
   const reduced = win.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const smooth = opts.smooth && !reduced;
-  el.scrollIntoView({ block: r0.height > view.height * 0.6 ? "start" : "center", inline: "nearest", behavior: smooth ? "smooth" : "auto" });
+  const start = r0.height > view.height * 0.6;
+  // a target low on a page that ends soon after it can't be scrolled up to where a caption fits: room under the page
+  const want = start ? 0 : Math.max(0, (view.height - r0.height) / 2);
+  const scroller = el.ownerDocument.scrollingElement ?? el.ownerDocument.documentElement;
+  const had = el.ownerDocument.getElementById("guide-room")?.offsetHeight ?? 0;
+  const left = scroller.scrollHeight - had - win.innerHeight - win.scrollY;
+  makeRoom(el.ownerDocument, r0.top - want - left);
+  el.scrollIntoView({ block: start ? "start" : "center", inline: "nearest", behavior: smooth ? "smooth" : "auto" });
   // settled: three frames in a row without moving
   const end = Date.now() + (smooth ? 1500 : 300);
   let last = el.getBoundingClientRect();

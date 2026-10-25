@@ -5,17 +5,21 @@ import { useRoute } from "vue-router";
 import { get } from "../api";
 import { entityNames, linkItem, unlinkItem } from "../bible";
 import EntityPicker from "../components/EntityPicker.vue";
+import FollowsNote from "../components/FollowsNote.vue";
+import FollowUpStep from "../components/FollowUpStep.vue";
 import ItemOrigin from "../components/ItemOrigin.vue";
 import MentionText from "../components/MentionText.vue";
 import ProjectFilter from "../components/ProjectFilter.vue";
 import UndoToast from "../components/UndoToast.vue";
 import { age, closeItem, ItemConflict, listItems, undoClose, updateItem } from "../items";
+import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import { STATUS_LABELS, type CloseStatus, type EntityRef, type Item } from "../types";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
 const session = useSession();
+const outbox = useOutbox();
 
 const worldSlug = computed(() => String(route.params.world));
 const world = computed(() => session.world(worldSlug.value));
@@ -40,6 +44,10 @@ const showKeys = ref(false);
 const tagging = ref(false);
 const names = ref<EntityRef[]>([]);
 const picker = ref<InstanceType<typeof EntityPicker> | null>(null);
+// the follow-up step after a close with a decision line (docs/SPEC.md §16.3): one row above the next item, keyboard in
+// it; any Triage key skips it and does what it does. `made`: follow-ups whose rows it made, deleted by the close's Undo
+const followStep = ref<{ decision: { id: string; text: string }; made: string[] } | null>(null);
+const stepBox = ref<HTMLElement | null>(null);
 
 /** Load the current item again (after a name fix or a tag). */
 async function reloadCurrent() {
@@ -133,10 +141,13 @@ function finish(status: CloseStatus, text: string) {
     prompt.value = null;
     queue.value = queue.value.filter((i) => i.id !== current.id);
     if (index.value >= queue.value.length) index.value = Math.max(0, queue.value.length - 1);
+    const made: string[] = [];
+    followStep.value = out.decision_id && !session.offline && outbox.online ? { decision: { id: out.decision_id, text: opts.decision ?? "" }, made } : null;
     toast.value = {
-      label: `${STATUS_LABELS[status]}${opts.decision ? " · decision logged" : ""}`,
+      label: `${STATUS_LABELS[status]}${out.decision_id ? " · decision logged" : ""}`,
       undo: async () => {
-        await undoClose(worldSlug.value, current.id, out.decision_id);
+        followStep.value = null;
+        await undoClose(worldSlug.value, current.id, out.decision_id, made);
         // put it back where it was, as it was
         const at = Math.min(index.value, queue.value.length);
         queue.value.splice(at, 0, { ...out.item, status: "open", closed_at: null, closed_note: null, version: out.item.version + 1 });
@@ -180,9 +191,18 @@ function step(by: number) {
   index.value = Math.min(Math.max(0, index.value + by), Math.max(0, queue.value.length - 1));
 }
 
+const TRIAGE_KEYS = new Set(["a", "r", "h", "d", "l", "p", "e", "1", "2", "3", "j", "k", "u", "ArrowRight", "ArrowLeft"]);
+
 function onKey(e: KeyboardEvent) {
   const target = e.target as HTMLElement | null;
   const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
+  if (followStep.value) {
+    // typing in one of its forms, or its own keys (f w t x Enter Esc): the step's
+    if (typing && stepBox.value?.contains(target)) return;
+    if (!TRIAGE_KEYS.has(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;
+    // a Triage key skips the step and does what it does
+    followStep.value = null;
+  }
   if (prompt.value) {
     if (e.key === "Escape") prompt.value = null;
     return;
@@ -258,6 +278,10 @@ const promptLabel = computed(() =>
 
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
 
+    <div v-if="followStep" ref="stepBox" class="card fu-triage" data-testid="triage-step">
+      <FollowUpStep :world="world.slug" :decision="followStep.decision" lead="Decision logged" autofocus @added="(a) => a.made && followStep?.made.push(a.followup.id)" @done="followStep = null" />
+    </div>
+
     <p v-if="loading" class="muted">Loading…</p>
     <section v-else-if="!item" class="card triage-done">
       <h2>Inbox clear</h2>
@@ -290,6 +314,7 @@ const promptLabel = computed(() =>
         />
       </p>
       <ItemOrigin v-if="item.origin" :world="world.slug" :origin="item.origin" />
+      <p v-if="item.follows?.length" class="small"><FollowsNote :world="world.slug" :follows="item.follows" task /></p>
 
       <div class="chips triage-tags">
         <span v-for="t in item.entities" :key="t.id" class="chip static tag">

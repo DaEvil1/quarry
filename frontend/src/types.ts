@@ -158,6 +158,8 @@ export interface Fact {
   version: number;
   /** after adding: the one-time "expect it on every …?" question (docs/SPEC.md §12.6.5) */
   prompt?: { kind: EntityKind; label: string; count: number } | null;
+  /** the decisions it follows (docs/SPEC.md §16.1) */
+  follows?: import("./followups").Follows[];
 }
 
 export interface RelationType {
@@ -200,6 +202,8 @@ export interface Relationship {
   reads?: string;
   other?: EntityRef;
   side?: "a" | "b";
+  /** the decisions it follows (docs/SPEC.md §16.1) */
+  follows?: import("./followups").Follows[];
 }
 
 export interface Mention {
@@ -238,7 +242,9 @@ export interface EntityDetail {
   first_appearance: { project: string; chapter_id: string; title: string; position: number }[];
   /** texts where a name it shares with another entry isn't settled (docs/SPEC.md §14.10): shown faintly, counted for none */
   unsettled?: { source_table: SourceTable; source_id: string; title: string; count: number; matched: string }[];
-  decisions: { id: string; decided_on: string; text: string; project: string | null; tagged: boolean }[];
+  decisions: { id: string; decided_on: string; text: string; project: string | null; tagged: boolean; followups?: import("./followups").FollowupCounts | null }[];
+  /** its facts and relationships that follow decisions, for the delete warning (docs/SPEC.md §16.6) */
+  follows?: { facts: number; relationships: number };
   facts: Fact[];
   relationships: Relationship[];
   chapter_titles: Record<string, string>;
@@ -303,6 +309,8 @@ export interface Item {
   entities: EntityRef[];
   mentions: Mention[];
   origin?: ItemOrigin | null;
+  /** the decisions it follows, as a task (docs/SPEC.md §16.1) */
+  follows?: import("./followups").Follows[];
 }
 
 export interface ItemCounts {
@@ -319,6 +327,8 @@ export interface Decision {
   item_id: string | null;
   created_at: string;
   entities: EntityRef[];
+  /** how many follow-ups are to do, done and dropped (docs/SPEC.md §16.2); null for a settled decision */
+  followups?: import("./followups").FollowupCounts | null;
 }
 
 /** "?project=-" on the API: items that belong to the whole world rather than one project. */

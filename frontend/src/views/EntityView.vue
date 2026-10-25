@@ -17,6 +17,7 @@ import {
   type KindSuggestions,
 } from "../bible";
 import { resolutions, resolve, type Resolution } from "../companion";
+import DecisionFollowups from "../components/DecisionFollowups.vue";
 import FactsPanel from "../components/FactsPanel.vue";
 import InlineText from "../components/InlineText.vue";
 import MentionStrip from "../components/MentionStrip.vue";
@@ -221,7 +222,11 @@ const notes = ref("");
 
 async function remove() {
   const e = detail.value?.entity;
-  if (!e || !confirm(`Remove "${e.name}" from the bible? Its facts, relationships and tags go too; the texts stay as they are.`)) return;
+  const f = detail.value?.follows;
+  const follow = f && (f.facts || f.relationships)
+    ? ` ${[f.facts ? `${f.facts} of its ${f.facts === 1 ? "facts follows a decision" : "facts follow decisions"}` : "", f.relationships ? `${f.relationships} of its ${f.relationships === 1 ? "relationships follows a decision" : "relationships follow decisions"}` : ""].filter(Boolean).join(" and ")}; they will be listed there as dropped.`
+    : "";
+  if (!e || !confirm(`Remove "${e.name}" from the bible? Its facts, relationships and tags go too; the texts stay as they are.${follow}`)) return;
   await deleteEntity(worldSlug.value, e.id);
   void cards.refresh(worldSlug.value);
   await router.push({ name: "bible-kind", params: { world: worldSlug.value, kind: e.kind } });
@@ -629,10 +634,11 @@ async function notForThisOne(label: string) {
     <section v-if="detail.decisions.length" class="card">
       <div class="card-head"><h2>Decisions</h2></div>
       <ul class="rows" data-testid="entity-decisions">
-        <li v-for="d in detail.decisions" :key="d.id">
+        <li v-for="d in detail.decisions" :key="d.id" class="fu-line">
           <span class="muted small">{{ d.decided_on }}</span>
           <span class="grow">{{ d.text }}</span>
           <span v-if="!d.tagged" class="muted small" title="Names it without being tagged">mentions</span>
+          <DecisionFollowups :world="world.slug" :decision="d" @counts="(c) => (d.followups = c)" />
         </li>
       </ul>
     </section>

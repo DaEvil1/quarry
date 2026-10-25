@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import { get, patch, post, put } from "../api";
+import DecisionFollowups from "../components/DecisionFollowups.vue";
 import FocusSwitch from "../components/FocusSwitch.vue";
 import InlineText from "../components/InlineText.vue";
 import { getFront, howLongAgo, lately, type Front, type FrontNote } from "../front";
@@ -167,10 +168,28 @@ const projectInfo = (slug: string) => front.value?.projects.find((p) => p.slug =
         <RouterLink class="small" :to="{ name: 'decisions', params: { world: world.slug } }">Decisions</RouterLink>
       </div>
       <ul class="plain-list">
-        <li v-for="d in front.decisions" :key="d.id" class="small">
+        <li v-for="d in front.decisions" :key="d.id" class="small fu-line">
           <span class="muted">{{ journalDay(d.decided_on) }}<template v-if="d.project"> · {{ projectName(d.project) }}</template></span> {{ d.text }}
+          <DecisionFollowups :world="world.slug" :decision="d" @counts="(c) => (d.followups = c)" />
         </li>
       </ul>
+    </section>
+
+    <section v-if="front?.follow_through?.decisions.length" class="card front-section" data-testid="follow-through">
+      <div class="card-head">
+        <h2>To follow through</h2>
+        <RouterLink class="small" :to="{ name: 'decisions', params: { world: world.slug }, query: { followups: 'open' } }">Decisions</RouterLink>
+      </div>
+      <ul class="plain-list">
+        <li v-for="d in front.follow_through.decisions" :key="d.id" class="small fu-line" data-testid="follow-through-line">
+          <span class="muted">{{ journalDay(d.decided_on) }}<template v-if="d.project"> · {{ projectName(d.project) }}</template></span> {{ d.text }}
+          <RouterLink v-if="d.written" class="muted" :to="{ name: 'chapter', params: { world: world.slug, id: d.written.id }, query: { panel: 'looseEnds' } }" data-testid="written">chapter {{ d.written.n }} is written</RouterLink>
+          <DecisionFollowups :world="world.slug" :decision="d" />
+        </li>
+      </ul>
+      <p v-if="front.follow_through.count > front.follow_through.decisions.length" class="small muted">
+        <RouterLink :to="{ name: 'decisions', params: { world: world.slug }, query: { followups: 'open' } }">{{ front.follow_through.count - front.follow_through.decisions.length }} more · Decisions</RouterLink>
+      </p>
     </section>
 
     <section v-if="front?.questions.count || unsure" class="card front-section" data-testid="open-questions">

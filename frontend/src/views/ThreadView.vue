@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import DecisionFollowups from "../components/DecisionFollowups.vue";
 import EntityPicker from "../components/EntityPicker.vue";
 import ProjectFilter from "../components/ProjectFilter.vue";
 import { journalDay, planning, type PlanningDecision, type PlanningItem } from "../journal";
@@ -237,7 +238,10 @@ const paraClass = (p: Para) => ({ margin: p.margin, hit: p.hit });
             {{ journalDay(l.date) }} · decision
             <span v-if="l.tagged" class="pill" data-testid="tagged">tagged</span>
           </div>
-          <RouterLink :to="{ name: 'decisions', params: { world: world.slug } }" class="prose">{{ l.decision.text }}</RouterLink>
+          <div class="fu-line actions">
+            <RouterLink :to="{ name: 'decisions', params: { world: world.slug }, hash: `#d-${l.decision.id}` }" class="prose">{{ l.decision.text }}</RouterLink>
+            <DecisionFollowups :world="world.slug" :decision="l.decision" @counts="(c) => (l.decision.followups = c)" />
+          </div>
         </article>
       </template>
     </template>

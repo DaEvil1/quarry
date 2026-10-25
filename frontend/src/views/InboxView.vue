@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
+import FollowUpStep from "../components/FollowUpStep.vue";
 import ItemRow from "../components/ItemRow.vue";
 import ProjectFilter from "../components/ProjectFilter.vue";
 import UndoToast from "../components/UndoToast.vue";
@@ -64,10 +65,38 @@ function changed(item: Item) {
   items.value = items.value.map((i) => (i.id === item.id ? item : i));
 }
 
-function moved(item: Item, label: string, undo: () => Promise<void>) {
+// the follow-up step after a close with a decision line (docs/SPEC.md §16.3): chips where the closed item was, only
+// online; tapping anywhere else, or scrolling it out of sight, skips it
+const step = ref<{ at: number; decision: { id: string; text: string }; made: string[] } | null>(null);
+const stepEl = ref<HTMLElement | null>(null);
+const setStepEl = (el: unknown) => {
+  if (el) stepEl.value = el as HTMLElement;
+};
+function endStep() {
+  step.value = null;
+  stepEl.value = null;
+}
+function outside(e: Event) {
+  if (step.value && stepEl.value && !stepEl.value.contains(e.target as Node) && !(e.target as HTMLElement).closest?.(".toast")) endStep();
+}
+function scrolled() {
+  const r = stepEl.value?.getBoundingClientRect();
+  if (step.value && r && (r.bottom < 0 || r.top > window.innerHeight)) endStep();
+}
+window.addEventListener("pointerdown", outside, true);
+window.addEventListener("scroll", scrolled, { passive: true });
+onBeforeUnmount(() => {
+  window.removeEventListener("pointerdown", outside, true);
+  window.removeEventListener("scroll", scrolled);
+});
+
+function moved(item: Item, label: string, undo: (made?: string[]) => Promise<void>, decision?: { id: string; text: string }) {
+  const at = items.value.findIndex((i) => i.id === item.id);
   items.value = items.value.filter((i) => i.id !== item.id);
   openId.value = null;
-  toast.value = { label, undo: async () => { await undo(); await load(); } };
+  const made: string[] = [];
+  step.value = decision && !session.offline && outbox.online ? { at: Math.max(0, at), decision, made } : null;
+  toast.value = { label, undo: async () => { endStep(); await undo(made); await load(); } };
   void session.refreshCounts(worldSlug.value);
 }
 
@@ -122,17 +151,23 @@ const counts = computed(() => (session.counts?.world === worldSlug.value ? sessi
             <span class="pill" :class="p.error ? 'warn' : 'accent'">{{ p.error ? "Refused" : "Waiting to sync" }}</span>
           </div>
         </li>
-        <ItemRow
-          v-for="i in items"
-          :key="i.id"
-          :item="i"
-          :world="world"
-          :open="openId === i.id"
-          @toggle="openId = openId === i.id ? null : i.id"
-          @changed="changed"
-          @moved="moved"
-          @refresh="refreshItem(i.id)"
-        />
+        <template v-for="(i, n) in items" :key="i.id">
+          <li v-if="step && step.at === n" :ref="setStepEl" class="item fu-inbox">
+            <FollowUpStep :world="world.slug" :decision="step.decision" lead="Decision logged" autofocus @added="(a) => a.made && step?.made.push(a.followup.id)" @done="endStep" />
+          </li>
+          <ItemRow
+            :item="i"
+            :world="world"
+            :open="openId === i.id"
+            @toggle="openId = openId === i.id ? null : i.id"
+            @changed="changed"
+            @moved="moved"
+            @refresh="refreshItem(i.id)"
+          />
+        </template>
+        <li v-if="step && step.at >= items.length" :ref="setStepEl" class="item fu-inbox">
+          <FollowUpStep :world="world.slug" :decision="step.decision" lead="Decision logged" autofocus @added="(a) => a.made && step?.made.push(a.followup.id)" @done="endStep" />
+        </li>
       </ul>
       <p v-if="!loading && !error && !items.length && !pending.length" class="empty">
         {{ tab === "open" ? "Nothing waiting. Capture something." : tab === "deferred" ? "Nothing deferred." : "Nothing closed yet." }}

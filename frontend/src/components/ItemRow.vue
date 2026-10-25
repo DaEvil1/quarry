@@ -5,6 +5,7 @@ import { entityNames, linkItem, unlinkItem } from "../bible";
 import { age, closeItem, ItemConflict, reopenItem, undoClose, updateItem } from "../items";
 import { CAPTURE_KINDS, STATUS_LABELS, firstLine, type CloseStatus, type EntityRef, type Item, type World } from "../types";
 import EntityPicker from "./EntityPicker.vue";
+import FollowsNote from "./FollowsNote.vue";
 import MentionText from "./MentionText.vue";
 import ItemOrigin from "./ItemOrigin.vue";
 
@@ -13,12 +14,14 @@ const emit = defineEmits<{
   toggle: [];
   /** the item changed but stays where it is */
   changed: [item: Item];
-  /** the item left this list (closed, deferred or reopened); `undo` puts it back */
-  moved: [item: Item, label: string, undo: () => Promise<void>];
+  /** the item left this list (closed, deferred or reopened); `undo` puts it back (with the rows made in the
+   * follow-up step of the decision it logged, if any); `decision`: the decision its close logged */
+  moved: [item: Item, label: string, undo: (made?: string[]) => Promise<void>, decision?: { id: string; text: string }];
   /** something else changed it (a name fix, a tag): load it again */
   refresh: [];
 }>();
 
+const isOpenTask = computed(() => props.item.kind === "task" && (props.item.status === "open" || props.item.status === "deferred"));
 const projectName = computed(() =>
   props.item.project ? (props.world.projects.find((p) => p.slug === props.item.project)?.name ?? props.item.project) : null,
 );
@@ -50,7 +53,9 @@ const close = (status: CloseStatus) =>
     const text = decision.value.trim();
     const out = await closeItem(props.world.slug, props.item.id, status, status === "deferred" ? {} : { decision: text });
     decision.value = "";
-    emit("moved", out.item, STATUS_LABELS[status], () => undoClose(props.world.slug, props.item.id, out.decision_id));
+    emit("moved", out.item, `${STATUS_LABELS[status]}${out.decision_id ? " · decision logged" : ""}`,
+      (made?: string[]) => undoClose(props.world.slug, props.item.id, out.decision_id, made),
+      out.decision_id ? { id: out.decision_id, text } : undefined);
   });
 
 const reopen = () =>
@@ -155,6 +160,7 @@ const move = (project: string) =>
         />
         <p v-if="props.item.closed_note" class="muted small">Note: {{ props.item.closed_note }}</p>
         <ItemOrigin v-if="props.item.origin" :world="props.world.slug" :origin="props.item.origin" />
+        <p v-if="props.item.follows?.length || isOpenTask" class="small"><FollowsNote :world="props.world.slug" :follows="props.item.follows" :row="isOpenTask ? { table: 'item', id: props.item.id, entities: props.item.entities.map((e) => e.id) } : null" task @changed="emit('refresh')" /></p>
         <p class="muted small">
           {{ STATUS_LABELS[props.item.status] }}
           <template v-if="props.item.source"> · from {{ props.item.source }}</template>

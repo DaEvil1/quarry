@@ -29,14 +29,17 @@ export function closeItem(
   return post(`${base(world)}/items/${id}/close`, { status, ...opts, decided_on: localToday() });
 }
 
-export function deleteDecision(world: string, id: string): Promise<void> {
-  return del(`${base(world)}/decisions/${id}`);
+/** Remove a decision; `made`: the follow-ups whose rows were made in its follow-up step go too (docs/SPEC.md §16.1). */
+export function deleteDecision(world: string, id: string, made: string[] = []): Promise<void> {
+  const q = made.map((m) => `made=${encodeURIComponent(m)}`).join("&");
+  return del(`${base(world)}/decisions/${id}${q ? `?${q}` : ""}`);
 }
 
-/** Undo a close: reopen the item and remove the decision that came with it. */
-export async function undoClose(world: string, id: string, decisionId: string | null): Promise<void> {
+/** Undo a close: reopen the item and remove the decision that came with it, with the rows made in its follow-up step
+ * (those attached stay, unlinked). */
+export async function undoClose(world: string, id: string, decisionId: string | null, made: string[] = []): Promise<void> {
   await reopenItem(world, id);
-  if (decisionId) await deleteDecision(world, decisionId);
+  if (decisionId) await deleteDecision(world, decisionId, made);
 }
 
 export function reopenItem(world: string, id: string): Promise<Item> {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -14,6 +15,7 @@ from ..db import get_db
 from ..mentions import forget_source, refresh_source
 from ..models import Decision, DecisionLink, Entity, Item, User, World
 from .deps import current_user
+from .followups import counts_for, delete_made, open_decisions
 from .items import WORLD_ONLY, project_by_slug
 from .worlds import member_world
 
@@ -35,6 +37,8 @@ class DecisionOut(BaseModel):
     created_at: datetime
     # bible entries the decision is about
     entities: list[EntityTag] = []
+    # how many follow-ups are to do, done and dropped (docs/SPEC.md §16.2); null when it has none (settled)
+    followups: dict[str, int] | None = None
 
 
 class DecisionIn(BaseModel):
@@ -52,11 +56,12 @@ class DecisionUpdate(BaseModel):
     entities: list[uuid.UUID] | None = Field(default=None, max_length=50)
 
 
-def _out(d: Decision, world: World, tags: list[EntityTag] | None = None) -> DecisionOut:
+def _out(d: Decision, world: World, tags: list[EntityTag] | None = None,
+         followups: dict[str, int] | None = None) -> DecisionOut:
     slugs = {p.id: p.slug for p in world.projects}
     return DecisionOut(id=d.id, decided_on=d.decided_on, text=d.text,
                        project=slugs.get(d.project_id) if d.project_id else None, item_id=d.item_id,
-                       created_at=d.created_at, entities=tags or [])
+                       created_at=d.created_at, entities=tags or [], followups=followups)
 
 
 def _tags(db: Session, ids: list[uuid.UUID]) -> dict[uuid.UUID, list[EntityTag]]:
@@ -91,19 +96,29 @@ def _decision(db: Session, world: World, decision_id: uuid.UUID) -> Decision:
 
 @router.get("/decisions")
 def list_decisions(slug: str, project: str | None = None, limit: int = Query(500, ge=1, le=2000),
+                   followups: Literal["open"] | None = None,
                    user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[DecisionOut]:
+    """The log, newest first; `followups=open`: only the decisions with follow-ups still to do, oldest first, since
+    those have waited longest (docs/SPEC.md §16.5)."""
     world, _ = member_world(db, user, slug)
     q = select(Decision).where(Decision.world_id == world.id)
+    waiting = open_decisions(db, world) if followups == "open" else None
+    if waiting is not None:
+        q = q.where(Decision.id.in_(list(waiting)))
     if project == WORLD_ONLY:
         q = q.where(Decision.project_id.is_(None))
     elif project:
         p = project_by_slug(world, project)
         assert p is not None
         q = q.where(Decision.project_id == p.id)
-    q = q.order_by(Decision.decided_on.desc(), Decision.created_at.desc()).limit(limit)
+    if waiting is not None:
+        q = q.order_by(Decision.decided_on, Decision.created_at).limit(limit)
+    else:
+        q = q.order_by(Decision.decided_on.desc(), Decision.created_at.desc()).limit(limit)
     rows = list(db.scalars(q))
     tags = _tags(db, [d.id for d in rows])
-    return [_out(d, world, tags[d.id]) for d in rows]
+    counts = counts_for(db, [d.id for d in rows])
+    return [_out(d, world, tags[d.id], counts.get(d.id)) for d in rows]
 
 
 @router.post("/decisions", status_code=201)
@@ -126,6 +141,14 @@ def create_decision(slug: str, body: DecisionIn, user: User = Depends(current_us
     return _out(d, world, _tags(db, [d.id])[d.id])
 
 
+@router.get("/decisions/{decision_id}")
+def get_decision(slug: str, decision_id: uuid.UUID, user: User = Depends(current_user),
+                 db: Session = Depends(get_db)) -> DecisionOut:
+    world, _ = member_world(db, user, slug)
+    d = _decision(db, world, decision_id)
+    return _out(d, world, _tags(db, [d.id])[d.id], counts_for(db, [d.id]).get(d.id))
+
+
 @router.patch("/decisions/{decision_id}")
 def update_decision(slug: str, decision_id: uuid.UUID, body: DecisionUpdate, user: User = Depends(current_user),
                     db: Session = Depends(get_db)) -> DecisionOut:
@@ -144,14 +167,18 @@ def update_decision(slug: str, decision_id: uuid.UUID, body: DecisionUpdate, use
     db.flush()
     refresh_source(db, world.id, "decision", d.id, d.text)
     db.commit()
-    return _out(d, world, _tags(db, [d.id])[d.id])
+    return _out(d, world, _tags(db, [d.id])[d.id], counts_for(db, [d.id]).get(d.id))
 
 
 @router.delete("/decisions/{decision_id}", status_code=204)
-def delete_decision(slug: str, decision_id: uuid.UUID, user: User = Depends(current_user),
-                    db: Session = Depends(get_db)) -> None:
+def delete_decision(slug: str, decision_id: uuid.UUID, made: list[uuid.UUID] = Query(default_factory=list, max_length=100),
+                    user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
+    """Its follow-ups go (the rows stay, without the decision), except `made`: undoing a close also deletes the rows
+    made in its follow-up step (docs/SPEC.md §16.1)."""
     world, _ = member_world(db, user, slug)
     d = _decision(db, world, decision_id)
+    if made:
+        delete_made(db, world, d, made)
     forget_source(db, "decision", d.id)
     db.delete(d)
     db.commit()

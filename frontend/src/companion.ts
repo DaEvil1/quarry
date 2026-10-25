@@ -23,6 +23,8 @@ export interface Check {
   /** two holders of a one-at-a-time role: the earlier relationship, and the later one it can end before */
   end?: { id: string; name: string };
   before?: { id: string; name: string } | null;
+  /** with Include planned: the decision the planned row it rests on follows (docs/SPEC.md §16.4) */
+  decided?: { id: string; decided_on: string; text: string };
 }
 
 export interface Resolution {
@@ -93,4 +95,11 @@ export interface PanelActions {
   question?(f: Finding): void;
   /** resting on an item made from a passage marks the passage in the text (null: unmark) */
   showPassage?(passage: string | null): void;
+  /** a gap line (docs/SPEC.md §16.4): make the planned change canon here, with the selection as its evidence */
+  canonHere?(gap: import("./followups").Gap, evidence: string | null): void;
+  /** put it off in this chapter (a resolution, outcome later), or show it again */
+  notYet?(gap: import("./followups").Gap): void;
+  showAgain?(gap: import("./followups").Gap): void;
+  /** the text selected in the editor, if any */
+  selection?(): string;
 }

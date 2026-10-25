@@ -6,6 +6,7 @@ browser, in its own time zone."""
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
@@ -27,6 +28,7 @@ from ..models import (
     User,
 )
 from .deps import current_user
+from .followups import counts_for, followup_list, open_decisions
 from .manuscript import words
 from .worlds import member_world
 
@@ -34,6 +36,8 @@ router = APIRouter(prefix="/api/worlds/{slug}")
 
 # how many of the latest events of each sort are sent: enough for the last ten days with activity in any world
 LATELY_ROWS = 3000
+# how many decisions To follow through lists before "N more"
+FOLLOW_THROUGH = 5
 
 
 def _iso(x: datetime | None) -> str | None:
@@ -121,6 +125,21 @@ def front(slug: str, user: User = Depends(current_user), db: Session = Depends(g
                   "project": slugs.get(d.project_id) if d.project_id else None}
                  for d in db.scalars(select(Decision).where(Decision.world_id == world.id)
                                      .order_by(Decision.decided_on.desc(), Decision.created_at.desc()).limit(5))]
+    counts = counts_for(db, [uuid.UUID(d["id"]) for d in decisions])
+    for d in decisions:
+        d["followups"] = counts.get(uuid.UUID(d["id"]))
+    # to follow through (docs/SPEC.md §16.5): the decisions with open follow-ups, oldest first, five; each with the
+    # first written chapter one of its planned changes is tied to
+    waiting = open_decisions(db, world)
+    follow = []
+    if waiting:
+        rows = list(db.scalars(select(Decision).where(Decision.id.in_(list(waiting)))
+                               .order_by(Decision.decided_on, Decision.created_at).limit(FOLLOW_THROUGH)))
+        for d in rows:
+            written = next((x["written"] for x in followup_list(db, world, d) if x["written"]), None)
+            follow.append({"id": str(d.id), "decided_on": d.decided_on.isoformat(), "text": d.text,
+                           "project": slugs.get(d.project_id) if d.project_id else None,
+                           "followups": waiting[d.id], "written": written})
     open_q = select(Item).where(Item.world_id == world.id, Item.kind == "question", Item.status == "open")
     questions = [{"id": str(i.id), "title": i.title, "body": i.body, "created_at": _iso(i.created_at),
                   "project": slugs.get(i.project_id) if i.project_id else None}
@@ -139,5 +158,6 @@ def front(slug: str, user: User = Depends(current_user), db: Session = Depends(g
         project_rows.append({"slug": p.slug, "words": sum(words(c.body) for c in mine), "chapters": len(mine),
                              "last_written": _iso(_later(last, max((c.updated_at for c in mine), default=None)))})
     return {"premise": world.premise, "notes": notes, "lately": events, "decisions": decisions,
+            "follow_through": {"decisions": follow, "count": len(waiting)},
             "questions": {"latest": questions, "count": count, "oldest": _iso(oldest)}, "projects": project_rows}
 

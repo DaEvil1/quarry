@@ -76,6 +76,8 @@ export interface PlanningDecision {
   project: string | null;
   names: string[];
   tagged: string[];
+  /** how many follow-ups are to do, done and dropped (docs/SPEC.md §16.2); null for a settled decision */
+  followups?: import("./followups").FollowupCounts | null;
 }
 
 export const planning = (world: string, entities: string[]) =>

@@ -15,10 +15,14 @@ the texts as they are now.
                                                       time, or "outside"), an era's colour, an event's tellings
                                                       (chapter and passage) and notes in the Journal (journal and
                                                       passage); facts and relationships with planned_in (a journal
-                                                      id) and planned_evidence beside established_in and evidence;
+                                                      id) and planned_evidence beside established_in and evidence,
+                                                      and follows (the decisions they follow, by id) with dropped
+                                                      (decision id: date) for one dropped by hand;
                                                       the notes
     <world>/Journal/<date> <title> (<id>).md          id, date, title, project
-    <world>/Decisions.md                              one line per decision
+    <world>/Decisions.md                              one line per decision, its follow-ups as indented lines under
+                                                      it (to do, done, dropped), worked out for the reader; only
+                                                      the dropped ones whose row is gone are read back
     <world>/Planning/<status>/<date> <text> (<id>).md items for the whole world; `from:` the chapter or journal entry
                                                       an item came from (by id), with `passage:`
     <world>/Projects/<Name>/project.md                name, slug, kind, position, statuses (in order), gap_chapters
@@ -50,6 +54,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..mentions import refresh_world
+from .followups import state_of, what_of
 from ..models import (
     GENDERS,
     STARTING_STATUSES,
@@ -58,6 +63,7 @@ from ..models import (
     ChartPin,
     Cut,
     Decision,
+    DecisionFollowup,
     DecisionLink,
     Entity,
     ExperimentRange,
@@ -94,6 +100,8 @@ KIND_FOLDERS = {"character": "Characters", "place": "Places", "faction": "Factio
 MAX_UPLOAD = 50 * 1024 * 1024
 MAX_UNPACKED = 200 * 1024 * 1024
 DECISION_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(?: · \[([^\]]*)\])? (.*?)\s*<!-- (.*?) -->\s*$")
+# a decision's follow-up under its line (docs/SPEC.md §16.6); "<!-- row -->" marks one whose row is in the export
+FOLLOWUP_RE = re.compile(r"^\s+- (to do|done|dropped)(?: (\d{4}-\d{2}-\d{2}))?: (.*?)\s*(<!-- row -->)?\s*$")
 
 
 def _safe(name: str, limit: int = 80) -> str:
@@ -224,6 +232,37 @@ def _day(v) -> date | None:  # type: ignore[no-untyped-def]
     return date.fromisoformat(str(v)[:10])
 
 
+def followup_lines(db: Session, d: Decision) -> list[str]:
+    """A decision's follow-ups under its line in Decisions.md, worked out for the reader (docs/SPEC.md §16.6):
+    `  - to do: … (planned fact)`, `  - done: … (task, accepted)`, `  - dropped 2026-10-22: …`. A dropped one whose row
+    is still in the export says so (`<!-- row -->`): only the others are read back as follow-ups with no row."""
+    fus = list(db.scalars(select(DecisionFollowup).where(DecisionFollowup.decision_id == d.id)
+                          .order_by(DecisionFollowup.created_at, DecisionFollowup.id)))
+    if not fus:
+        return []
+    facts = {f.id: f for f in db.scalars(select(Fact).where(Fact.id.in_([x.fact_id for x in fus if x.fact_id])))}
+    rels = {r.id: r for r in db.scalars(select(Relationship).where(
+        Relationship.id.in_([x.relationship_id for x in fus if x.relationship_id])))}
+    items = {i.id: i for i in db.scalars(select(Item).where(Item.id.in_([x.item_id for x in fus if x.item_id])))}
+    out: list[tuple[int, str]] = []
+    for fu in fus:
+        row = facts.get(fu.fact_id) or rels.get(fu.relationship_id)
+        item = items.get(fu.item_id)
+        state = state_of(fu, row.standing if row else None, item.status if item else None)
+        what = fu.what
+        if item is not None:
+            what = f"{what[len('task: '):] if what.startswith('task: ') else what} (task, {item.status})"
+        elif row is not None:
+            what = f"{what} ({row.standing} {'fact' if fu.fact_id else 'relationship'})"
+        if state == "dropped":
+            when = fu.dropped_on or (item.closed_at.date() if item is not None and item.closed_at else None)
+            mark = " <!-- row -->" if row is not None or item is not None else ""
+            out.append((2, f"  - dropped{' ' + when.isoformat() if when else ''}: {what}{mark}"))
+        else:
+            out.append((0 if state == "todo" else 1, f"  - {'to do' if state == 'todo' else 'done'}: {what}"))
+    return [line for _, line in sorted(out, key=lambda x: x[0])]
+
+
 # export --------------------------------------------------------------------------------------------------------
 
 
@@ -257,6 +296,25 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                   "pins": [{"place": str(p.place_id), "container": str(p.container_id) if p.container_id else None,
                             "x": p.x, "y": p.y} for p in pins]}}, "")
 
+    # follow-ups (docs/SPEC.md §16.6): each row says which decisions it follows, and when one was dropped by hand
+    fus = list(db.scalars(select(DecisionFollowup).join(Decision, Decision.id == DecisionFollowup.decision_id)
+                          .where(Decision.world_id == world.id).order_by(DecisionFollowup.created_at)))
+    follows: dict[uuid.UUID, list[DecisionFollowup]] = defaultdict(list)
+    for fu in fus:
+        row = fu.fact_id or fu.relationship_id or fu.item_id
+        if row:
+            follows[row].append(fu)
+
+    def follows_meta(row_id: uuid.UUID) -> dict:
+        mine = follows.get(row_id)
+        if not mine:
+            return {}
+        out: dict = {"follows": [str(fu.decision_id) for fu in mine]}
+        dropped = {str(fu.decision_id): fu.dropped_on.isoformat() for fu in mine if fu.dropped_on}
+        if dropped:
+            out["dropped"] = dropped
+        return out
+
     facts: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for f in db.scalars(select(Fact).where(Fact.world_id == world.id).order_by(Fact.entity_id, Fact.position)):
         facts[f.entity_id].append({"label": f.label, "value": f.value, "standing": f.standing,
@@ -264,7 +322,7 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                                    "established_in": str(f.established_in_chapter_id) if f.established_in_chapter_id else None,
                                    "from": str(f.from_chapter_id) if f.from_chapter_id else None,
                                    "until": str(f.until_chapter_id) if f.until_chapter_id else None,
-                                   **_bound_meta(f), **_planned_meta(f)})
+                                   **_bound_meta(f), **_planned_meta(f), **follows_meta(f.id)})
     rels: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for r in db.scalars(select(Relationship).where(Relationship.world_id == world.id).order_by(Relationship.created_at)):
         t = type_by_id[r.type_id]
@@ -278,6 +336,7 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             rels[r.a_id][-1]["role"] = r.role
         rels[r.a_id][-1].update(_bound_meta(r))
         rels[r.a_id][-1].update(_planned_meta(r))
+        rels[r.a_id][-1].update(follows_meta(r.id))
 
     tellings: dict[uuid.UUID, list[dict]] = defaultdict(list)
     event_notes: dict[uuid.UUID, list[dict]] = defaultdict(list)
@@ -339,6 +398,7 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
         ids = f"id={d.id}" + (f" item={d.item_id}" if d.item_id else "") + (
             f" entities={','.join(sorted(decision_tags[d.id]))}" if decision_tags.get(d.id) else "")
         lines.append(f"- {d.decided_on.isoformat()}{proj} {d.text} <!-- {ids} -->")
+        lines += followup_lines(db, d)
     files[f"{root}/Decisions.md"] = "\n".join(lines) + "\n"
 
     tags: dict[uuid.UUID, list[str]] = defaultdict(list)
@@ -363,6 +423,7 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                 "project": projects[i.project_id].slug if i.project_id else None, "source": i.source,
                 "created_at": _iso(i.created_at), "closed_at": _iso(i.closed_at), "closed_note": i.closed_note,
                 "tags": sorted(tags.get(i.id, []))}
+        meta.update(follows_meta(i.id))
         if i.id in origins:
             meta["from"] = origins[i.id]["from"]
             if origins[i.id]["passage"]:
@@ -610,6 +671,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     tags: list[ItemLink] = []
     # where items came from (a chapter or journal entry), relinked once those exist
     item_origins: list[tuple[Item, dict]] = []
+    # tasks that follow decisions, linked once the decisions are made
+    item_follows: list[tuple[Item, dict]] = []
     planning = [(None, rel, meta, body) for rel, meta, body in under(f"{root}/Planning/")]
     for folder, pslug in project_dirs.items():
         planning += [(pslug, rel, meta, body) for rel, meta, body in under(f"{root}/Projects/{folder}/Planning/")]
@@ -626,6 +689,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
         db.add(i)
         if meta.get("id"):
             item_by_old[str(meta["id"])] = i.id
+        if meta.get("follows"):
+            item_follows.append((i, meta))
         if kind == "experiment":
             item_ranges.append((i, meta))
         for tag in meta.get("tags") or []:
@@ -723,28 +788,36 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                 db.add(ItemLink(item_id=i.id, target_table=table, target_id=target, passage=passage))
 
     standings = ("canon", "planned", "rumour")
+    # rows that follow decisions, linked once the decisions are made (they come after)
+    following: list[tuple[str, object, dict]] = []
     for e, meta in world_model:
         for i, f in enumerate(meta.get("facts") or []):
-            db.add(Fact(world_id=world.id, entity_id=e.id, label=str(f.get("label") or "note")[:100],
+            fact = Fact(world_id=world.id, entity_id=e.id, label=str(f.get("label") or "note")[:100],
                         value=str(f.get("value") or ""), position=i,
                         standing=f.get("standing") if f.get("standing") in standings else "canon",
                         evidence=f.get("evidence"), note=f.get("note"),
                         established_in_chapter_id=chapter(f.get("established_in")),
                         planned_in_journal_id=journal(f.get("planned_in")), planned_evidence=f.get("planned_evidence"),
-                        **_spans_in(f, chapter), created_by=user.id, updated_by=user.id))
+                        **_spans_in(f, chapter), created_by=user.id, updated_by=user.id)
+            db.add(fact)
+            if f.get("follows"):
+                following.append(("fact", fact, f))
         for r in meta.get("relationships") or []:
             other = entity_by_old.get(str(r.get("to"))) or entity_by_name.get(str(r.get("to_name")))
             kinds = r.get("type_kinds") or ["*", "*"]
             type_id = type_by_key.get((str(kinds[0]), str(kinds[1]), str(r.get("type"))))
             if other is None or type_id is None:
                 continue
-            db.add(Relationship(world_id=world.id, type_id=type_id, a_id=e.id, b_id=other,
-                                standing=r.get("standing") if r.get("standing") in standings else "canon",
-                                evidence=r.get("evidence"), note=r.get("note"), role=clean_role(r.get("role")),
-                                established_in_chapter_id=chapter(r.get("established_in")),
-                                planned_in_journal_id=journal(r.get("planned_in")),
-                                planned_evidence=r.get("planned_evidence"),
-                                **_spans_in(r, chapter), created_by=user.id, updated_by=user.id))
+            rel = Relationship(world_id=world.id, type_id=type_id, a_id=e.id, b_id=other,
+                               standing=r.get("standing") if r.get("standing") in standings else "canon",
+                               evidence=r.get("evidence"), note=r.get("note"), role=clean_role(r.get("role")),
+                               established_in_chapter_id=chapter(r.get("established_in")),
+                               planned_in_journal_id=journal(r.get("planned_in")),
+                               planned_evidence=r.get("planned_evidence"),
+                               **_spans_in(r, chapter), created_by=user.id, updated_by=user.id)
+            db.add(rel)
+            if r.get("follows"):
+                following.append(("relationship", rel, r))
 
     # events' when, eras' colours and tellings, relinked to the chapters by id
     colours = ("amber", "moss", "teal", "sky", "indigo", "plum", "rose", "rust")
@@ -797,9 +870,16 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                         y=float(_num(p["y"])), updated_by=user.id))
 
     decisions = files.get(f"{root}/Decisions.md", "")
+    decision_by_old: dict[str, uuid.UUID] = {}
+    d: Decision | None = None
     for line in decisions.splitlines():
         m = DECISION_RE.match(line)
         if not m:
+            # a dropped follow-up whose row is gone (docs/SPEC.md §16.6): the others are worked out from the rows
+            f = FOLLOWUP_RE.match(line)
+            if f and d is not None and f.group(1) == "dropped" and not f.group(4) and f.group(3).strip():
+                db.add(DecisionFollowup(decision_id=d.id, what=f.group(3).strip(), created_by=user.id,
+                                        dropped_on=_day(f.group(2)) if f.group(2) else None))
             continue
         refs = dict(part.split("=", 1) for part in m.group(4).split() if "=" in part)
         d = Decision(world_id=world.id, project_id=project_of(m.group(2)), decided_on=date.fromisoformat(m.group(1)),
@@ -807,9 +887,21 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                      updated_by=user.id)
         db.add(d)
         db.flush()
+        if refs.get("id"):
+            decision_by_old[refs["id"]] = d.id
         for old in filter(None, refs.get("entities", "").split(",")):
             if old in entity_by_old:
                 db.add(DecisionLink(decision_id=d.id, entity_id=entity_by_old[old]))
+    # the rows that follow decisions (none in an export from before phase 14: its decisions come back settled)
+    db.flush()
+    for table, row, meta in [*following, *(("item", i, m) for i, m in item_follows)]:
+        dropped = meta.get("dropped") if isinstance(meta.get("dropped"), dict) else {}
+        olds = meta.get("follows") if isinstance(meta.get("follows"), list) else []
+        for old in dict.fromkeys(str(x) for x in olds):
+            if old in decision_by_old:
+                db.add(DecisionFollowup(decision_id=decision_by_old[old], what=what_of(db, world, table, row),
+                                        dropped_on=_day(dropped.get(old)) if dropped.get(old) else None,
+                                        created_by=user.id, **{f"{table}_id": row.id}))
 
     for token in wmeta.get("ignored_words") or []:
         db.add(NameIgnore(world_id=world.id, token=str(token)))
