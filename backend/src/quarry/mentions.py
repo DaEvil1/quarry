@@ -5,7 +5,10 @@ possessive ending ("Varrens", "Varren's", "Varren’s"). Multi-word names match 
 
 Near misses: a capitalised word of at least five letters that is no known name but is one edit away from a word of
 one (two edits for words of seven letters or more; a swapped pair of letters counts as one edit), unless it was
-marked "not a typo". They are stored against the entity they probably mean.
+marked "not a typo". They are stored against the entity they probably mean. A near miss is a name with one word
+misspelt, read as names are: a word that is a name, other name or first name by itself can be misspelt anywhere
+("Oscar" for Oskar), but a word of a longer name only with the rest of that name around it ("Old Harbor", not
+"Harbor" alone, nor "Fears" for "The Lock Years"), since that word alone names nobody either.
 
 Shared names (docs/SPEC.md §14.10): a first name or other name that two or more entries claim. A bare use is
 ambiguous (stored once per claimant, kind "ambiguous") until a choice line above it, `%% Isolde: Isolde Marr`,
@@ -42,11 +45,30 @@ SUFFIX = r"(?:'s|’s|s)?"
 # what counts as naming an entry: a name or other name, or a shared name settled for it; an ambiguous one never counts
 COUNTED = ("exact", "alias")
 # bumped when the matcher reads texts differently: worlds whose stored mentions are older are worked out again
-MENTIONS_VERSION = 1
+MENTIONS_VERSION = 2  # 2: a word of a longer name is a near miss only with the rest of the name around it
 # a word: letters, with apostrophes or hyphens inside ("O'Neil", "Sea-born")
 WORD_RE = re.compile(r"(?<![\w'’-])[^\W\d_][^\W_]*(?:['’-][^\W_]+)*")
 POSSESSIVE_RE = re.compile(r"(?:'s|’s)$")
 NEAR_MIN = 5
+# where a name ends: an optional plural or possessive, then no more of a word (as the name patterns end)
+NAME_END_RE = re.compile(SUFFIX + r"(?!\w)")
+NAME_CHAR_RE = re.compile(r"[\w'’-]")
+
+
+def fits(text: str, start: int, end: int, before: str, after: str, loose: bool) -> bool:
+    """Whether text[start:end] stands where a word of a name does: `before` the rest of the name before it, `after`
+    the rest after it (lowercase for a name matched whatever the capitals)."""
+    if before:
+        i = start - len(before)
+        seg = text[i:start] if i >= 0 else ""
+        if (seg.lower() if loose else seg) != before or (i > 0 and NAME_CHAR_RE.match(text, i - 1)):
+            return False
+    if after:
+        j = end + len(after)
+        seg = text[end:j]
+        if (seg.lower() if loose else seg) != after or not NAME_END_RE.match(text, j):
+            return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -182,17 +204,23 @@ class Matcher:
 
         self.exact_re = alternation(exact)
         self.loose_re = alternation(loose, re.IGNORECASE)
-        # single words of every name, for near misses; a word that is part of any name is never a typo
+        # single words of every name, for near misses; a word that is part of any name is never a typo. Each candidate
+        # has its uses in the order met: the entry, and the rest of the name before and after the word (both empty for
+        # a one-word name), which a misspelling of it must stand in
         self.known_words: set[str] = set()
         self.known_lower: set[str] = set()
-        self.word_owner: dict[str, uuid.UUID] = {}
+        self.uses: dict[str, list[tuple[uuid.UUID, str, str, bool]]] = {}
         for f, [(eid, _), *_others] in [*exact.items(), *loose.items()]:
-            for w in WORD_RE.findall(f):
+            for wm in WORD_RE.finditer(f):
+                w = wm.group(0)
                 self.known_words.add(w)
                 self.known_lower.add(w.lower())
                 if len(w) >= NEAR_MIN:
-                    self.word_owner.setdefault(w if f in exact else w.capitalize(), eid)
-        self.candidates = list(self.word_owner)
+                    use = (eid, f[:wm.start()], f[wm.end():], f not in exact)
+                    uses = self.uses.setdefault(w if f in exact else w.capitalize(), [])
+                    if use not in uses:
+                        uses.append(use)
+        self.candidates = list(self.uses)
         self.ignored = set(ignored)
         # the candidates by length (a word is only compared with those it could be one or two edits from), the order
         # they were met in (ties go to the first), and each word's verdict so far
@@ -200,23 +228,33 @@ class Matcher:
         for w in self.candidates:
             self.by_length.setdefault(len(w), []).append(w)
         self.order = {w: i for i, w in enumerate(self.candidates)}
-        self.near_cache: dict[str, str | None] = {}
+        self.near_cache: dict[str, tuple[str, ...]] = {}
 
-    def nearest(self, base: str) -> str | None:
-        """The candidate `base` is most likely a misspelling of (the first met, of equally close ones), or None."""
+    def nearest(self, base: str) -> tuple[str, ...]:
+        """The candidates `base` could be a misspelling of, closest first (the first met, of equally close ones)."""
         if base in self.near_cache:
             return self.near_cache[base]
         limit = 1 if len(base) <= 6 else 2
-        best: tuple[float, int, str] | None = None
+        close: list[tuple[float, int, str]] = []
         for n in range(len(base) - limit, len(base) + limit + 1):
             bucket = self.by_length.get(n)
-            hit = process.extractOne(base, bucket, scorer=OSA.distance, score_cutoff=limit) if bucket else None
-            if hit is not None and (best is None or (hit[1], self.order[hit[0]]) < best[:2]):
-                best = (hit[1], self.order[hit[0]], hit[0])
+            if bucket:
+                close += [(d, self.order[w], w)
+                          for w, d, _ in process.extract(base, bucket, scorer=OSA.distance, score_cutoff=limit,
+                                                         limit=None)]
         if len(self.near_cache) > 50_000:
             self.near_cache.clear()
-        self.near_cache[base] = best[2] if best else None
+        self.near_cache[base] = tuple(w for _, _, w in sorted(close))
         return self.near_cache[base]
+
+    def near_miss(self, text: str, start: int, end: int) -> uuid.UUID | None:
+        """The entry the word text[start:end] is likely a misspelling of, if any: the closest candidate that, here,
+        stands where it would in a name."""
+        for w in self.nearest(text[start:end]):
+            for eid, before, after, loose in self.uses[w]:
+                if fits(text, start, end, before, after, loose):
+                    return eid
+        return None
 
     def _excluded(self, text_lower: str, eid: uuid.UUID, start: int, end: int,
                   cache: dict[uuid.UUID, list[tuple[int, int]]]) -> bool:
@@ -321,11 +359,8 @@ class Matcher:
                     continue
                 if base.lower() in self.known_lower:
                     continue
-                best = self.nearest(base)
-                if best is None:
-                    continue
-                eid = self.word_owner[best]
-                if eid != skip_entity:
+                eid = self.near_miss(text, m.start(), m.start() + len(base))
+                if eid is not None and eid != skip_entity:
                     found.append(Found(eid, m.start(), m.start() + len(base), base, "near_miss"))
         found.sort(key=lambda f: f.start)
         return found
@@ -504,10 +539,9 @@ def delta(before: Matcher, after: Matcher) -> Delta:
     # (shorter words are never near misses, so a change to them reaches nothing)
     words = {w for w in (before.known_lower ^ after.known_lower) | {w.lower() for w in before.ignored ^ after.ignored}
              if len(w) >= NEAR_MIN}
-    # a candidate whose owner changed; and every word of a changed name, since which of two equally close candidates
-    # wins depends on the order the names were met in
-    changed = {w.lower() for w in before.word_owner.keys() | after.word_owner.keys()
-               if before.word_owner.get(w) != after.word_owner.get(w)}
+    # a candidate whose uses (entries, or the names around it) changed; and every word of a changed name, since which of
+    # two equally close candidates wins depends on the order the names were met in
+    changed = {w.lower() for w in before.uses.keys() | after.uses.keys() if before.uses.get(w) != after.uses.get(w)}
     for f in forms:
         changed |= {w for w in WORD_RE.findall(f) if len(w) >= NEAR_MIN}
     near = sorted({w for w in [*before.candidates, *after.candidates] if w.lower() in changed})

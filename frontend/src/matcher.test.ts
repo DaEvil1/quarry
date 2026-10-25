@@ -89,6 +89,39 @@ describe("Matcher (same rules as the server)", () => {
     expect(m.scanLine(text, 0, false)).toEqual(m.scan(text, 0, false));
   });
 
+  it("a word of a longer name is a likely misspelling only within that name, as on the server", () => {
+    const tamsin = card("Tamsin Vey", { first_name: "Tamsin" });
+    const oskar = card("Oskar Vey", { first_name: "Oskar" });
+    const years = card("The Lock Years", { kind: "event" });
+    const harb = card("Old Harbour", { kind: "place", aliases: ["Harbour Lights"] });
+    const mm = new Matcher([tamsin, oskar, years, harb]);
+    // a first name stands alone: its misspelling is one anywhere
+    expect(hits(mm, "Oscar rowed. Tamsen waited.")).toEqual([
+      ["Oscar", "near_miss", "Oskar Vey"],
+      ["Tamsen", "near_miss", "Tamsin Vey"],
+    ]);
+    // "Years" alone names nothing, so "Fears" is no misspelling of it; within the name it is
+    expect(hits(mm, "Fears: that the delta is changing. Old Fears.")).toEqual([]);
+    expect(hits(mm, "In the Lock Yeras. The Lock Yeras.")).toEqual([
+      ["Yeras", "near_miss", "The Lock Years"],
+      ["Yeras", "near_miss", "The Lock Years"],
+    ]);
+    expect(hits(mm, "Harbor lights. Harbor Lightsome. Harbor. Sea-Old Harbor.")).toEqual([]);
+    expect(hits(mm, "At Old Harbor's edge, under Harbor Lights.")).toEqual([
+      ["Harbor", "near_miss", "Old Harbour"],
+      ["Harbor", "near_miss", "Old Harbour"],
+    ]);
+    // without a first name, only the whole name with a word misspelt
+    const noFirst = new Matcher([card("Oskar Vey")]);
+    expect(noFirst.scan("Oscar rowed. Oscar Vey rowed.").map((h) => [h.matched, h.start])).toEqual([["Oscar", 13]]);
+    // a name matched whatever the capitals: the rest of it in any capitals
+    const loose = new Matcher([card("Old Harbour", { kind: "place", match_case: false })]);
+    expect(hits(loose, "OLD Harbor, old Harbor. Harbor.")).toEqual([
+      ["Harbor", "near_miss", "Old Harbour"],
+      ["Harbor", "near_miss", "Old Harbour"],
+    ]);
+  });
+
   it("a misspelling equally close to two names goes to the one met first, as on the server", () => {
     const a = card("Karran");
     const b = card("Barren");
