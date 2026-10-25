@@ -171,6 +171,13 @@ describe("clusters", () => {
     expect(near.every((x) => x.mark)).toBe(true);
     expect(breakdown(marks.slice(0, 1))).toBe("1 event");
   });
+
+  it("a dense stretch is several clusters, none wider than the gap", () => {
+    const dense = Array.from({ length: 200 }, (_, i) => ({ ...marks[0]!, id: `d${i}`, t: i })) as typeof marks;
+    const items = cluster(dense, makeAxis(dense.map((m) => m.t), 1, 0, 1e9));
+    expect(items.length).toBe(15);
+    expect(items.every((x) => x.cluster && x.cluster.marks.length <= 14)).toBe(true);
+  });
 });
 
 describe("an entry's own timeline", () => {

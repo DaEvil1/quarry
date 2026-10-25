@@ -1,5 +1,5 @@
 // Phase 12b: history and the Timeline (docs/SPEC.md §13.2). Runs after phase 1 (name order) in its signed-in state,
-// in a world of its own, "The Lamp Coast", built through the API: fifteen short chapters in the book "Lamps", 1–13 in
+// in a world of its own, "The Wick Coast", built through the API: fifteen short chapters in the book "Lamps", 1–13 in
 // year 312, 14 a tale in year −800, 15 with no time; chapter 2 holds the passage where the Lamp Guild's founding is
 // told. The 3,000-event budget is measured by frontend/perf/timeline.perf.ts.
 
@@ -10,8 +10,8 @@ import { STATE_FILE } from "./state";
 test.describe.configure({ mode: "serial" });
 
 const BASE = process.env.E2E_BASE_URL ?? "http://localhost:8767";
-const W = "/w/the-lamp-coast";
-const A = "/api/worlds/the-lamp-coast";
+const W = "/w/the-wick-coast";
+const A = "/api/worlds/the-wick-coast";
 let context: BrowserContext;
 let page: Page;
 
@@ -59,7 +59,7 @@ const box = async (l: ReturnType<Page["locator"]>) => (await l.first().boundingB
 
 test("the world for phase 12b", async () => {
   await page.goto("/");
-  await api("POST", "/api/worlds", { name: "The Lamp Coast" });
+  await api("POST", "/api/worlds", { name: "The Wick Coast" });
   await api("POST", `${A}/projects`, { name: "Lamps" });
   for (const n of ["Seyla", "Varren", "Isolde"]) await entity(n);
   await entity("the Lamp Guild", "faction");

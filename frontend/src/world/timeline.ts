@@ -383,25 +383,29 @@ export function breakdown(marks: Mark[]): string {
   return (["event", "chapter", "birth", "death", "move"] as MarkKind[]).filter((k) => n.get(k)).map((k) => plural(n.get(k)!, KIND_WORDS[k])).join(" · ");
 }
 
-/** Marks that would overlap at this axis, merged into clusters with a count and a breakdown. */
+/** Marks that would overlap at this axis, merged into clusters with a count and a breakdown. A cluster is never
+ * wider than `minGap` (measured from its first mark), so a dense stretch is several clusters, not one. */
 export function cluster(marks: Mark[], axis: Axis, minGap = 14): Item[] {
   const out: Item[] = [];
   let group: Mark[] = [];
-  let lastX = -Infinity;
+  let firstX = -Infinity;
   const flush = () => {
     if (!group.length) return;
     if (group.length === 1) out.push({ mark: group[0]! });
     else {
-      const t = group.reduce((s, m) => s + m.t, 0) / group.length;
+      // drawn in the middle of its window, so two clusters are never closer than the gap
+      const t = Math.min(group[group.length - 1]!.t, Math.max(group[0]!.t, axis.t(firstX + minGap / 2)));
       out.push({ cluster: { id: `cl:${group[0]!.id}:${group.length}`, t, marks: group, breakdown: breakdown(group) } });
     }
     group = [];
   };
   for (const m of marks) {
     const x = axis.x(m.t);
-    if (x - lastX >= minGap) flush();
+    if (x - firstX >= minGap) {
+      flush();
+      firstX = x;
+    }
     group.push(m);
-    lastX = x;
   }
   flush();
   return out;

@@ -10,6 +10,8 @@ import { writeFileSync } from "node:fs";
 
 import { expect, test, type CDPSession, type Page } from "@playwright/test";
 
+import { readZip, writeZip } from "./zip";
+
 const SETUP_TOKEN = process.env.PERF_SETUP_TOKEN ?? "local-setup-token";
 const EVENTS = Number(process.env.PERF_EVENTS ?? 3000);
 const BASE = process.env.PERF_BASE_URL ?? "http://localhost:8766";
@@ -21,8 +23,9 @@ test.setTimeout(Number(process.env.PERF_TIMEOUT ?? 900_000));
 let page: Page;
 let cdp: CDPSession;
 const results: Record<string, number | string> = {};
-const W = "/w/perf-timeline";
-const api = "/api/worlds/perf-timeline";
+// the world seeded through the API, then (with its 3,000 events added to its export) restored as a new one
+let W = "/w/perf-timeline";
+let api = "/api/worlds/perf-timeline";
 
 let seed = 7;
 const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
@@ -165,25 +168,36 @@ test("set up and seed 3,000 events", async () => {
     if (rnd() < 0.7) return Math.round((busy[Math.floor(rnd() * busy.length)]! + (rnd() - 0.5) * 40) * 100) / 100;
     return Math.round((-3000 + rnd() * 3420) * 100) / 100;
   });
-  const events: { id: string }[] = [];
-  let made = 0;
+  // adding entries one by one gets slower as the world grows (each one is matched against every chapter), so the
+  // events go in through Restore: the world as exported, with the events added to it as files, restored as a new one
   const t0 = Date.now();
-  await pool(times.map((t, i) => [t, i] as const), 16, async ([t, i]) => {
+  const zip = readZip(await (await page.request.get(`${api}/export`)).body());
+  const root = [...zip.keys()].find((k) => k.endsWith("/world.md"))!.split("/")[0]!;
+  const events: string[] = [];
+  times.forEach((t, i) => {
     let name = `The ${word()} ${["Flood", "Fire", "Treaty", "Founding", "Wreck", "Crossing", "Feast", "Siege"][i % 8]}`;
     while (names.has(name)) name += ` ${word(1)}`;
     names.add(name);
-    events.push(await entity(name, "event", { time_at: t }));
-    if (++made % 500 === 0) log(`${made} events`);
+    const id = `perf-event-${i}`;
+    events.push(id);
+    // some taking part
+    const relationships = i < 300 ? [{ type: "involved", type_kinds: ["event", "*"], to: people[Math.floor(rnd() * people.length)]!.id }] : [];
+    // JSON is YAML
+    const meta = { id, name, kind: "event", when: { at: t, end: null, label: null, approx: false }, relationships };
+    zip.set(`${root}/Bible/Events/${name}.md`, Buffer.from(`---
+${JSON.stringify(meta)}
+---
+
+`, "utf8"));
   });
+  const r = await page.request.post("/api/worlds/restore", { headers, multipart: { file: { name: "perf.zip", mimeType: "application/zip", buffer: writeZip(zip) } } });
+  if (!r.ok()) throw new Error(`restore: ${r.status()} ${await r.text()}`);
+  const slug = (await r.json()).slug as string;
+  W = `/w/${slug}`;
+  api = `/api/worlds/${slug}`;
   results["seed events s"] = Math.round((Date.now() - t0) / 1000);
-  // some taking part
-  const types = (await call("GET", `${api}/relation-types`)) as { id: string; label: string; a_kind: string; b_kind: string }[];
-  const involved = types.find((t) => /involved|took part/.test(t.label) && (t.a_kind === "character" || t.b_kind === "character")) ?? types.find((t) => t.label === "linked to")!;
-  await pool(events.slice(0, 300), 12, async (e) => {
-    const p = people[Math.floor(rnd() * people.length)]!;
-    const [a, b] = involved.a_kind === "event" ? [e.id, p.id] : [p.id, e.id];
-    await call("POST", `${api}/relationships`, { type_id: involved.id, a_id: a, b_id: b });
-  });
+  const cards = (await call("GET", `${api}/cards`)) as { kind: string }[];
+  results["events in the world"] = cards.filter((c) => c.kind === "event").length;
   results["events"] = events.length;
   log("seeded");
 });

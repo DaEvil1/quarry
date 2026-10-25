@@ -178,7 +178,8 @@ const axis = computed(() => axisAt(k.value));
 const step = computed(() => stepOf(k.value));
 /** the axis the clusters are worked out at: once per zoom step */
 const stepAxis = computed(() => axisAt(scaleOfStep(step.value)));
-const clustered = computed(() => lanes.value.map((l) => cluster(l.marks.filter(keep), stepAxis.value)));
+// marks closer than a cluster's width merge (a cluster's circle is at most 22 px across)
+const clustered = computed(() => lanes.value.map((l) => cluster(l.marks.filter(keep), stepAxis.value, 24)));
 const far = computed(() => k.value <= fitK.value * 1.01 && model.value.marks.length > 200);
 const X = (t: number) => axis.value.x(t) - offset.value;
 function zoomAt(px: number, factor: number) {
@@ -232,7 +233,10 @@ const eraBands = computed(() =>
     .map((e) => {
       const x1 = Math.max(-10, X(e.start));
       const x2 = Math.min(W.value + 10, e.end === null ? W.value + 10 : X(e.end));
-      return { era: e, x1, x2, inset: Math.min(e.depth, 3) * 6 };
+      // its name where it fits in the band (shortened, or left out when there is no room)
+      const room = x2 - Math.max(x1, 0) - 8;
+      const name = e.name.length * 6.6 <= room ? e.name : room > 40 ? `${e.name.slice(0, Math.floor(room / 6.6) - 1)}…` : "";
+      return { era: e, x1, x2, inset: Math.min(e.depth, 3) * 6, name };
     })
     .filter((b) => b.x2 > b.x1),
 );
@@ -293,11 +297,15 @@ const local = (e: PointerEvent | WheelEvent | MouseEvent) => {
   const r = svg.value!.getBoundingClientRect();
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 };
+// a drag can start anywhere, on a mark too; the pointer is captured only once it moves, so a click on a mark still
+// reaches the mark, and a drag that started on one doesn't open it
+let downAt: { x: number; y: number; id: number } | null = null;
+let moved = false;
 function down(e: PointerEvent) {
-  if ((e.target as Element).closest(".tl-mark, .tl-cluster")) return;
   const p = local(e);
   pointers.set(e.pointerId, p);
-  (e.currentTarget as Element).setPointerCapture(e.pointerId);
+  downAt = { ...p, id: e.pointerId };
+  moved = false;
   if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
     pinch = { d: Math.abs(a!.x - b!.x) || 1, k: k.value, mid: (a!.x + b!.x) / 2 };
@@ -334,6 +342,11 @@ function move(e: PointerEvent) {
   if (!pointers.has(e.pointerId)) return;
   const p = local(e);
   pointers.set(e.pointerId, p);
+  if (!moved && downAt && Math.hypot(p.x - downAt.x, p.y - downAt.y) > 4) {
+    moved = true;
+    touchEnd();
+    svg.value?.setPointerCapture(e.pointerId);
+  }
   if (pinch && pointers.size === 2) {
     const [a, b] = [...pointers.values()];
     const d = Math.abs(a!.x - b!.x) || 1;
@@ -647,7 +660,7 @@ void nextTick;
               @dblclick="zoomTo(b.era.start, b.era.end ?? b.era.start + 1)">
               <title>{{ eraTitle(b.era) }}</title>
             </rect>
-            <text v-for="b in eraBands" :key="`n-${b.era.id}`" :class="`era-${b.era.colour} tl-era-name`" :x="Math.max(b.x1, 0) + 4" :y="OVERVIEW_H + 14 + b.inset">{{ b.era.name }}</text>
+            <text v-for="b in eraBands.filter((x) => x.name)" :key="`n-${b.era.id}`" :class="`era-${b.era.colour} tl-era-name`" :x="Math.max(b.x1, 0) + 4" :y="OVERVIEW_H + 14 + b.inset">{{ b.name }}</text>
           </g>
 
           <!-- the overview: the whole timeline small, eras, how dense the marks are, the book, the part on screen -->
@@ -691,10 +704,10 @@ void nextTick;
               </template>
               <g v-for="(o, oi) in shown[li]" :key="o.item.mark?.id ?? o.item.cluster!.id" :transform="`translate(${o.x} ${LANE_H - 10})`" :class="[o.item.cluster ? 'tl-cluster' : `tl-mark kind-${o.item.mark!.kind}`, { dim: dimOutside(o.x), focused: focusRing(li, oi), told: o.item.mark?.told }]"
                 :data-testid="o.item.cluster ? 'cluster' : 'mark'" :data-label="o.item.mark?.label" :data-count="o.item.cluster?.marks.length"
-                @pointerenter="(e) => enter(e, o.item)" @pointerleave="leave" @pointerdown.stop="(e) => touchStart(e, o.item)" @pointerup="touchEnd" @click="openItem(o.item)" @dblclick.stop="o.item.cluster && openItem(o.item)">
+                @pointerenter="(e) => enter(e, o.item)" @pointerleave="leave" @pointerdown="(e) => touchStart(e, o.item)" @pointerup="touchEnd" @click="!moved && openItem(o.item)" @dblclick.stop="o.item.cluster && openItem(o.item)">
                 <title>{{ tipFor(o.item) }}</title>
                 <template v-if="o.item.cluster">
-                  <circle :r="Math.min(13, 6 + Math.sqrt(o.item.cluster.marks.length))" class="tl-cluster-dot" />
+                  <circle :r="Math.min(11, 6 + Math.sqrt(o.item.cluster.marks.length) / 2)" class="tl-cluster-dot" />
                   <text class="tl-cluster-count" text-anchor="middle" y="4">{{ o.item.cluster.marks.length }}</text>
                 </template>
                 <template v-else>
