@@ -13,6 +13,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Boolean,
@@ -23,6 +24,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -99,6 +101,8 @@ class World(Base):
     # what in-world time is counted in, one and several ("year" / "years", "day" / "days")
     time_unit: Mapped[str] = mapped_column(String(40), nullable=False, default="year", server_default="year")
     time_units: Mapped[str] = mapped_column(String(40), nullable=False, default="years", server_default="years")
+    # the chart's settings (docs/SPEC.md §13.7.2): {"shapes": {"duchy": "hexagon"}}, shapes for the world's own types
+    chart: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
@@ -708,3 +712,25 @@ class Telling(Base):
     passage: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
+
+
+class ChartPin(Base):
+    """Where a place was dragged to on the chart (docs/SPEC.md §13.7.3), relative to its container (none: the top
+    level). A pin belongs to a place in a container, so a place that changes container keeps its old pin and is laid
+    out fresh in the new one. The only thing the chart stores."""
+
+    __tablename__ = "chart_pins"
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    place_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=False,
+                                                index=True)
+    container_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), index=True)
+    x: Mapped[float] = mapped_column(Float, nullable=False)
+    y: Mapped[float] = mapped_column(Float, nullable=False)
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_at: Mapped[datetime] = _updated()
+
+
+Index("uq_chart_pins_place_container", ChartPin.place_id,
+      func.coalesce(ChartPin.container_id, text("'00000000-0000-0000-0000-000000000000'::uuid")), unique=True)

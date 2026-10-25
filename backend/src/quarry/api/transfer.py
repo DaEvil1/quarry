@@ -8,7 +8,8 @@ the texts as they are now.
     <world>/world.md                                  name, slug, words marked "not a typo", relationship types
                                                       (with has_role), the per-label switches (fact_labels), the
                                                       one-at-a-time roles (roles), the unit of time (time_unit,
-                                                      time_units)
+                                                      time_units), the chart (chart: its settings, and each pin
+                                                      with its place and container ids)
     <world>/Bible/<Kind>/<Name>.md                    id, name, kind, aliases, project (its level; null for the
                                                       world), gender (when set), an event's when (a chapter id, a
                                                       time, or "outside"), an era's colour, an event's tellings
@@ -30,6 +31,7 @@ the texts as they are now.
 from __future__ import annotations
 
 import io
+import math
 import re
 import uuid
 import zipfile
@@ -49,6 +51,7 @@ from ..models import (
     STARTING_STATUSES,
     Chapter,
     ChapterStatus,
+    ChartPin,
     Cut,
     Decision,
     DecisionLink,
@@ -74,6 +77,7 @@ from ..models import (
 from ..margin import without_margin_notes
 from .manuscript import snapshot
 from ..vocabulary import STARTING_TYPES, place_new_types
+from .chart import SHAPES as CHART_SHAPES
 from .world import clean_role, has_role_label, seed_relation_types
 from .deps import current_user
 from .worlds import WorldOut, _unique, _world_out, member_world, slugify
@@ -219,6 +223,7 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
     switches = list(db.scalars(select(FactLabel).where(FactLabel.world_id == world.id)
                                .order_by(FactLabel.kind, FactLabel.label)))
     roles = list(db.scalars(select(Role).where(Role.world_id == world.id).order_by(Role.role)))
+    pins = list(db.scalars(select(ChartPin).where(ChartPin.world_id == world.id).order_by(ChartPin.updated_at)))
     files[f"{root}/world.md"] = _doc({
         "quarry_export": FORMAT, "name": world.name, "slug": world.slug,
         "exported_at": datetime.now(UTC).isoformat(), "ignored_words": ignored,
@@ -227,7 +232,10 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
         "fact_labels": [{"kind": r.kind, "label": r.label, "several": r.several, "expected": r.expected,
                          "asked": r.asked} for r in switches],
         "roles": [{"role": r.role, "one_at_a_time": r.one_at_a_time} for r in roles],
-        "time_unit": world.time_unit, "time_units": world.time_units}, "")
+        "time_unit": world.time_unit, "time_units": world.time_units,
+        "chart": {"settings": {"shapes": dict((world.chart or {}).get("shapes") or {})},
+                  "pins": [{"place": str(p.place_id), "container": str(p.container_id) if p.container_id else None,
+                            "x": p.x, "y": p.y} for p in pins]}}, "")
 
     facts: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for f in db.scalars(select(Fact).where(Fact.world_id == world.id).order_by(Fact.entity_id, Fact.position)):
@@ -685,6 +693,24 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
             if place is not None and ch is not None:
                 db.add(Presence(world_id=world.id, entity_id=e.id, place_id=place, chapter_id=ch,
                                 note=p.get("note"), created_by=user.id))
+
+    # the chart (none in an export from before phase 12d: it starts laid out automatically), relinked by id
+    chart = wmeta.get("chart") if isinstance(wmeta.get("chart"), dict) else {}
+    settings = chart.get("settings") if isinstance(chart.get("settings"), dict) else {}
+    shapes = settings.get("shapes") if isinstance(settings.get("shapes"), dict) else {}
+    world.chart = {"shapes": {" ".join(str(k).split()).lower()[:100]: str(v) for k, v in shapes.items()
+                              if str(k).strip() and str(v) in CHART_SHAPES}}
+    pinned: set[tuple[uuid.UUID, uuid.UUID | None]] = set()
+    for p in chart.get("pins") or []:
+        if not isinstance(p, dict) or not all(math.isfinite(_num(p.get(k)) or math.nan) for k in ("x", "y")):
+            continue
+        place = entity_by_old.get(str(p.get("place")))
+        container = entity_by_old.get(str(p.get("container"))) if p.get("container") else None
+        if place is None or (p.get("container") and container is None) or (place, container) in pinned:
+            continue
+        pinned.add((place, container))
+        db.add(ChartPin(world_id=world.id, place_id=place, container_id=container, x=float(_num(p["x"])),
+                        y=float(_num(p["y"])), updated_by=user.id))
 
     for _rel, meta, body in under(f"{root}/Journal/"):
         db.add(JournalEntry(world_id=world.id, project_id=project_of(meta.get("project")),

@@ -16,6 +16,7 @@ from . import __version__
 from .api import (
     auth,
     bible,
+    chart,
     companion,
     decisions,
     demo,
@@ -164,5 +165,6 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.include_router(revising.router)
     app.include_router(labels.router)
     app.include_router(history.router)
+    app.include_router(chart.router)
     _mount_frontend(app)
     return app
