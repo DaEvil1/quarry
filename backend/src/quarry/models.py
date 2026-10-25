@@ -113,6 +113,9 @@ class World(Base):
     premise: Mapped[str | None] = mapped_column(String(300))
     # the matcher's version its stored mentions were worked out with: older ones are worked out again at startup
     mentions_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # a copy of the demo world made for one walkthrough of the Guide (docs/SPEC.md §15): hidden from the switcher,
+    # replaced by the next walkthrough and deleted when this one ends
+    sandbox: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()

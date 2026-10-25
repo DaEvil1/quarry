@@ -9,6 +9,7 @@ import { ENTITY_KINDS } from "../types";
 import { useCards } from "../world/cards";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
+import GuideOverlay from "./GuideOverlay.vue";
 import Icon from "./Icon.vue";
 import UpdateBar from "./UpdateBar.vue";
 import WorldSwitcher from "./WorldSwitcher.vue";
@@ -63,13 +64,14 @@ watch(
     if (!w) return;
     void session.refreshCounts(w.slug);
     void session.refreshNearMisses(w.slug);
-    void syncWorld(w.slug).catch(() => undefined);
+    // a Guide sandbox is deleted when its walkthrough ends: no offline copy
+    if (!w.sandbox) void syncWorld(w.slug).catch(() => undefined);
     void cards.load(w.slug);
   },
   { immediate: true },
 );
 // keep the offline copy fresh: when the connection is back, and every 15 minutes
-const resync = () => world.value && void syncWorld(world.value.slug).catch(() => undefined);
+const resync = () => world.value && !world.value.sandbox && void syncWorld(world.value.slug).catch(() => undefined);
 watch(() => outbox.online, (online) => online && resync());
 const syncTimer = setInterval(resync, 15 * 60_000);
 onBeforeUnmount(() => clearInterval(syncTimer));
@@ -189,6 +191,7 @@ async function signOut() {
       </nav>
       <div class="nav-foot">
         <RouterLink :to="{ name: 'settings' }" data-testid="nav-settings"><Icon name="settings" /> {{ session.user?.display_name }}</RouterLink>
+        <RouterLink :to="{ name: 'guide' }" data-testid="nav-guide">Guide</RouterLink>
         <button type="button" class="linkish" @click="signOut">Sign out</button>
       </div>
     </aside>
@@ -210,6 +213,7 @@ async function signOut() {
       </div>
       <RouterView />
     </main>
+    <GuideOverlay />
 
     <nav class="tabbar" aria-label="Sections">
       <RouterLink :to="to('capture')" :class="{ active: tabActive('capture') }">

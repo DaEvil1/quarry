@@ -15,8 +15,9 @@ def test_cross_site_writes_are_refused(client: Client):
 
 def test_security_headers(client: Client):
     r = client.get("/api/setup")
-    assert r.headers["x-frame-options"] == "DENY"
+    assert r.headers["x-frame-options"] == "SAMEORIGIN"
     assert "script-src 'self'" in r.headers["content-security-policy"]
+    assert "frame-ancestors 'self'" in r.headers["content-security-policy"]
     assert r.headers["cache-control"] == "no-store"
 
 

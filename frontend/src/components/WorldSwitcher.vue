@@ -45,7 +45,7 @@ watch(() => route.fullPath, () => (open.value = false));
     <FocusSwitch v-if="props.current" :world="props.current" />
     <div v-if="open" class="switcher-menu" role="menu">
       <RouterLink
-        v-for="w in props.worlds"
+        v-for="w in props.worlds.filter((x) => !x.sandbox || x.id === props.current?.id)"
         :key="w.id"
         :to="worldTarget(w)"
         role="menuitem"

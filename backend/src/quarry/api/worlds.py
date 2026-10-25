@@ -79,6 +79,8 @@ class WorldOut(BaseModel):
     # one optional line about the world (docs/SPEC.md §14.4), and this person's focus in it (§14.9)
     premise: str | None = None
     focus: str = "writing"
+    # a Guide walkthrough's copy of the demo world (docs/SPEC.md §15)
+    sandbox: bool = False
 
 
 class UserOut(BaseModel):
@@ -136,7 +138,7 @@ def _project_out(p: Project) -> ProjectOut:
 def _world_out(w: World, role: str, focus: str = "writing") -> WorldOut:
     return WorldOut(id=w.id, name=w.name, slug=w.slug, role=role, projects=[_project_out(p) for p in w.projects],
                     time_unit=w.time_unit or "year", time_units=w.time_units or "years", premise=w.premise,
-                    focus=focus or "writing")
+                    focus=focus or "writing", sandbox=w.sandbox)
 
 
 def _my_worlds(db: Session, user: User) -> list[WorldOut]:
