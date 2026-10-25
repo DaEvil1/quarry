@@ -8,6 +8,7 @@ import { forceCollide, forceLink, forceSimulation, forceX, forceY, type Simulati
 
 import type { Card } from "./cards";
 import type { GraphData } from "./graph";
+import { boxHitsCircle, boxHitsSegment, overlaps, type Box } from "./textwidth";
 import { holds, norm, type At, type IndexOf } from "./time";
 
 /** A node that is a place, as its main kind or an added one (docs/SPEC.md §14.8). */
@@ -208,6 +209,8 @@ export interface Layout {
 
 const LEAF = [16, 18, 21, 25];
 const PAD = 14;
+/** room beside a place with nothing inside for its name, below it (about a line of text at the fitted zoom) */
+const NAME_ROOM = 14;
 
 interface N extends SimulationNodeDatum {
   id: string;
@@ -244,6 +247,7 @@ export function layoutChart(state: ChartState, pins: Map<string, Pin>, visible: 
   for (const [a, b] of north) if (north.some(([c, d]) => c === b && d === a)) contradictory.add([a, b].sort().join("|"));
   for (const [a, b] of west) if (west.some(([c, d]) => c === b && d === a)) contradictory.add([a, b].sort().join("|"));
 
+  const leaf = (id: string) => !places.get(id)!.children.some(visible);
   /** lays out a container's contents (or the top level) and answers with the radius they need */
   function pack(container: string | null, ids: string[]): number {
     const kids = ids.filter(visible);
@@ -321,7 +325,8 @@ export function layoutChart(state: ChartState, pins: Map<string, Pin>, visible: 
       const l = laid.get(n.id)!;
       l.x = n.fx ?? n.x ?? 0;
       l.y = n.fy ?? n.y ?? 0;
-      r = Math.max(r, Math.hypot(l.x, l.y) + l.r);
+      // a place with nothing inside keeps room between it and the outline for its name
+      r = Math.max(r, Math.hypot(l.x, l.y) + l.r + (leaf(n.id) ? NAME_ROOM : 0));
     }
     return r + PAD + (container ? 12 : 0);
   }
@@ -350,10 +355,14 @@ export function layoutChart(state: ChartState, pins: Map<string, Pin>, visible: 
   for (const id of roots) place(id, 0, 0);
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const l of laid.values()) {
-    x0 = Math.min(x0, l.ax - l.r);
-    y0 = Math.min(y0, l.ay - l.r);
-    x1 = Math.max(x1, l.ax + l.r);
-    y1 = Math.max(y1, l.ay + l.r);
+    // as far as the shape reaches (a hexagon's points, a river's ends), not just its radius
+    const p = places.get(l.id)!;
+    const s = shapeSpan(p.shape, l.r, p.children.some(visible));
+    const reach = Math.max(l.r, s.side, -s.top, s.bottom);
+    x0 = Math.min(x0, l.ax - reach);
+    y0 = Math.min(y0, l.ay - reach);
+    x1 = Math.max(x1, l.ax + reach);
+    y1 = Math.max(y1, l.ay + reach);
   }
   if (!laid.size) (x0 = -100), (y0 = -100), (x1 = 100), (y1 = 100);
   for (const k of contradictory) {
@@ -430,6 +439,203 @@ export function shapePath(shape: Shape, r: number, container: boolean): string {
     default:
       return container ? roundRect(r * 0.95, r * 0.85, r * 0.25) : roundRect(r * 0.85, r * 0.85, r * 0.35);
   }
+}
+
+/** How far a shape reaches: half its width at a height `y` from its centre (0 outside it), and its top, bottom and
+ * side. Matches shapePath, a little inside the outline where the outline wobbles (water, forests). */
+export function shapeSpan(shape: Shape, r: number, container: boolean): { half: (y: number) => number; top: number; bottom: number; side: number } {
+  const circle = (rr: number, out = rr) => ({ half: (y: number) => (Math.abs(y) < rr ? Math.sqrt(rr * rr - y * y) : 0), top: -out, bottom: out, side: out });
+  const roundRect = (w: number, h: number, c: number) => ({
+    half: (y: number) => {
+      const a = Math.abs(y);
+      if (a > h) return 0;
+      if (a <= h - c) return w;
+      return w - c + Math.sqrt(Math.max(0, c * c - (a - (h - c)) ** 2));
+    },
+    top: -h, bottom: h, side: w,
+  });
+  switch (shape) {
+    case "world":
+    case "hexagon": {
+      const R = r / Math.cos(Math.PI / 6);
+      return { half: (y) => (Math.abs(y) <= R / 2 ? r : Math.abs(y) <= R ? (r * (R - Math.abs(y))) / (R / 2) : 0), top: -R, bottom: R, side: r };
+    }
+    case "circle":
+      return circle(r);
+    case "rounded":
+      return roundRect(r * 0.9, r * 0.9, r * 0.3);
+    case "square":
+      return roundRect(r * 0.88, r * 0.88, 0);
+    case "water":
+    case "island":
+    case "dotted":
+      return circle(r * 0.95, r * 1.08);
+    case "plane":
+      return circle(r * 0.95, r * 1.04);
+    case "scalloped":
+      return circle(r * 0.85, r * 1.0);
+    case "ribbon":
+      return roundRect(r * 1.25, r * 0.45, r * 0.45);
+    case "triangle":
+      return { half: (y) => (y < -r * 1.1 || y > r * 0.75 ? 0 : (r * 1.05 * (y + r * 1.1)) / (r * 1.85)), top: -r * 1.1, bottom: r * 0.75, side: r * 1.05 };
+    case "none":
+    default:
+      return container ? roundRect(r * 0.95, r * 0.85, r * 0.25) : roundRect(r * 0.85, r * 0.85, r * 0.35);
+  }
+}
+
+export interface LabelPlace {
+  id: string;
+  /** its centre, on the chart */
+  x: number;
+  y: number;
+  shape: Shape;
+  r: number;
+  /** drawn open, with what it holds inside (its name goes inside, along the top) */
+  open: boolean;
+  /** the name's width and height, in chart units */
+  w: number;
+  h: number;
+  /** the container it is drawn inside, if any */
+  parent?: string;
+  /** its name's start that fits in this width, with its width (null when not even a few letters do) */
+  shorten?: (maxW: number) => { text: string; w: number } | null;
+}
+
+export interface PlacedLabel {
+  id: string;
+  /** where the text's anchor sits, on the chart */
+  x: number;
+  y: number;
+  anchor: "middle" | "start" | "end";
+  /** shortened, when nowhere clear holds the whole name */
+  text?: string;
+  /** nowhere to put it without covering another name */
+  hidden?: boolean;
+}
+
+/**
+ * Where each place's name goes, so names don't cross an outline, a route, a border mark, someone's dot or another
+ * name, or run past the edge of what is on screen. An open container's name goes inside it along the top, as high as the outline leaves it room and clear of
+ * what it holds, else just above it. Any other place's name goes below it, else above, to the right, or to the left,
+ * inside its container; the first spot clear of everything wins, else the one that hits least. Places come
+ * containers first (as drawn), so a container's name is there before the names inside it.
+ */
+export function placeChartLabels(
+  places: LabelPlace[],
+  obstacles: { circles: { x: number; y: number; r: number }[]; segments: { x1: number; y1: number; x2: number; y2: number }[]; view?: Box },
+): PlacedLabel[] {
+  const byId = new Map(places.map((p) => [p.id, p]));
+  const spans = new Map(places.map((p) => [p.id, shapeSpan(p.shape, p.r, p.open)]));
+  const placed: Box[] = [];
+  const out: PlacedLabel[] = [];
+  /** a box inside a shape centred at cx, cy */
+  const within = (b: Box, p: LabelPlace) => {
+    const s = spans.get(p.id)!;
+    const half = Math.min(s.half(b.y - p.y), s.half(b.y + b.h - p.y));
+    return Math.max(Math.abs(b.x - p.x), Math.abs(b.x + b.w - p.x)) <= half;
+  };
+  const hits = (b: Box, self: LabelPlace) => {
+    let n = 0;
+    for (const q of places) {
+      if (q.id === self.id) continue;
+      const s = spans.get(q.id)!;
+      if (q.id === self.parent) {
+        if (!within(b, q)) n += 2;
+        continue;
+      }
+      // a container holding the box's place (further up) is crossed only if the box leaves it; anything else is hit
+      // when the box comes near its outline at all
+      let up = self.parent;
+      let holds = false;
+      while (up) {
+        if (up === q.id) holds = true;
+        up = byId.get(up)?.parent;
+      }
+      if (holds) continue;
+      if (boxHitsCircle(b, q.x, q.y, Math.max(s.side, -s.top, s.bottom))) n += 2;
+    }
+    for (const c of obstacles.circles) if (boxHitsCircle(b, c.x, c.y, c.r)) n += 1;
+    for (const g of obstacles.segments) if (boxHitsSegment(b, g.x1, g.y1, g.x2, g.y2)) n += 1;
+    for (const o of placed) if (overlaps(o, b)) n += 3;
+    // past the edge of what is on screen it can't be read at all: worse than crossing a line
+    const v = obstacles.view;
+    if (v && (b.x < v.x || b.y < v.y || b.x + b.w > v.x + v.w || b.y + b.h > v.y + v.h)) n += 5;
+    return n;
+  };
+  for (const p of places) {
+    const s = spans.get(p.id)!;
+    const pad = p.h * 0.15;
+    // a little more room at the sides, so a name never touches the outline it sits in
+    const padX = p.h * 0.45;
+    // a box for text of width w whose anchor is at (x, y): the baseline sits about a fifth of the height above the bottom
+    const box = (x: number, y: number, anchor: PlacedLabel["anchor"], w = p.w): Box => {
+      const x0 = anchor === "middle" ? x - w / 2 : anchor === "start" ? x : x - w;
+      return { x: x0 - padX, y: y - p.h * 0.8 - pad, w: w + 2 * padX, h: p.h + 2 * pad };
+    };
+    const tries: PlacedLabel[] = [];
+    if (p.open) {
+      // inside along the top: from the highest line where the outline leaves room, downwards to the middle
+      let inside = false;
+      for (let y = s.top + p.h * 0.8 + pad * 2; y < 0; y += p.h / 4) {
+        if (within(box(p.x, p.y + y, "middle"), p)) {
+          tries.push({ id: p.id, x: p.x, y: p.y + y, anchor: "middle" });
+          inside = true;
+        }
+      }
+      tries.push({ id: p.id, x: p.x, y: p.y + s.top - pad - 2, anchor: "middle" });
+      // too long for anywhere inside: a quarter of the way down, to be shortened
+      if (!inside) tries.push({ id: p.id, x: p.x, y: p.y + s.top * 0.7, anchor: "middle" });
+    } else {
+      tries.push({ id: p.id, x: p.x, y: p.y + s.bottom + p.h * 0.8 + pad + 1, anchor: "middle" });
+      tries.push({ id: p.id, x: p.x, y: p.y + s.top - pad - 2, anchor: "middle" });
+      tries.push({ id: p.id, x: p.x + s.side + pad + 3, y: p.y + p.h * 0.3, anchor: "start" });
+      tries.push({ id: p.id, x: p.x - s.side - pad - 3, y: p.y + p.h * 0.3, anchor: "end" });
+    }
+    let best: PlacedLabel = tries[0]!;
+    let bestBox = box(best.x, best.y, best.anchor);
+    let least = Infinity;
+    for (const t of tries) {
+      const b = box(t.x, t.y, t.anchor);
+      const n = hits(b, p);
+      if (n < least) (least = n), (best = t), (bestBox = b);
+      if (n === 0) break;
+    }
+    // nowhere clear for the whole name: its start, as long as fits in what holds it and on screen (the full name is on
+    // its card), wherever that hits less
+    if (least > 0 && p.shorten) {
+      const holder = p.open ? p : p.parent ? byId.get(p.parent) : undefined;
+      const v = obstacles.view;
+      for (const t of tries) {
+        let room = Infinity;
+        if (holder && t.anchor === "middle") {
+          const probe = box(t.x, t.y, "middle", 0);
+          const hs = spans.get(holder.id)!;
+          const half = Math.min(hs.half(probe.y - holder.y), hs.half(probe.y + probe.h - holder.y));
+          room = 2 * (half - Math.abs(t.x - holder.x)) - 2 * padX;
+        }
+        if (v) {
+          const left = t.x - v.x - padX;
+          const right = v.x + v.w - t.x - padX;
+          room = Math.min(room, t.anchor === "middle" ? 2 * Math.min(left, right) : t.anchor === "start" ? right : left);
+        }
+        const short = room > 0 && room < p.w ? p.shorten(room) : null;
+        if (!short) continue;
+        const b = box(t.x, t.y, t.anchor, short.w);
+        const n = hits(b, p);
+        if (n < least) (best = { ...t, text: short.text }), (bestBox = b), (least = n);
+        if (n === 0) break;
+      }
+    }
+    // still on another name: left out (it is on the place's card), never drawn over it
+    if (placed.some((o) => overlaps(o, bestBox))) {
+      out.push({ ...best, hidden: true });
+      continue;
+    }
+    placed.push(bestBox);
+    out.push(best);
+  }
+  return out;
 }
 
 // ---- what changed across a span (§13.7.5) -------------------------------------------------------------------------

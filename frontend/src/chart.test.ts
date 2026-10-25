@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { changesBetween, chartState, holdsCount, inside, layoutChart, pinKey, shapeOf, shapePath, type Pin, type StateInput } from "./world/chart";
+import { changesBetween, chartState, holdsCount, inside, layoutChart, pinKey, placeChartLabels, shapeOf, shapePath, shapeSpan, type Pin, type StateInput } from "./world/chart";
 import type { GraphData } from "./world/graph";
 import type { IndexOf } from "./world/time";
 
@@ -122,5 +122,43 @@ describe("the layout", () => {
     const l = layoutChart(s, pins, (id) => s.places.get(id)!.level <= 2);
     expect(l.laid.has("the Quay")).toBe(false);
     expect(l.laid.has("Old Harbour")).toBe(true);
+  });
+});
+
+describe("names on the chart", () => {
+  it("a shape's reach: a hexagon's points and sides, a circle's chord", () => {
+    const h = shapeSpan("hexagon", 100, true);
+    expect(h.top).toBeCloseTo(-115.47, 1);
+    expect(h.half(0)).toBe(100);
+    expect(h.half(-110)).toBeLessThan(10);
+    expect(shapeSpan("circle", 50, false).half(30)).toBeCloseTo(40, 5);
+  });
+
+  it("an open container's name inside along the top, lower where its point is too narrow", () => {
+    const [d] = placeChartLabels([{ id: "d", x: 0, y: 0, shape: "hexagon", r: 200, open: true, w: 120, h: 12 }], { circles: [], segments: [] });
+    // inside the outline, below the point
+    expect(d!.y).toBeGreaterThan(-231);
+    expect(d!.y).toBeLessThan(-100);
+    expect(shapeSpan("hexagon", 200, true).half(d!.y - 12)).toBeGreaterThanOrEqual(60);
+  });
+
+  it("a name moves off a road and a dot to a clear side, inside its container", () => {
+    const places = [
+      { id: "land", x: 0, y: 0, shape: "circle" as const, r: 200, open: true, w: 60, h: 12 },
+      { id: "town", x: 0, y: 0, shape: "circle" as const, r: 20, open: false, w: 50, h: 12, parent: "land" },
+    ];
+    // a road straight down from the town, and someone's dot just above it
+    const out = placeChartLabels(places, { circles: [{ x: 0, y: -26, r: 4 }], segments: [{ x1: 0, y1: 20, x2: 0, y2: 120 }] });
+    const town = out.find((l) => l.id === "town")!;
+    expect(town.anchor).not.toBe("middle");
+  });
+
+  it("shortened when nowhere holds the whole name", () => {
+    const places = [
+      { id: "room", x: 0, y: 0, shape: "square" as const, r: 30, open: true, w: 40, h: 10 },
+      { id: "nook", x: 0, y: 0, shape: "square" as const, r: 8, open: false, w: 300, h: 10, parent: "room", shorten: (max: number) => (max > 20 ? { text: "The Cou…", w: Math.min(max, 30) } : null) },
+    ];
+    const nook = placeChartLabels(places, { circles: [], segments: [] }).find((l) => l.id === "nook")!;
+    expect(nook.text).toBe("The Cou…");
   });
 });

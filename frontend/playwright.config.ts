@@ -9,7 +9,7 @@ import { defineConfig, devices } from "@playwright/test";
 // database and server of its own and sets E2E_SHARD, so update.spec.ts needn't wait for the others there.
 const chromium = { ...devices["Desktop Chrome"] };
 const chain = /\/(phase[2-9]|revising)\.spec\.ts$/;
-const demo = /\/(phase13b|sharednames|tour)\.spec\.ts$/;
+const demo = /\/(layout|phase13b|sharednames|tour)\.spec\.ts$/;
 
 export default defineConfig({
   testDir: "e2e",

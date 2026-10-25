@@ -46,6 +46,8 @@ test.afterAll(async () => {
 
 const chart = () => page.getByTestId("chart");
 const shape = (name: string) => chart().locator(`[data-testid="chart-place"][data-name="${name}"]`);
+// a place's name is drawn above every shape and line, apart from its shape
+const nameOf = (name: string) => chart().locator(`[data-testid="chart-name"][data-name="${name}"]`);
 const num = async (l: Locator, a: string) => Number(await l.getAttribute(a));
 async function geo(name: string) {
   const l = shape(name);
@@ -163,7 +165,7 @@ test("13.7.4 done when: as of chapter 4, the Guild's shade and Varren's dot; zoo
   await expect(async () => {
     await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2);
     await page.mouse.wheel(0, 400);
-    await expect(shape("Old Harbour")).toContainText("Old Harbour · 2 places", { timeout: 300 });
+    await expect(nameOf("Old Harbour")).toHaveText("Old Harbour · 2 places", { timeout: 300 });
   }).toPass({ timeout: 15_000 });
   await expect(shape("the Quay")).toHaveCount(0);
   // export and restore keep the pins

@@ -22,6 +22,7 @@ import {
   foldAtFor,
   inSpan,
   makeAxis,
+  placeLabels,
   scaleOfStep,
   stepOf,
   ticks,
@@ -31,6 +32,7 @@ import {
   type MarkKind,
 } from "../world/timeline";
 import { numberText } from "../world/time";
+import { fitText, textWidth } from "../world/textwidth";
 import { parseTime, timeText, unitOf } from "../world/when";
 import NotFoundView from "./NotFoundView.vue";
 
@@ -140,18 +142,31 @@ const keep = (m: Mark) => (cutoff.value === null || m.t < cutoff.value) && (!era
 const wrap = ref<HTMLElement | null>(null);
 const W = ref(900);
 const OVERVIEW_H = 34;
-const AXIS_H = 44;
-const LANE_H = 46;
+/** the axis: a strip of era names (a row for the outer eras, one for those nested in them), then the ticks */
+const ERA_ROW = 14;
+const ERA_H = 2 * ERA_ROW + 2;
+const AXIS_H = ERA_H + 26;
 const FOLDED_H = 20;
 const TOP = OVERVIEW_H + AXIS_H + 8;
+/** names stand in rows above a lane's line; the events lane has three, the others two */
+const ROW_H = 14;
+const FONT = '11.5px system-ui, -apple-system, "Segoe UI", sans-serif';
+const TITLE_FONT = `600 ${FONT}`;
+const rowsOf = (l: Lane) => (l.kind === "events" ? 3 : 2);
+/** a lane's own bars (places, roles, nested eras) sit under its title, above the names */
+const headOf = (l: Lane) => (l.kind === "events" || l.kind === "book" ? 14 : 26);
+const heightOf = (l: Lane) => headOf(l) + rowsOf(l) * ROW_H + 16;
 const laneY = computed(() => {
   const ys: number[] = [];
+  const hs: number[] = [];
   let y = TOP;
   for (const l of lanes.value) {
     ys.push(y);
-    y += folded.value.has(l.key) ? FOLDED_H : LANE_H;
+    const h = folded.value.has(l.key) ? FOLDED_H : heightOf(l);
+    hs.push(h);
+    y += h;
   }
-  return { ys, height: y + 10 };
+  return { ys, hs, height: y + 10 };
 });
 let ro: ResizeObserver | null = null;
 onMounted(() => {
@@ -215,54 +230,74 @@ const shown = computed(() =>
       if (!inView(x)) continue;
       out.push({ item: it, x, label: "" });
     }
-    // a mark's name beside it where there is room before the next one
-    for (let i = 0; i < out.length; i++) {
-      const o = out[i]!;
-      if (!o.item.mark || far.value) continue;
-      const room = (out[i + 1]?.x ?? W.value + 200) - o.x - 14;
-      const name = o.item.mark.label;
-      if (room > 30) o.label = name.length * 6.2 <= room ? name : `${name.slice(0, Math.max(3, Math.floor(room / 6.2) - 1))}…`;
-    }
     return out;
   }),
 );
-// ticks, leaving out any whose label would sit on a fold's
+/** each name on screen: in which row, on which side, and how much of it (world/timeline.ts placeLabels) */
+const labelSpots = computed(() =>
+  shown.value.map((items, li) => {
+    const l = lanes.value[li];
+    if (far.value || !l || folded.value.has(l.key)) return items.map(() => null);
+    return placeLabels(
+      items.map((o) => ({ x: o.x, text: o.item.mark ? o.item.mark.label : o.item.cluster!.breakdown, pad: o.item.cluster ? 14 : 7 })),
+      { rows: rowsOf(l), width: W.value, measure: (t) => textWidth(t, FONT), fit: (t, room) => fitText(t, room, FONT) },
+    );
+  }),
+);
+// ticks, leaving out any whose label would sit on a fold's or be cut off at an edge
 const tickList = computed(() =>
   ticks(axis.value, offset.value, offset.value + W.value)
-    .map((t) => ({ t, x: X(t), era: eraAt(t, eras.value) }))
-    .filter((tk) => !axis.value.folds.some((f) => tk.x > f.x - offset.value - 18 && tk.x < f.x - offset.value + f.w + 18)),
+    .map((t) => ({ t, x: X(t), era: eraAt(t, eras.value), half: textWidth(numberText(t), FONT) / 2 + 3 }))
+    .filter((tk) => tk.x - tk.half >= 0 && tk.x + tk.half <= W.value)
+    .filter((tk) => !axis.value.folds.some((f) => tk.x + tk.half > f.x - offset.value && tk.x - tk.half < f.x - offset.value + f.w)),
 );
+const SEG_FONT = '10.5px system-ui, -apple-system, "Segoe UI", sans-serif';
+/** the lane's title (or its counts, folded) and, unfolded, how many of its own things are outside time */
+const titleText = (l: Lane) => (folded.value.has(l.key) ? l.counts : l.title);
+const titleWidth = (l: Lane) => Math.min(260, textWidth(titleText(l), TITLE_FONT) + 10);
+const outsideNote = (l: Lane) => (l.outside.length && !folded.value.has(l.key) ? `${l.outside.length} outside time` : "");
 /** each segment's name, after the lane's title, where it fits before the segment ends and clear of the name before
  * it (shortened, or left out) */
 const segLabels = computed(() =>
   lanes.value.map((l) => {
-    let end = Math.min(220, 12 + l.title.length * 7) + 6;
+    let end = titleWidth(l) + 6;
     return l.segments.map((s) => {
       if (s.tone !== "place" && s.tone !== "role") return null;
       const x = Math.max(end, X(s.t) + 2);
       const room = Math.min(W.value, X(s.t2)) - x - 4;
       if (room < 36) return null;
-      const text = s.label.length * 5.8 <= room ? s.label : `${s.label.slice(0, Math.floor(room / 5.8) - 1)}…`;
-      end = x + text.length * 5.8 + 8;
+      const text = fitText(s.label, room, SEG_FONT);
+      if (!text) return null;
+      end = x + textWidth(text, SEG_FONT) + 8;
       return { x, text };
     });
   }),
 );
 const foldsShown = computed(() => axis.value.folds.map((f) => ({ ...f, sx: f.x - offset.value })).filter((f) => f.sx + f.w > 0 && f.sx < W.value));
 const foldText = (n: number) => `· ${numberText(Math.round(n))} ${Math.round(n) === 1 ? unit.value.unit : unit.value.units} ·`;
-const eraBands = computed(() =>
-  eras.value
+const ERA_FONT = `600 ${FONT}`;
+const eraBands = computed(() => {
+  const bands = eras.value
     .filter((e) => (!eraSpan.value || e === eraSpan.value || (e.start >= eraSpan.value.start && (eraSpan.value.end === null || (e.end ?? Infinity) <= eraSpan.value.end))))
     .map((e) => {
       const x1 = Math.max(-10, X(e.start));
       const x2 = Math.min(W.value + 10, e.end === null ? W.value + 10 : X(e.end));
-      // its name where it fits in the band (shortened, or left out when there is no room)
-      const room = x2 - Math.max(x1, 0) - 8;
-      const name = e.name.length * 6.6 <= room ? e.name : room > 40 ? `${e.name.slice(0, Math.floor(room / 6.6) - 1)}…` : "";
-      return { era: e, x1, x2, inset: Math.min(e.depth, 3) * 6, name };
+      // outer eras name themselves in the strip's first row, eras nested in them in the second
+      const row = Math.min(e.depth, 1);
+      return { era: e, x1, x2, row, inset: Math.min(e.depth, 3) * 5, name: "", nx: Math.max(x1, 0) + 4 };
     })
-    .filter((b) => b.x2 > b.x1),
-);
+    .filter((b) => b.x2 > b.x1);
+  // each name where it fits in its band and before the next name in its row (shortened, or left out)
+  for (const row of [0, 1]) {
+    const inRow = bands.filter((b) => b.row === row).sort((a, b) => a.nx - b.nx);
+    inRow.forEach((b, i) => {
+      const next = inRow[i + 1]?.nx ?? Infinity;
+      const room = Math.min(b.x2, next, W.value) - b.nx - 8;
+      b.name = room > 30 ? fitText(b.era.name, room, ERA_FONT) : "";
+    });
+  }
+  return bands;
+});
 const bookBand = computed(() => (model.value.book && cutoff.value === null ? { x1: X(model.value.book.start), x2: Math.max(X(model.value.book.end), X(model.value.book.start) + 4) } : null));
 
 // ---- the overview strip: the whole timeline small, with the part on screen as a frame ----
@@ -583,12 +618,14 @@ function placeOf(id: string): { x: number; y: number; edge?: string; t?: number 
     for (const o of shown.value[li]!) {
       const it = o.item;
       if ((it.mark?.kind === "event" && it.mark.entity === id) || it.cluster?.marks.some((m) => m.kind === "event" && m.entity === id)) {
-        return { x: o.x, y: laneY.value.ys[li]! + LANE_H - 10 };
+        return { x: o.x, y: laneY.value.ys[li]! + laneY.value.hs[li]! - 10 };
       }
     }
   }
-  const y = (laneY.value.ys[eventsLane.value] ?? 0) + LANE_H - 10;
-  if (model.value.outside.some((o) => o.entity === id)) return { x: W.value - 30, y: (laneY.value.ys[eventsLane.value] ?? 0) + 14 };
+  const ev = lanes.value[eventsLane.value];
+  const y = (laneY.value.ys[eventsLane.value] ?? 0) + (laneY.value.hs[eventsLane.value] ?? 0) - 10;
+  // outside time: the lane's "n outside time" beside its title
+  if (model.value.outside.some((o) => o.entity === id)) return { x: ev ? titleWidth(ev) + 40 : 60, y: (laneY.value.ys[eventsLane.value] ?? 0) + 12 };
   const m = model.value.marks.find((x) => x.id === `ev:${id}`);
   if (!m) return null;
   const x = X(m.t);
@@ -775,11 +812,11 @@ void nextTick;
         >
           <!-- eras: background bands across every lane, nested ones thinner inside -->
           <g class="tl-eras">
-            <rect v-for="b in eraBands" :key="b.era.id" :class="`era-${b.era.colour} tl-era`" :x="b.x1" :y="OVERVIEW_H + 18 + b.inset" :width="b.x2 - b.x1" :height="laneY.height - OVERVIEW_H - 18 - b.inset * 2" :data-era="b.era.name" data-testid="era-band"
+            <rect v-for="b in eraBands" :key="b.era.id" :class="`era-${b.era.colour} tl-era`" :x="b.x1" :y="OVERVIEW_H + 1 + b.row * ERA_ROW + b.inset" :width="b.x2 - b.x1" :height="laneY.height - OVERVIEW_H - 1 - b.row * ERA_ROW - b.inset * 2" :data-era="b.era.name" data-testid="era-band"
               @dblclick="zoomTo(b.era.start, b.era.end ?? b.era.start + 1)">
               <title>{{ eraTitle(b.era) }}</title>
             </rect>
-            <text v-for="b in eraBands.filter((x) => x.name)" :key="`n-${b.era.id}`" :class="`era-${b.era.colour} tl-era-name`" :x="Math.max(b.x1, 0) + 4" :y="OVERVIEW_H + 14 + b.inset">{{ b.name }}</text>
+            <text v-for="b in eraBands.filter((x) => x.name)" :key="`n-${b.era.id}`" :class="`era-${b.era.colour} tl-era-name`" :x="b.nx" :y="OVERVIEW_H + 11 + b.row * ERA_ROW" data-testid="era-name">{{ b.name }}<title>{{ eraTitle(b.era) }}</title></text>
           </g>
 
           <!-- the overview: the whole timeline small, eras, how dense the marks are, the book, the part on screen -->
@@ -793,35 +830,41 @@ void nextTick;
 
           <!-- the axis: ticks in their era's tint, folds labelled with their length, the brushed span -->
           <g class="tl-axis" :transform="`translate(0 ${OVERVIEW_H})`">
-            <rect class="tl-axis-bg" x="0" y="18" :width="W" :height="AXIS_H - 18" data-testid="axis" />
+            <rect class="tl-axis-bg" x="0" :y="ERA_H" :width="W" :height="AXIS_H - ERA_H" data-testid="axis" />
             <g v-for="tk in tickList" :key="tk.t">
               <line class="tl-tick" :x1="tk.x" :x2="tk.x" :y1="AXIS_H - 8" :y2="AXIS_H" />
-              <text class="tl-tick-label" :class="tk.era ? `era-${tk.era.colour} era-tint` : ''" :x="tk.x" :y="AXIS_H - 12" text-anchor="middle">{{ numberText(tk.t) }}</text>
+              <text class="tl-tick-label" :class="tk.era ? `era-${tk.era.colour} era-tint` : ''" :x="tk.x" :y="AXIS_H - 12" text-anchor="middle" data-testid="tick-label">{{ numberText(tk.t) }}</text>
             </g>
             <g v-for="f in foldsShown" :key="`f-${f.t1}`" class="tl-fold" data-testid="fold">
-              <rect :x="f.sx" y="18" :width="f.w" :height="AXIS_H - 18" />
+              <rect :x="f.sx" :y="ERA_H" :width="f.w" :height="AXIS_H - ERA_H" />
               <text :x="f.sx + f.w / 2" :y="AXIS_H - 12" text-anchor="middle">{{ foldText(f.length) }}</text>
             </g>
           </g>
-          <rect v-if="brush" class="tl-brush" :x="X(brush.from)" :y="OVERVIEW_H + 18" :width="Math.max(2, X(brush.to) - X(brush.from))" :height="laneY.height - OVERVIEW_H - 18" data-testid="brush" />
-          <rect v-if="brushing" class="tl-brush live" :x="Math.min(brushing.x0, brushing.x1)" :y="OVERVIEW_H + 18" :width="Math.abs(brushing.x1 - brushing.x0)" :height="laneY.height - OVERVIEW_H - 18" />
+          <rect v-if="brush" class="tl-brush" :x="X(brush.from)" :y="OVERVIEW_H + ERA_H" :width="Math.max(2, X(brush.to) - X(brush.from))" :height="laneY.height - OVERVIEW_H - ERA_H" data-testid="brush" />
+          <rect v-if="brushing" class="tl-brush live" :x="Math.min(brushing.x0, brushing.x1)" :y="OVERVIEW_H + ERA_H" :width="Math.abs(brushing.x1 - brushing.x0)" :height="laneY.height - OVERVIEW_H - ERA_H" />
           <g v-for="f in foldsShown" :key="`fl-${f.t1}`" class="tl-fold-lane">
             <rect :x="f.sx" :y="TOP" :width="f.w" :height="laneY.height - TOP - 10" />
           </g>
 
           <!-- lanes -->
           <g v-for="(l, li) in lanes" :key="l.key" class="tl-lane" :class="[`lane-${l.kind}`, { folded: folded.has(l.key) }]" :transform="`translate(0 ${laneY.ys[li]})`" :data-lane="l.key" :data-title="l.title" data-testid="lane">
-            <line class="tl-lane-line" x1="0" :x2="W" :y1="folded.has(l.key) ? FOLDED_H / 2 : LANE_H - 10" :y2="folded.has(l.key) ? FOLDED_H / 2 : LANE_H - 10" />
+            <line class="tl-lane-line" x1="0" :x2="W" :y1="folded.has(l.key) ? FOLDED_H / 2 : laneY.hs[li]! - 10" :y2="folded.has(l.key) ? FOLDED_H / 2 : laneY.hs[li]! - 10" />
             <template v-if="!folded.has(l.key)">
               <!-- the book's band; a character's life, places over time, homes; a faction's roles; an era's nested eras -->
-              <rect v-if="l.kind === 'book' && bookBand" class="tl-book" :x="bookBand.x1" :y="LANE_H - 18" :width="bookBand.x2 - bookBand.x1" height="10" data-testid="book-band"><title>the book</title></rect>
+              <rect v-if="l.kind === 'book' && bookBand" class="tl-book" :x="bookBand.x1" :y="laneY.hs[li]! - 18" :width="bookBand.x2 - bookBand.x1" height="10" data-testid="book-band"><title>the book</title></rect>
               <template v-for="(s, si) in l.kind === 'book' ? [] : l.segments" :key="si">
-                <rect v-if="X(s.t2) > -20 && X(s.t) < W + 20" class="tl-seg" :class="[`tone-${s.tone}`, s.colour ? `era-${s.colour}` : '', s.fade ? `fade-${s.fade}` : '']" :x="Math.max(-20, X(s.t))" :y="s.tone === 'life' ? LANE_H - 13 : s.tone === 'lives' ? LANE_H - 22 : 16" :width="Math.max(3, Math.min(W + 20, X(s.t2)) - Math.max(-20, X(s.t)))" :height="s.tone === 'life' ? 6 : 8" data-testid="segment" :data-label="s.label" :data-from="s.t" :data-to="s.t2">
+                <rect v-if="X(s.t2) > -20 && X(s.t) < W + 20" class="tl-seg" :class="[`tone-${s.tone}`, s.colour ? `era-${s.colour}` : '', s.fade ? `fade-${s.fade}` : '']" :x="Math.max(-20, X(s.t))" :y="s.tone === 'life' ? laneY.hs[li]! - 13 : s.tone === 'lives' ? laneY.hs[li]! - 22 : 16" :width="Math.max(3, Math.min(W + 20, X(s.t2)) - Math.max(-20, X(s.t)))" :height="s.tone === 'life' ? 6 : 8" data-testid="segment" :data-label="s.label" :data-from="s.t" :data-to="s.t2">
                   <title>{{ s.label }}</title>
                 </rect>
                 <text v-if="segLabels[li]?.[si]" class="tl-seg-label" :x="segLabels[li]![si]!.x" y="14">{{ segLabels[li]![si]!.text }}</text>
               </template>
-              <g v-for="(o, oi) in shown[li]" :key="o.item.mark?.id ?? o.item.cluster!.id" :transform="`translate(${o.x} ${LANE_H - 10})`" :class="[o.item.cluster ? 'tl-cluster' : `tl-mark kind-${o.item.mark!.kind}`, { dim: dimOutside(o.x), focused: focusRing(li, oi), told: o.item.mark?.told }]"
+              <!-- leaders from a mark up to its name in a higher row, under every name -->
+              <g class="tl-leaders">
+                <template v-for="(o, oi) in shown[li]" :key="`ld-${o.item.mark?.id ?? o.item.cluster!.id}`">
+                  <line v-if="labelSpots[li]?.[oi]?.row" class="tl-leader" :class="{ dim: dimOutside(o.x) }" :x1="o.x" :x2="o.x" :y1="laneY.hs[li]! - 10 - (o.item.cluster ? 11 : 5)" :y2="laneY.hs[li]! - 16 - labelSpots[li]![oi]!.row * ROW_H" />
+                </template>
+              </g>
+              <g v-for="(o, oi) in shown[li]" :key="o.item.mark?.id ?? o.item.cluster!.id" :transform="`translate(${o.x} ${laneY.hs[li]! - 10})`" :class="[o.item.cluster ? 'tl-cluster' : `tl-mark kind-${o.item.mark!.kind}`, { dim: dimOutside(o.x), focused: focusRing(li, oi), told: o.item.mark?.told }]"
                 :data-testid="o.item.cluster ? 'cluster' : 'mark'" :data-label="o.item.mark?.label" :data-count="o.item.cluster?.marks.length"
                 @pointerenter="(e) => enter(e, o.item)" @pointerleave="leave" @pointerdown="(e) => touchStart(e, o.item)" @pointerup="touchEnd" @click="!moved && openItem(o.item)" @dblclick.stop="o.item.cluster && openItem(o.item)">
                 <title>{{ tipFor(o.item) }}</title>
@@ -833,16 +876,17 @@ void nextTick;
                   <rect v-if="o.item.mark!.t2 != null && !far" class="tl-span" :x="0" y="-4" :width="Math.max(4, X(o.item.mark!.t2!) - o.x)" height="8" />
                   <path v-if="o.item.mark!.kind === 'chapter'" class="tl-tick-mark" d="M0 -9 L0 4" />
                   <circle v-else :r="far ? 3 : 4.5" class="tl-dot" />
-                  <text v-if="o.label" class="tl-label" x="7" y="-6">{{ o.label }}</text>
                 </template>
+                <text v-if="labelSpots[li]?.[oi]" class="tl-label" :class="{ 'tl-cluster-label': o.item.cluster }" :x="labelSpots[li]![oi]!.left ? -(o.item.cluster ? 14 : 7) : o.item.cluster ? 14 : 7" :y="-6 - labelSpots[li]![oi]!.row * ROW_H" :text-anchor="labelSpots[li]![oi]!.left ? 'end' : 'start'" data-testid="mark-label" :data-row="labelSpots[li]![oi]!.row">{{ labelSpots[li]![oi]!.text }}</text>
               </g>
             </template>
-            <!-- the lane's title (and its counts when folded), its own outside-time items, fold and remove -->
+            <!-- the lane's title (and its counts when folded), how many of its own are outside time (listed below the
+                 Timeline), fold and remove -->
             <g class="tl-lane-head">
-              <rect x="0" y="0" :width="Math.min(220, 12 + (folded.has(l.key) ? l.counts : l.title).length * 7)" height="14" class="tl-lane-title-bg" />
-              <text class="tl-lane-title" x="4" y="11" :data-testid="folded.has(l.key) ? 'lane-counts' : 'lane-title'" @click="l.kind !== 'events' && l.kind !== 'book' && toggleFold(l.key)">{{ folded.has(l.key) ? l.counts : l.title }}</text>
+              <rect x="0" y="0" :width="titleWidth(l) + (outsideNote(l) ? textWidth(outsideNote(l), FONT) + 12 : 0)" height="14" class="tl-lane-title-bg" />
+              <text class="tl-lane-title" x="4" y="11" :data-testid="folded.has(l.key) ? 'lane-counts' : 'lane-title'" @click="l.kind !== 'events' && l.kind !== 'book' && toggleFold(l.key)">{{ titleText(l) }}</text>
+              <text v-if="outsideNote(l)" class="tl-lane-outside" :x="titleWidth(l) + 4" y="11" data-testid="lane-outside">{{ outsideNote(l) }}<title>outside time: {{ laneOutside(l) }}</title></text>
             </g>
-            <text v-if="l.outside.length && !folded.has(l.key)" class="tl-lane-outside" :x="W - 6" y="11" text-anchor="end" data-testid="lane-outside">outside time: {{ laneOutside(l) }}</text>
           </g>
 
           <!-- cause arrows (docs/SPEC.md §14.7): from cause to effect, curving above; planned and rumoured dashed -->
@@ -875,7 +919,7 @@ void nextTick;
             <RouterLink :to="{ name: 'entity', params: { world: world!.slug, id: x.other } }">When…</RouterLink>
           </div>
         </div>
-        <p v-else-if="cards.world === worldSlug" class="empty" data-testid="timeline-empty">
+        <p v-if="!visibleTimes.length && cards.world === worldSlug" class="empty" data-testid="timeline-empty">
           {{ view === "history" ? "No history yet: nothing is set before the book." : "Nothing has a time yet. Give an event a time on its page, or a chapter on the manuscript list." }}
         </p>
       </div>

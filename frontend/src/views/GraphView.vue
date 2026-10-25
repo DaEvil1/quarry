@@ -14,6 +14,7 @@ import { familyLinks } from "../world/family";
 import { clusters, neighbourhood, placeTree, visibleLinks, type GraphData, type Link, type PlaceNode } from "../world/graph";
 import { norm } from "../world/labels";
 import { speciesColours } from "../world/species";
+import { boxHitsCircle, overlaps, textWidth, type Box } from "../world/textwidth";
 import type { At } from "../world/time";
 import { unitOf } from "../world/when";
 import NotFoundView from "./NotFoundView.vue";
@@ -121,6 +122,7 @@ const degree = computed(() => {
 });
 
 // ---- layout (d3-force, run to rest before drawing, so nothing jiggles) ----
+const LABEL_FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
 interface P extends SimulationNodeDatum {
   id: string;
 }
@@ -145,7 +147,8 @@ watch([shownNodes, shownLinks, near], () => {
       .distance((l) => (l.kind === "co" ? 110 : 70))
       .strength((l) => (l.kind === "co" ? 0.2 : 0.6)))
     .force("charge", forceManyBody().strength(-220).distanceMax(500))
-    .force("collide", forceCollide(22))
+    // room for a name beside each dot, so names have somewhere to go
+    .force("collide", forceCollide<P>((d) => Math.max(22, Math.min(48, textWidth(nodeById.value.get(d.id)?.name ?? "", LABEL_FONT) / 2.5))))
     .stop();
   if (near.value) {
     const c = nodes.find((n) => n.id === centre.value);
@@ -203,8 +206,39 @@ const up = () => (drag = null);
 const hover = ref<string | null>(null);
 const nodeById = computed(() => new Map((data.value?.nodes ?? []).map((n) => [n.id, n])));
 const hoverNear = computed(() => (hover.value ? neighbourhood(shownLinks.value, hover.value, 1) : null));
-const showLabel = (id: string) =>
-  shownNodes.value.length <= 70 || id === hover.value || (near.value?.get(id) ?? 9) <= 1 || (degree.value.get(id) ?? 0) >= 4 || !!hoverNear.value?.has(id);
+const radiusOf = (id: string) => (id === centre.value ? 11 : 6 + Math.min(5, degree.value.get(id) ?? 0));
+const wanted = (id: string) => shownNodes.value.length <= 70 || (near.value?.get(id) ?? 9) <= 1 || (degree.value.get(id) ?? 0) >= 4;
+type Spot = { x: number; y: number; anchor: "middle" | "start" | "end" };
+/** Names that cross no other name and no dot: the centre first, then the nearest and the best connected, each above
+ * its dot, else below, right or left. A name with no clear spot is left out and read on resting (its title), and the
+ * one rested on is drawn on top wherever. Worked out when the picture changes, not on every hover, so names don't
+ * jump around under the pointer. */
+const labelSpots = computed(() => {
+  const out = new Map<string, Spot>();
+  const ps = pos.value;
+  const boxes: Box[] = [];
+  const order = shownNodes.value.filter((n) => wanted(n.id)).sort((a, b) =>
+    Number(b.id === centre.value) - Number(a.id === centre.value) || (near.value?.get(a.id) ?? 9) - (near.value?.get(b.id) ?? 9) || (degree.value.get(b.id) ?? 0) - (degree.value.get(a.id) ?? 0) || a.name.localeCompare(b.name));
+  for (const n of order) {
+    const p = ps.get(n.id);
+    if (!p) continue;
+    const w = textWidth(n.name, LABEL_FONT);
+    const r = radiusOf(n.id);
+    const tries: Spot[] = [{ x: 0, y: -r - 4, anchor: "middle" }, { x: 0, y: r + 13, anchor: "middle" }, { x: r + 4, y: 4, anchor: "start" }, { x: -r - 4, y: 4, anchor: "end" }];
+    for (const t of tries) {
+      const x0 = p.x + t.x - (t.anchor === "middle" ? w / 2 : t.anchor === "end" ? w : 0);
+      const b = { x: x0 - 2, y: p.y + t.y - 11, w: w + 4, h: 14 };
+      if (boxes.some((o) => overlaps(o, b))) continue;
+      if (shownNodes.value.some((m) => m.id !== n.id && ps.has(m.id) && boxHitsCircle(b, ps.get(m.id)!.x, ps.get(m.id)!.y, radiusOf(m.id) + 1))) continue;
+      boxes.push(b);
+      out.set(n.id, t);
+      break;
+    }
+  }
+  return out;
+});
+/** the name rested on, and its neighbours', when they have no spot of their own */
+const extraLabel = (id: string) => !labelSpots.value.has(id) && (id === hover.value || !!hoverNear.value?.has(id));
 // colour by species: characters take their species' colour as of the graph's chapter (docs/SPEC.md §13.3)
 const bySpecies = computed(() => (colourBy.value === "species" && data.value ? speciesColours(data.value, asOf.value, cards.indexOf) : null));
 const speciesColour = computed(() => new Map((bySpecies.value?.legend ?? []).map((s) => [s.id, s.colour])));
@@ -421,9 +455,12 @@ const flatPlaces = computed(() => {
               @dblclick="openEntry(n.id)"
             >
               <title>{{ n.name }}{{ n.summary ? ` — ${n.summary}` : "" }} (click to centre, double-click to open)</title>
-              <circle :r="n.id === centre ? 11 : 6 + Math.min(5, degree.get(n.id) ?? 0)" :fill="colour(n.id)" :data-fill="colour(n.id)" />
-              <text v-if="showLabel(n.id)" y="-12" text-anchor="middle">{{ n.name }}</text>
+              <circle :r="radiusOf(n.id)" :fill="colour(n.id)" :data-fill="colour(n.id)" />
+              <text v-if="labelSpots.has(n.id)" :x="labelSpots.get(n.id)!.x" :y="labelSpots.get(n.id)!.y" :text-anchor="labelSpots.get(n.id)!.anchor" data-testid="graph-label">{{ n.name }}</text>
             </g>
+            <template v-for="n in shownNodes" :key="`x-${n.id}`">
+              <text v-if="extraLabel(n.id)" class="graph-extra" :x="pos.get(n.id)?.x ?? 0" :y="(pos.get(n.id)?.y ?? 0) - radiusOf(n.id) - 4" text-anchor="middle">{{ n.name }}</text>
+            </template>
           </svg>
           <p v-else-if="data" class="empty">
             {{ data.edges.length ? "Nothing matches these filters." : "No relationships recorded yet. Add them on an entry's page, or from a name's card in a chapter." }}
