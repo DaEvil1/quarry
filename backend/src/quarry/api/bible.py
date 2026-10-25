@@ -30,7 +30,7 @@ from ..models import (
     User,
     World,
 )
-from .history import chapter_in_world, event_when, tellings_of
+from .history import chapter_in_world, event_when, notes_of, tellings_of
 from .world import entity_world_detail
 from .deps import current_user
 from .worlds import member_world
@@ -301,7 +301,9 @@ def get_entity(slug: str, entity_id: uuid.UUID, user: User = Depends(current_use
             "linked_items": linked_items, "near_misses": near, "first_appearance": list(first.values()),
             "decisions": decisions, **entity_world_detail(db, world, e),
             # an event's tellings (Told in, docs/SPEC.md §13.2.3)
-            "tellings": tellings_of(db, world, e.id) if e.kind == "event" else []}
+            "tellings": tellings_of(db, world, e.id) if e.kind == "event" else [],
+            # and its notes in the Journal (Noted in, docs/SPEC.md §14.1.2)
+            "notes": notes_of(db, world, e.id) if e.kind == "event" else []}
 
 
 @router.patch("/entities/{entity_id}")

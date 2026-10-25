@@ -145,6 +145,9 @@ export interface Fact {
   until_time?: number | null;
   until_approx?: boolean;
   outside_time?: boolean;
+  /** where it was planned (docs/SPEC.md §14.1.2): a journal entry and its passage */
+  planned_in_journal_id?: string | null;
+  planned_evidence?: string | null;
   version: number;
   /** after adding: the one-time "expect it on every …?" question (docs/SPEC.md §12.6.5) */
   prompt?: { kind: EntityKind; label: string; count: number } | null;
@@ -183,6 +186,8 @@ export interface Relationship {
   /** the A side's role in the B side's group, and whether the type offers one */
   role?: string | null;
   has_role?: boolean;
+  planned_in_journal_id?: string | null;
+  planned_evidence?: string | null;
   version: number;
   /** on an entry's page: how it reads from this entry, the entry on the other side, and which side this is */
   reads?: string;
@@ -227,8 +232,12 @@ export interface EntityDetail {
   facts: Fact[];
   relationships: Relationship[];
   chapter_titles: Record<string, string>;
+  /** the journal entries things were planned in: date, title and text (to find the passage) */
+  journal_entries?: Record<string, { id: string; date: string; title: string | null; body: string }>;
   /** an event's tellings (Told in) */
   tellings?: import("./history").Telling[];
+  /** an event's notes in the Journal (Noted in, docs/SPEC.md §14.1.2) */
+  notes?: { id: string; passage: string; journal: { id: string; date: string; title: string | null }; at: number; changed: boolean }[];
 }
 
 export interface NearMissGroup {
@@ -245,8 +254,25 @@ export interface JournalEntry {
   body: string;
   project: string | null;
   version: number;
+  /** words in the entry (a %% line counts: in the Journal it is ordinary text) */
+  words?: number;
   created_at: string;
   updated_at: string;
+}
+
+/** A journal entry opened in the editor: with the names found in it. */
+export interface JournalDetail extends JournalEntry {
+  mentions: Mention[];
+}
+
+/** Where an item came from (docs/SPEC.md §14.3.1): a chapter (its title) or a journal entry (its date and title), with
+ * the passage it was made from. */
+export interface ItemOrigin {
+  table: "chapter" | "journal";
+  id: string;
+  title: string | null;
+  date: string | null;
+  passage: string | null;
 }
 
 export interface Item {
@@ -264,6 +290,7 @@ export interface Item {
   version: number;
   entities: EntityRef[];
   mentions: Mention[];
+  origin?: ItemOrigin | null;
 }
 
 export interface ItemCounts {

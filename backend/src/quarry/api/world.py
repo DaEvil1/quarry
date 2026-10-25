@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..mentions import first_name_aliases
-from ..models import Chapter, Entity, Fact, FactLabel, Project, RelationType, Relationship, User, World
+from ..models import Chapter, Entity, Fact, FactLabel, JournalEntry, Project, RelationType, Relationship, User, World
 from ..vocabulary import HAS_ROLE_LABELS, STARTING_TYPES, SUGGESTED_FACTS, SUGGESTED_VALUES
 from .deps import current_user
 from .storytime import check_span
@@ -67,6 +67,11 @@ class FactIn(BaseModel):
     until_time: float | None = None
     until_approx: bool | None = None
     outside_time: bool | None = None
+    # where it was planned (docs/SPEC.md §14.1.2): a journal entry and its passage
+    planned_in_journal_id: uuid.UUID | None = None
+    planned_evidence: str | None = Field(default=None, max_length=5000)
+    # "Make it canon here": the planned row this records in the book, instead of adding a second one
+    make_canon: uuid.UUID | None = None
 
 
 class FactUpdate(BaseModel):
@@ -85,6 +90,9 @@ class FactUpdate(BaseModel):
     until_time: float | None = None
     until_approx: bool | None = None
     outside_time: bool | None = None
+    # where it was planned (docs/SPEC.md §14.1.2): a journal entry and its passage
+    planned_in_journal_id: uuid.UUID | None = None
+    planned_evidence: str | None = Field(default=None, max_length=5000)
 
 
 class FactOut(BaseModel):
@@ -104,6 +112,8 @@ class FactOut(BaseModel):
     until_time: float | None = None
     until_approx: bool = False
     outside_time: bool = False
+    planned_in_journal_id: uuid.UUID | None = None
+    planned_evidence: str | None = None
     version: int
     # after adding: the one-time "expect it on every …?" prompt, when this fact brought its label to three entries
     prompt: dict | None = None
@@ -156,6 +166,11 @@ class RelationshipIn(BaseModel):
     until_approx: bool | None = None
     outside_time: bool | None = None
     role: str | None = Field(default=None, max_length=100)
+    # where it was planned (docs/SPEC.md §14.1.2): a journal entry and its passage
+    planned_in_journal_id: uuid.UUID | None = None
+    planned_evidence: str | None = Field(default=None, max_length=5000)
+    # "Make it canon here": the planned row this records in the book, instead of adding a second one
+    make_canon: uuid.UUID | None = None
 
 
 class RelationshipUpdate(BaseModel):
@@ -174,6 +189,9 @@ class RelationshipUpdate(BaseModel):
     until_time: float | None = None
     until_approx: bool | None = None
     outside_time: bool | None = None
+    # where it was planned (docs/SPEC.md §14.1.2): a journal entry and its passage
+    planned_in_journal_id: uuid.UUID | None = None
+    planned_evidence: str | None = Field(default=None, max_length=5000)
 
 
 class Side(BaseModel):
@@ -203,6 +221,8 @@ class RelationshipOut(BaseModel):
     # the A side's role in the B side's group, and whether the type offers one
     role: str | None = None
     has_role: bool = False
+    planned_in_journal_id: uuid.UUID | None = None
+    planned_evidence: str | None = None
     version: int
     created_at: datetime
 
@@ -224,6 +244,23 @@ def _chapter_in_world(db: Session, world: World, chapter_id: uuid.UUID | None) -
     if ch is None or ch.project_id not in {p.id for p in world.projects}:
         raise HTTPException(422, "No such chapter in this world.")
     return ch.id
+
+
+def _journal_in_world(db: Session, world: World, entry_id: uuid.UUID | None) -> uuid.UUID | None:
+    if entry_id is None:
+        return None
+    j = db.get(JournalEntry, entry_id)
+    if j is None or j.world_id != world.id:
+        raise HTTPException(422, "No such journal entry in this world.")
+    return j.id
+
+
+def set_planned_in(db: Session, world: World, x: Fact | Relationship, body: BaseModel, sent: set[str]) -> None:
+    """Where it was planned: a journal entry and its passage (docs/SPEC.md §14.1.2)."""
+    if "planned_in_journal_id" in sent:
+        x.planned_in_journal_id = _journal_in_world(db, world, body.planned_in_journal_id)  # type: ignore[attr-defined]
+    if "planned_evidence" in sent:
+        x.planned_evidence = _clean(body.planned_evidence)  # type: ignore[attr-defined]
 
 
 def _sid(x: uuid.UUID | None) -> str | None:
@@ -283,7 +320,8 @@ def fact_out(f: Fact) -> FactOut:
     return FactOut(id=f.id, entity_id=f.entity_id, label=f.label, value=f.value, position=f.position,
                    standing=f.standing, evidence=f.evidence, note=f.note,
                    established_in_chapter_id=f.established_in_chapter_id, from_chapter_id=f.from_chapter_id,
-                   until_chapter_id=f.until_chapter_id, **time_bounds(f), version=f.version)
+                   until_chapter_id=f.until_chapter_id, **time_bounds(f), planned_in_journal_id=f.planned_in_journal_id,
+                   planned_evidence=f.planned_evidence, version=f.version)
 
 
 def relationship_out(r: Relationship, t: RelationType, a: Entity, b: Entity) -> RelationshipOut:
@@ -292,6 +330,7 @@ def relationship_out(r: Relationship, t: RelationType, a: Entity, b: Entity) -> 
                            standing=r.standing, evidence=r.evidence, note=r.note,
                            established_in_chapter_id=r.established_in_chapter_id, from_chapter_id=r.from_chapter_id,
                            until_chapter_id=r.until_chapter_id, **time_bounds(r), role=r.role, has_role=t.has_role,
+                           planned_in_journal_id=r.planned_in_journal_id, planned_evidence=r.planned_evidence,
                            version=r.version, created_at=r.created_at)
 
 
@@ -389,6 +428,8 @@ def add_fact(slug: str, entity_id: uuid.UUID, body: FactIn, user: User = Depends
              db: Session = Depends(get_db)) -> FactOut:
     world, _ = member_world(db, user, slug)
     e = _entity(db, world, entity_id)
+    if body.make_canon is not None:
+        return _make_fact_canon(db, world, e, body, user)
     top = db.scalar(select(func.max(Fact.position)).where(Fact.entity_id == e.id))
     label = " ".join(body.label.split())
     had_it = any(norm(x) == norm(label) for x in db.scalars(select(Fact.label).where(Fact.entity_id == e.id)))
@@ -398,6 +439,7 @@ def add_fact(slug: str, entity_id: uuid.UUID, body: FactIn, user: User = Depends
              established_in_chapter_id=_chapter_in_world(db, world, body.established_in_chapter_id),
              from_approx=False, until_approx=False, outside_time=False, created_by=user.id, updated_by=user.id)
     set_bounds(db, world, f, body, body.model_fields_set)
+    set_planned_in(db, world, f, body, body.model_fields_set)
     check_span(db, world, f)
     db.add(f)
     db.flush()
@@ -409,6 +451,30 @@ def add_fact(slug: str, entity_id: uuid.UUID, body: FactIn, user: User = Depends
     out = fact_out(f)
     out.prompt = prompt
     return out
+
+
+def _make_fact_canon(db: Session, world: World, e: Entity, body: FactIn, user: User) -> FactOut:
+    """Make it canon here (docs/SPEC.md §14.1.2): the planned fact becomes canon, established in this chapter with the
+    passage as its evidence and the span the form chose; where it was planned stays."""
+    f = _fact(db, world, body.make_canon)  # type: ignore[arg-type]
+    if f.entity_id != e.id:
+        raise HTTPException(422, "That fact belongs to another entry.")
+    sent = body.model_fields_set - {"make_canon", "planned_in_journal_id", "planned_evidence", "label"}
+    if body.value.strip():
+        f.value = body.value.strip()
+    f.standing = "canon"
+    if "established_in_chapter_id" in sent:
+        f.established_in_chapter_id = _chapter_in_world(db, world, body.established_in_chapter_id)
+    if "evidence" in sent:
+        f.evidence = _clean(body.evidence)
+    if "note" in sent and _clean(body.note):
+        f.note = _clean(body.note)
+    set_bounds(db, world, f, body, sent)
+    check_span(db, world, f)
+    f.version += 1
+    f.updated_by = user.id
+    db.commit()
+    return fact_out(f)
 
 
 def _fact(db: Session, world: World, fact_id: uuid.UUID) -> Fact:
@@ -439,6 +505,7 @@ def update_fact(slug: str, fact_id: uuid.UUID, body: FactUpdate, user: User = De
     if "established_in_chapter_id" in sent:
         f.established_in_chapter_id = _chapter_in_world(db, world, body.established_in_chapter_id)
     set_bounds(db, world, f, body, sent)
+    set_planned_in(db, world, f, body, sent)
     check_span(db, world, f)
     f.version += 1
     f.updated_by = user.id
@@ -560,15 +627,43 @@ def add_relationship(slug: str, body: RelationshipIn, user: User = Depends(curre
     t = _type(db, world, body.type_id)
     a, b = _entity(db, world, body.a_id), _entity(db, world, body.b_id)
     _check_pair(t, a, b)
+    if body.make_canon is not None:
+        return _make_relationship_canon(db, world, body, user)
     r = Relationship(world_id=world.id, type_id=t.id, a_id=a.id, b_id=b.id, standing=body.standing,
                      evidence=_clean(body.evidence), note=_clean(body.note),
                      established_in_chapter_id=_chapter_in_world(db, world, body.established_in_chapter_id),
                      from_approx=False, until_approx=False, outside_time=False,
                      role=clean_role(body.role) if t.has_role else None, created_by=user.id, updated_by=user.id)
     set_bounds(db, world, r, body, body.model_fields_set)
+    set_planned_in(db, world, r, body, body.model_fields_set)
     check_span(db, world, r)
     db.add(r)
     db.commit()
+    return relationship_out(r, t, a, b)
+
+
+def _make_relationship_canon(db: Session, world: World, body: RelationshipIn, user: User) -> RelationshipOut:
+    """Make it canon here, for a relationship planned before (the same two entries, either way round)."""
+    r = _relationship(db, world, body.make_canon)  # type: ignore[arg-type]
+    if {r.a_id, r.b_id} != {body.a_id, body.b_id}:
+        raise HTTPException(422, "That relationship joins other entries.")
+    sent = body.model_fields_set - {"make_canon", "planned_in_journal_id", "planned_evidence", "type_id", "a_id",
+                                    "b_id", "standing"}
+    r.standing = "canon"
+    if "established_in_chapter_id" in sent:
+        r.established_in_chapter_id = _chapter_in_world(db, world, body.established_in_chapter_id)
+    if "evidence" in sent:
+        r.evidence = _clean(body.evidence)
+    set_bounds(db, world, r, body, sent)
+    if "role" in sent and body.role:
+        r.role = clean_role(body.role)
+    check_span(db, world, r)
+    r.version += 1
+    r.updated_by = user.id
+    db.commit()
+    t = db.get(RelationType, r.type_id)
+    a, b = db.get(Entity, r.a_id), db.get(Entity, r.b_id)
+    assert t is not None and a is not None and b is not None
     return relationship_out(r, t, a, b)
 
 
@@ -605,6 +700,7 @@ def update_relationship(slug: str, rel_id: uuid.UUID, body: RelationshipUpdate, 
     if "established_in_chapter_id" in sent:
         r.established_in_chapter_id = _chapter_in_world(db, world, body.established_in_chapter_id)
     set_bounds(db, world, r, body, sent)
+    set_planned_in(db, world, r, body, sent)
     if "role" in sent:
         r.role = clean_role(body.role)
     check_span(db, world, r)
@@ -638,12 +734,15 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
     # every canon fact (the bible's tables filter and group by them), and the labels of all of them, whatever their
     # standing (the labels an entry has, for "Add:" and expected labels)
     facts: dict[uuid.UUID, list[dict]] = {}
+    # planned facts, apart: cards in the Journal show them, marked (docs/SPEC.md §14.1.1); a chapter's don't
+    planned: dict[uuid.UUID, list[dict]] = {}
     labels: dict[uuid.UUID, set[str]] = defaultdict(set)
     for f in db.scalars(select(Fact).where(Fact.world_id == world.id).order_by(Fact.entity_id, Fact.position)):
         labels[f.entity_id].add(norm(f.label))
-        if f.standing == "canon":
-            facts.setdefault(f.entity_id, []).append({"label": f.label, "value": f.value, "from": _sid(f.from_chapter_id),
-                                                      "until": _sid(f.until_chapter_id), **card_times(f)})
+        if f.standing in ("canon", "planned"):
+            (facts if f.standing == "canon" else planned).setdefault(f.entity_id, []).append(
+                {"label": f.label, "value": f.value, "from": _sid(f.from_chapter_id),
+                 "until": _sid(f.until_chapter_id), **card_times(f)})
     relations: dict[uuid.UUID, list[dict]] = {}
     for r in relationships_of(db, world):
         span = {"from": _sid(r.from_chapter_id), "until": _sid(r.until_chapter_id), **card_times(r)}
@@ -663,6 +762,8 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
                 "labels": sorted(labels.get(e.id, ())), "project": projects.get(e.project_id) if e.project_id else None,
                 "gender": e.gender}
         # an event's "when" and an era's colour, so a time's era is found on the device (docs/SPEC.md §13.2.1)
+        if planned.get(e.id):
+            card["planned"] = planned[e.id]
         if e.kind == "event":
             when = event_when(e)
             if when:
@@ -819,4 +920,12 @@ def entity_world_detail(db: Session, world: World, e: Entity) -> dict:
         for ch in db.scalars(select(Chapter).join(Project, Project.id == Chapter.project_id)
                              .where(Chapter.id.in_(ids))):
             chapter_titles[str(ch.id)] = ch.title
-    return {"facts": facts, "relationships": rels, "chapter_titles": chapter_titles}
+    # where things were planned: each journal entry's date and title (docs/SPEC.md §14.1.2)
+    journal_entries = {}
+    jids = {x["planned_in_journal_id"] for x in [*facts, *rels] if x.get("planned_in_journal_id")}
+    if jids:
+        for j in db.scalars(select(JournalEntry).where(JournalEntry.id.in_(jids))):
+            journal_entries[str(j.id)] = {"id": str(j.id), "date": j.entry_date.isoformat(), "title": j.title,
+                                          "body": j.body}
+    return {"facts": facts, "relationships": rels, "chapter_titles": chapter_titles,
+            "journal_entries": journal_entries}

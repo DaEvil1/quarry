@@ -6,6 +6,7 @@ import { ENTITY_KINDS, type EntityRef, type Presence } from "../types";
 import type { Card } from "./cards";
 import { missingKey, missingLabels } from "./labels";
 import type { Hit, Matcher } from "./matcher";
+import { markers } from "./markers";
 
 export type EditorName = "proofreader" | "continuity" | "connections" | "archivist" | "looseEnds";
 
@@ -14,7 +15,7 @@ export const EDITORS: { name: EditorName; label: string; about: string }[] = [
   { name: "continuity", label: "Continuity", about: "dead but named, before being born, conflicting facts, point of view, places inside themselves" },
   { name: "connections", label: "Connections", about: "names that share a sentence or paragraph with no recorded link, and where people are" },
   { name: "archivist", label: "Archivist", about: "possible new names, entries without a one-liner, spellings worth adding, expected labels, entries of another book's bible, evidence in Salvage" },
-  { name: "looseEnds", label: "Loose ends", about: "TK placeholders, margin notes, thoughts stashed for this chapter, your note for next time" },
+  { name: "looseEnds", label: "Loose ends", about: "TK and ?? markers, margin notes, items made from or stashed in this text, your note for next time" },
 ];
 
 export type Strength = "strong" | "medium" | "weak";
@@ -59,6 +60,9 @@ export interface AnalyseInput {
   expected?: (kind: string) => string[];
   /** evidence resting on passages in retired chapters, from the server (docs/SPEC.md §13.6.3) */
   evidence?: { key: string; kind: "fact" | "relationship" | "telling"; id: string; message: string; entities: EntityRef[]; found: { id: string; title: string }[] }[];
+  /** a journal entry, not a chapter (docs/SPEC.md §14.1.1): a %% line is ordinary text there, and "is at" is per
+   * chapter, so there is no "Where are they?" */
+  journal?: boolean;
 }
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}:${b}` : `${b}:${a}`);
@@ -131,7 +135,7 @@ function lineAround(text: string, at: number): string {
 const around = (text: string, from: number, to: number) => text.slice(Math.max(0, from - 12), to + 12).replace(/\s+/g, " ").trim().toLowerCase();
 
 export function analyse(input: AnalyseInput): Finding[] {
-  const text = storyText(input.text);
+  const text = input.journal ? input.text : storyText(input.text);
   const layout = new Layout(text);
   const out: Finding[] = [];
   const keep = (f: Finding) => {
@@ -293,7 +297,7 @@ export function analyse(input: AnalyseInput): Finding[] {
     found.forEach(keep);
     // where are they: several places around them, none recorded
     const here = new Set(input.presence.map((p) => p.entity_id));
-    for (const [id, places] of placesNear) {
+    for (const [id, places] of input.journal ? [] : placesNear) {
       if (places.size < 2 || here.has(id)) continue;
       const who = ref(id);
       keep({ editor: "connections", rule: "where", key: id, a: who, places: [...places].sort((x, y) => y[1] - x[1]).map(([p]) => ref(p)),
@@ -368,12 +372,12 @@ export function analyse(input: AnalyseInput): Finding[] {
   }
 
   // ---- Loose ends (from the text: the rest comes from the server) ----
-  const tk = /\bTK\b/g;
-  for (let m = tk.exec(text); m; m = tk.exec(text)) {
-    keep({ editor: "looseEnds", rule: "tk", key: around(text, m.index, m.index + 2), from: m.index, to: m.index + 2, message: `TK: ${lineAround(text, m.index)}` });
+  for (const m of markers(text)) {
+    keep({ editor: "looseEnds", rule: m.kind === "tk" ? "tk" : "unsure", key: around(text, m.from, m.to), from: m.from, to: m.to,
+      message: `${m.kind === "tk" ? "TK" : "??"}: ${lineAround(text, m.from)}` });
   }
   MARGIN.lastIndex = 0;
-  for (let m = MARGIN.exec(input.text); m; m = MARGIN.exec(input.text)) {
+  for (let m = input.journal ? null : MARGIN.exec(input.text); m; m = MARGIN.exec(input.text)) {
     const note = m[0].replace(/^[ \t]*%%\s*/, "");
     keep({ editor: "looseEnds", rule: "margin", key: note.toLowerCase(), from: m.index, to: m.index + m[0].length, message: note || "(an empty margin note)" });
   }

@@ -48,7 +48,7 @@ export const saveSessionNote = (world: string, chapterId: string, note: string, 
   put<SessionNote>(`${base(world)}/chapters/${chapterId}/session-note`, { note, cursor });
 
 export const chapterItems = (world: string, chapterId: string) =>
-  get<{ id: string; kind: string; title: string | null; body: string }[]>(`${base(world)}/chapters/${chapterId}/items`);
+  get<{ id: string; kind: string; title: string | null; body: string; passage: string | null }[]>(`${base(world)}/chapters/${chapterId}/items`);
 
 /** Pairs of entries with any recorded relationship, either way round. */
 export async function linkedPairs(world: string): Promise<Set<string>> {
@@ -83,4 +83,8 @@ export interface PanelActions {
   stash(): void;
   update(): void;
   goBack(): void;
+  /** a TK or ?? line: make it a question, with the line as the passage (docs/SPEC.md §14.3.2) */
+  question?(f: Finding): void;
+  /** resting on an item made from a passage marks the passage in the text (null: unmark) */
+  showPassage?(passage: string | null): void;
 }

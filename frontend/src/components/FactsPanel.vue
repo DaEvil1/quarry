@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { addFact, deleteFact, setLabelSwitches, updateFact, type KindSuggestions } from "../bible";
+import PlannedIn from "./PlannedIn.vue";
 import { ENTITY_KINDS, type Entity, type Fact, type Span, type Standing, type StoryChapter } from "../types";
 import { filterText } from "../world/labels";
 import { factsAsOf, norm, type At, type IndexOf } from "../world/time";
@@ -22,6 +23,8 @@ const props = defineProps<{
   /** does this label hold several values at once for the entry's kind? */
   several: (label: string) => boolean;
   chapterTitles: Record<string, string>;
+  /** the journal entries facts were planned in (docs/SPEC.md §14.1.2) */
+  journalEntries?: Record<string, { id: string; date: string; title: string | null; body: string }>;
   timeline: StoryChapter[];
   /** "as of" a point on the clock: facts that don't hold then are dimmed */
   asOf: At | null;
@@ -35,6 +38,7 @@ const router = useRouter();
 
 const label = ref("");
 const value = ref("");
+const newStanding = ref<Standing>("planned");
 const labelBox = ref<HTMLInputElement | null>(null);
 const valueBox = ref<HTMLInputElement | null>(null);
 const STANDINGS: Standing[] = ["canon", "planned", "rumour"];
@@ -68,8 +72,10 @@ async function run(fn: () => Promise<unknown>) {
 
 function add() {
   if (!label.value.trim()) return;
-  const body = { label: label.value, value: value.value };
+  // added on the entry page, a fact is planned until it is in the book or marked canon (docs/SPEC.md §14.1.2)
+  const body = { label: label.value, value: value.value, standing: newStanding.value };
   label.value = value.value = "";
+  newStanding.value = "planned";
   prompt.value = null;
   labelBox.value?.focus();
   void run(async () => {
@@ -156,6 +162,7 @@ const filterLink = (f: Fact) => ({ name: "bible-kind", params: { world: props.wo
                 @save="(v) => set(r.facts[0]!, { evidence: v || null })"
               /><template v-if="r.facts[0]!.evidence && r.facts[0]!.established_in_chapter_id"> — {{ props.chapterTitles[r.facts[0]!.established_in_chapter_id] ?? "a chapter" }}</template>
             </div>
+            <PlannedIn v-if="r.facts[0]!.planned_in_journal_id" :world="props.world" :entry="props.journalEntries?.[r.facts[0]!.planned_in_journal_id]" :passage="r.facts[0]!.planned_evidence" />
           </td>
           <td v-else class="grow" :colspan="3">
             <div class="value-chips" data-testid="value-chips">
@@ -196,6 +203,9 @@ const filterLink = (f: Fact) => ({ name: "bible-kind", params: { world: props.wo
       <input ref="labelBox" v-model="label" class="filter" list="fact-labels" placeholder="Label (e.g. eye colour)" aria-label="New fact label" maxlength="100" />
       <datalist id="fact-labels"><option v-for="s in unused" :key="s" :value="s" /></datalist>
       <input ref="valueBox" v-model="value" class="filter grow" :list="listFor(label)" placeholder="Value" aria-label="New fact value" maxlength="5000" />
+      <select v-model="newStanding" class="filter" aria-label="New fact standing" title="Planned until it is in the book; one click to canon">
+        <option v-for="s in STANDINGS" :key="s" :value="s">{{ s }}</option>
+      </select>
       <button class="btn btn-sm" type="submit" :disabled="!label.trim()">Add</button>
     </form>
     <datalist v-for="[l, id] in valueLists" :id="id" :key="id" :data-label="l">

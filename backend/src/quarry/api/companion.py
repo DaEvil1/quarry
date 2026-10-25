@@ -524,11 +524,17 @@ def put_session_note(slug: str, chapter_id: uuid.UUID, body: SessionNoteIn, user
 @router.get("/chapters/{chapter_id}/items")
 def chapter_items(slug: str, chapter_id: uuid.UUID, user: User = Depends(current_user),
                   db: Session = Depends(get_db)) -> list[dict]:
-    """Open items tied to this chapter (thoughts stashed while writing it, among others)."""
+    """Open items tied to this chapter (thoughts stashed while writing it, and items made from its passages)."""
     world, _ = member_world(db, user, slug)
     _chapter(db, world, chapter_id)
-    rows = db.scalars(select(Item).join(ItemLink, ItemLink.item_id == Item.id)
-                      .where(ItemLink.target_table == "chapter", ItemLink.target_id == chapter_id,
+    return linked_items(db, world, "chapter", chapter_id)
+
+
+def linked_items(db: Session, world: World, table: str, target_id: uuid.UUID) -> list[dict]:
+    """Open items linked to a chapter or journal entry, each with the passage it was made from (if any)."""
+    rows = db.execute(select(Item, ItemLink.passage).join(ItemLink, ItemLink.item_id == Item.id)
+                      .where(ItemLink.target_table == table, ItemLink.target_id == target_id,
                              Item.world_id == world.id, Item.status == "open")
-                      .order_by(Item.created_at))
-    return [{"id": str(i.id), "kind": i.kind, "title": i.title, "body": i.body} for i in rows]
+                      .order_by(Item.created_at)).all()
+    return [{"id": str(i.id), "kind": i.kind, "title": i.title, "body": i.body, "passage": passage}
+            for i, passage in rows]

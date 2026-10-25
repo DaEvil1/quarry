@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 
 import { ApiError, post, unreachable } from "../api";
 import { localDb, type PendingCapture, type PendingCut } from "../localdb";
+import { sendPendingEntries } from "../offline";
 
 /**
  * Captures, and passages cut to the bin, waiting to reach the server. Each is stored on the device first and sent
@@ -45,6 +46,9 @@ export const useOutbox = defineStore("outbox", {
         source: capture.source,
         entities: capture.entities ?? [],
         chapterId: capture.chapterId,
+        journalId: capture.journalId,
+        passage: capture.passage,
+        status: capture.status,
       };
       await localDb.outbox.put(row);
       await this.refresh();
@@ -59,6 +63,14 @@ export const useOutbox = defineStore("outbox", {
       await this.refresh();
       await this.send();
       return !this.cuts.some((c) => c.id === row.id);
+    },
+
+    /** Undo a capture that never left the device. Resolves false if it was sent already (remove it on the server). */
+    async dropCapture(id: string): Promise<boolean> {
+      const there = await localDb.outbox.get(id);
+      if (there) await localDb.outbox.delete(id);
+      await this.refresh();
+      return !!there;
     },
 
     /** Undo a cut that never left the device. Resolves false if it was sent already (remove it on the server). */
@@ -101,8 +113,9 @@ export const useOutbox = defineStore("outbox", {
         for (const p of await localDb.outbox.orderBy("capturedAt").toArray()) {
           if (p.error) continue;
           going = await deliver(
-            () =>
-              post(`/api/worlds/${encodeURIComponent(p.world)}/items`, {
+            async () =>
+              // a journal entry made offline goes first, so the item can be linked to it
+              (p.journalId ? sendPendingEntries(p.world, p.journalId) : Promise.resolve()).then(() => post(`/api/worlds/${encodeURIComponent(p.world)}/items`, {
                 id: p.id,
                 body: p.body,
                 kind: p.kind,
@@ -111,7 +124,10 @@ export const useOutbox = defineStore("outbox", {
                 captured_at: p.capturedAt,
                 entities: p.entities ?? [],
                 chapter_id: p.chapterId ?? null,
-              }),
+                journal_id: p.journalId ?? null,
+                passage: p.passage ?? null,
+                status: p.status ?? "open",
+              })),
             () => localDb.outbox.delete(p.id),
             (error) => localDb.outbox.update(p.id, { error }),
           );

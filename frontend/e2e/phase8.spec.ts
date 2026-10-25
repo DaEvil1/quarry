@@ -29,7 +29,8 @@ test("the graph centred on someone: who they know directly, and through one othe
   const rel = page.getByTestId("relationships");
   await rel.getByLabel("Bible entry").fill("Brannoch");
   await page.keyboard.press("Enter");
-  await rel.getByLabel("How they're connected").selectOption({ label: "friend of" });
+  await rel.getByLabel("How they\'re connected").selectOption({ label: "friend of" });
+  await rel.getByLabel("New relationship standing").selectOption("canon");
   await rel.getByRole("button", { name: "Add", exact: true }).click();
   await expect(rel.locator("dl")).toContainText("Brannoch");
 

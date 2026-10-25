@@ -80,9 +80,13 @@ test("the name check finds a misspelling across an item and the journal; fixed a
   await capture("Isolda waits on the pier. Quietly, Tomasz watches.");
   await page.goto(`${W}/journal`);
   await page.getByRole("button", { name: "New entry" }).click();
-  await page.getByLabel("Title").fill("What now?");
-  await page.getByLabel("Entry").fill("Does Isolda know what the Grey Keeper saw?");
-  await page.getByRole("button", { name: "Save" }).click();
+  // a journal entry opens in the editor (docs/SPEC.md §14.1.1)
+  await page.waitForURL(/\/journal\/[0-9a-f-]{36}$/);
+  await page.getByLabel("Entry title").fill("What now?");
+  await page.getByTestId("editor").locator(".cm-content").click();
+  await page.keyboard.type("Does Isolda know what the Grey Keeper saw?");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved", { timeout: 10_000 });
+  await page.goto(`${W}/journal`);
   await expect(page.getByTestId("journal-entry").first()).toContainText("What now?");
 
   await page.goto(`${W}/names`);
