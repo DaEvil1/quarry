@@ -169,6 +169,8 @@ Bible pages show:
   From phase 15, the export has a `Pictures/` folder with each picture's file, texts link their pictures by a path
   relative to the file, entries carry their gallery (`pictures:`) and `world.md` lists the pictures with their names;
   Restore links them up again, and takes zips of up to 1 GB (§17.6).
+  From phase 16, journal entries also carry whether they are a plan and the chapters they are for (`plan:`,
+  `chapters:`, §18).
 - **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. Revision history stays in the database and is not part of an export.
 - **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
@@ -227,6 +229,11 @@ quarry/                      # public GitHub repo (code only)
     the editor and left out of the counts and the compiled manuscript; the pictures of the offline copy kept on the
     phone; a Pictures page in World settings; and pictures in the export and Restore. Designed in §17, with a *done
     when* per part.
+16. **A chapter's plan**: a journal entry can be marked as a plan and linked to the chapters it is for (several plans
+    per chapter, several chapters per plan), opened beside the chapter half and half on the desk (and flipped to on the
+    phone) in the journal editor so planning goes on while writing, a plan with no chapter yet waiting on the project
+    page until *Start a chapter from it*, and items and facts from a plan reaching its chapter. Designed in §18, with a
+    *done when* per part.
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -1782,7 +1789,7 @@ the end of the story (or as of the chosen point, §13.7.4).
 - **Smooth** at a few hundred places: the same budget as the graph's.
 - **From the Timeline**: brushing a span there drives the chart's *as of* (§13.7.5).
 - **Not a drawn map.** The chart doesn't replace an uploaded map image with pinned places, which stays on the later
-  list (WORLD-MODEL.md §6; §18).
+  list (WORLD-MODEL.md §6; §19).
 
 **Data:**
 
@@ -3507,7 +3514,7 @@ walkthrough 4 plays the new step with no skipped step in the end-to-end run.
 
 ### 17.10 Toward a drawn map
 
-The drawn map (an uploaded map image with places pinned on it, WORLD-MODEL.md §6) stays on the later list (§18), and
+The drawn map (an uploaded map image with places pinned on it, WORLD-MODEL.md §6) stays on the later list (§19), and
 isn't specified here. This work makes it smaller: the map image is a picture, uploaded, kept, copied for the phone,
 cached offline and carried by the export and Restore as above. What is left for it is the pins (a picture, a place
 entry, and where on the picture it sits, as fractions of its width and height), the view that draws them with *as of*,
@@ -3522,7 +3529,247 @@ Thomas's answers are in DECISIONS.md (2026-10-26):
 - picture lines are left out of the compiled manuscript (§17.3);
 - the demo world gets three made-up pictures drawn in code, and walkthrough 4 one step (§17.8).
 
-## 18. Out of scope (for now)
+## 18. A chapter's plan (phase 16)
+
+Thomas plans a chapter by writing a planning session first (what has to happen, who is there, what it is for, loose
+ideas), then writes the chapter with that plan open beside it, half the screen each. He goes back to the plan while
+writing, adds to it, and some plans exist before their chapter does; a chapter can have more than one (a first plan,
+and a second after the first didn't hold). Today a plan can live in the Journal, but nothing ties it to its chapter, and
+the editor shows one text at a time.
+
+Phase 16 keeps that flow and builds it from what exists. **A plan is a journal entry** marked as a plan and **linked to
+its chapters**, and the chapter page can **open it beside the chapter**, in the same editor the Journal already has
+(§14.1.1): names coloured, cards, *Record a fact* as planned, sparks and questions from a passage, `??` loose ends,
+autosave, History and the offline copy. Nothing new is written, only a link and a second pane.
+
+Considered and not chosen (Thomas): a new kind of plan document owned by one chapter, which would repeat the Journal's
+tools and couldn't cover several chapters; and a plan assembled only from structures (planned facts, tasks, decisions
+tied to the chapter), which loses the free planning session that comes first.
+
+The principles hold. Nothing here writes, suggests or judges story content: the plan is the writer's own text, shown as
+written. Nothing has to be filled in: a chapter needs no plan, a plan needs no chapter, and the split opens only when
+asked. Nothing appears while typing. The compiled manuscript stays pure prose: the plan is never part of the chapter's
+text.
+
+Examples use made-up names. In *The Salt Road*, chapter 4 is *The Quay*. The Journal has *Plan: The Quay* (3 October
+2026) and a second, *The Quay again* (14 October 2026), written after the first draft stalled, and *After the flood*
+(20 October 2026), a plan for a chapter not written yet.
+
+### 18.1 A plan is a journal entry
+
+- **The mark.** A journal entry's head gains a small **Plan** switch beside its project. A plan is an ordinary journal
+  entry in every other way: dated, in the Journal list, read by the planning reading (§14.2) and *since this was
+  written* (§14.5), exported in `Journal/`.
+- **Linked to chapters.** A plan's head shows what it is for: `Plan for: chapter 4, The Quay · + chapter`. *+ chapter*
+  picks from the current chapters and experiment drafts of the plan's project (of every project, for a plan with no
+  project), type to filter. Each chapter is a chip with `×` to unlink, and *Undo* in its toast. Linking an entry that
+  isn't marked as a plan marks it.
+- **Several of each.** One plan can be for several chapters (a plan for chapters 4 to 6 opens beside each of them), and
+  a chapter can have several plans (*Plan: The Quay* and *The Quay again*).
+- **From the chapter.** The chapter's side panel has a **Plans** section listing its plans, newest first, each with its
+  date and *Open beside*; under them **New plan**, which makes a journal entry dated today in the chapter's project,
+  titled `Plan: The Quay`, marked and linked, and opens it beside the chapter; and **Link a plan…**, a picker of journal
+  entries (plans with no chapter yet first, then other plans, then other entries, newest first, type to filter).
+- **Unmarking.** Switching *Plan* off on an entry linked to chapters says so first (`This is the plan for chapter 4, The
+  Quay. Unlink it and unmark it?`) and removes the links, with *Undo*.
+- **In the Journal list**, a plan carries a quiet tag after its date, `plan · chapter 4, The Quay` (`plan · 3
+  chapters`, `plan · no chapter yet`), and the list gets a filter **All · Plans**, kept in the address (`?plans=1`).
+- **Deleting** a plan says so in the journal entry's delete warning (`It is the plan for chapter 4, The Quay.`); the
+  links go with it. Deleting a chapter (only an empty one with no history can be) removes its links; the plan stays.
+- **Linking, unlinking and the mark need the network**, as a journal entry's date and project do (DECISIONS,
+  2026-10-25). Reading and editing a plan works offline (§18.2).
+
+*Done when* *Plan: The Quay* switched to *Plan* and linked to chapter 4 shows `Plan for: chapter 4, The Quay` in its
+head and `plan · chapter 4, The Quay` in the Journal list, where *Plans* lists it; *New plan* in chapter 4's side panel
+makes *Plan: The Quay* dated today, linked and open beside the chapter; *Link a plan…* adds *The Quay again* as a second
+plan; a plan linked to chapters 4 and 5 is listed in both chapters' Plans; and unmarking a linked plan asks first and
+unlinks it, with *Undo*.
+
+### 18.2 The plan beside the chapter
+
+**On the desk.**
+
+- **Opening it.** **Plan** in the chapter's toolbar, beside *Panel* and *History*, splits the page: the chapter on the
+  left, the plan on the right. **Ctrl+Shift+P** opens the split and puts the cursor in the plan; pressed again it moves
+  the cursor back to the chapter, and so on between the two. *Plan* again, or the plan pane's `×`, closes the split. A
+  chapter with no plan opens the split on an empty pane with *New plan* and *Link a plan…*.
+- **Half each, to start.** The two panes share the page's whole width (the editor's width, DECISIONS 2026-10-25), half
+  each, with a divider between them that drags from 30% to 70%; a double-click puts it back to half. The divider's place
+  is kept per device. Each pane centres its text at up to the editor's measure (about 70ch) and wraps it to the pane when
+  the pane is narrower. While the split is open the companion panel folds away; *Panel* opens it again, over the chapter's
+  side, and it is the chapter's companion.
+- **Several plans** show as tabs at the top of the plan pane, newest first (`Plan: The Quay · 3 Oct` · `The Quay again ·
+  14 Oct`), with *Open in the Journal* beside them. The tab last chosen is kept per chapter on the device.
+- **The plan pane is the journal editor**, editable, so planning goes on while writing: names coloured, cards, the
+  quick-fix strip, the selection strip (*Record a fact*, *Record as event*, *Spark*, *Question*), F8 within the plan,
+  search in it (Ctrl+F while the cursor is there), its own save status, word count, autosave, revisions and conflict
+  copies, as for any journal entry. Each pane has its own undo. The journal entry's side panel isn't shown; *Open in the
+  Journal* has it.
+- **Cards in the plan pane** read as of the chapter beside it, not the end of the story, since the plan is about that
+  point: planned rows show, marked `planned`, as in the Journal (§14.1.1).
+- **Drafting and Revising** is one switch for the page; focus mode and typewriter scrolling apply to the pane the cursor
+  is in.
+- **What stays the chapter's.** The page is the chapter's: its title, toolbar, Checkpoint (Ctrl+S checkpoints the pane
+  the cursor is in), History button (the chapter's; the plan's History is in the Journal), word history, and the note for
+  next time asked on leaving (words typed in the plan don't count toward its 30). Leaving from the split doesn't ask for
+  the plan's own note.
+- **Remembered.** Whether the split was open, and on which plan, is kept per chapter on the device, so a chapter opened
+  again comes back as it was left. A chapter never opens its plan by itself the first time. `?plan=<journal id>` in the
+  address opens the split on that plan, which is how links into it work (§18.3).
+- **Narrow windows.** Where the window is too narrow for two readable panes (under 1,000 px), *Plan* toggles as on the
+  phone.
+
+**On the phone**, and in narrow windows:
+
+- **Plan** in the chapter's toolbar flips the screen between the chapter and the plan, full screen each; a tab at the
+  top says which is shown (`The Quay · Plan`) and flips back. Each keeps its own scroll and cursor, so flipping back and
+  forth costs nothing. Several plans are chosen with the same tabs, above the plan.
+
+**Offline.** Plans are journal entries, so they are in the offline copy (§14.1.1), and the offline copy carries each
+entry's mark and its chapters, so the split opens, reads and takes typing with no network.
+
+**Performance.** Typing in one pane does no work in the other: the other pane only updates when its own text changes.
+The typing budget (DECISIONS, 2026-10-22) holds in either pane with a 10,000-word chapter beside a 10,000-word plan and
+400 entries, also at 4× slower CPU.
+
+*Done when* *Plan* on chapter 4 opens *Plan: The Quay* on the right half with its names coloured; Ctrl+Shift+P moves the
+cursor between the two and typing in the plan autosaves it as a journal revision; the divider drags and keeps its place
+after a reload; the tabs switch to *The Quay again*; a card in the plan shows a fact planned from chapter 6 as not yet
+holding at chapter 4; closing and reopening chapter 4 brings the split back on the same plan; on the phone *Plan* flips
+to the plan and back with the cursor where it was in each; in airplane mode the split opens and takes typing; and the
+typing budget holds in both panes.
+
+### 18.3 A plan before its chapter
+
+A plan can be written long before its chapter exists, and needn't know where the chapter will go.
+
+- **On the project page**, under the manuscript list, a section **Plans with no chapter yet**: the project's plans
+  linked to no chapter, oldest first, each with its date, title, first line and **Start a chapter from it** · *Open*.
+  It hides while empty.
+- **Start a chapter from it** asks where, in one row: *at the end* (the default) or *after chapter …* (a picker of the
+  project's chapters). It makes an empty current chapter there, titled as the plan is (and editable as any title), links
+  the plan to it, and opens the chapter with the plan beside it (`?plan=`). The toast says `Chapter 7, After the flood ·
+  from its plan · Undo`; *Undo* deletes the chapter while it is still empty and has no history, as deleting a chapter
+  allows, and the plan is back under *Plans with no chapter yet*.
+- **A plan with no project** (for the whole world) is found under the Journal's *Plans* filter; *Start a chapter from
+  it* there asks for the project first.
+- **On the manuscript list**, a chapter with plans shows a small quiet `plan` (`2 plans`), which opens the chapter with
+  its plan beside it.
+- Nothing else counts or lists plans: no plan count in the nav, nothing that asks for a plan.
+
+*Done when* *After the flood*, a plan in *The Salt Road* linked to no chapter, is listed under *Plans with no chapter
+yet*; *Start a chapter from it* after chapter 6 makes an empty chapter 7, *After the flood*, opens it with the plan
+beside it and drops the plan from that list; *Undo* deletes the chapter and lists the plan again; a whole-world plan
+asks for a project first; and chapter 4 shows `2 plans` on the manuscript list.
+
+### 18.4 From the plan to the chapter
+
+A plan is reference: it isn't ticked off, and Quarry doesn't say whether the chapter follows it. What is worth keeping
+track of goes through the structures that already have a state, and the link makes them reach the chapter in one step.
+
+- **Record a fact** (§14.1.2) in the plan pane records the fact as *planned*, planned in the plan with the passage, as in
+  any journal entry. Its span picker offers the chapter beside it, as a decision's named chapter is offered (§16.1):
+  `The chapter beside: chapter 4, The Quay · From · Until`, used only after a click. In the chapter, *Make it canon here*
+  then works as it does today.
+- **A spark, question or task from a passage** of a plan (§14.3.1) gets a chapter chip: in the split, the chapter beside
+  it, **ticked**; in the Journal, each of the plan's chapters, ticked when there is just one. The item is linked to the
+  plan with the passage, as today, and to each ticked chapter, so it shows in that chapter's Loose ends.
+- **Decisions** made while planning a chapter take follow-ups as in §16; nothing new.
+- **No links from a plan line to a paragraph** (Thomas). A position kept for a line drifts as the chapter is rewritten,
+  and an anchor in the chapter's text would put the plan into the prose. The link is the chapter.
+- **Nothing is ticked.** A plan has no *followed* or *done*; the writer can strike a line out or write `done` in it, which
+  is just text.
+- **Experiments.** Starting an experiment links each draft to the plans of the chapters it replaces: a draft from a copy
+  gets its own chapter's plans, a draft from scratch the plans of every chapter in the range (an experiment that only adds
+  chapters links none). Accepting or rejecting changes no links: a retired chapter keeps its plans, and the plan's chip
+  for it says `in Salvage`. Plans aren't part of the review before retiring (§13.6.2); nothing about them can break.
+
+*Done when* *Record a fact* in *Plan: The Quay* beside chapter 4 offers `The chapter beside: chapter 4, The Quay`, and the
+fact is planned in the plan from chapter 4 after a click; *Question* on a passage of the plan in the split ticks chapter 4,
+and the question shows in chapter 4's Loose ends; an experiment on chapter 4 from a copy has both plans beside its draft;
+after accepting it, *Plan: The Quay* is for the new chapter 4 and shows the old one `in Salvage`; and there is nowhere to
+tick a plan done.
+
+### 18.5 Data model, export and Restore
+
+```sql
+journal        + is_plan boolean NOT NULL default false
+chapter_plans (
+  chapter_id   → chapters  ON DELETE CASCADE,
+  journal_id   → journal   ON DELETE CASCADE,
+  created_by, created_at,
+  PRIMARY KEY (chapter_id, journal_id)
+)
+```
+
+A table of its own because the link runs many to many both ways. Linking an entry sets `is_plan`; the mark is kept on its
+own so a plan with no chapter yet is still a plan.
+
+**Endpoints:**
+
+- `PATCH /journal/<id>` takes `is_plan`, saved without the version check, as a journal entry's date and project are;
+  `false` removes its links.
+- `PUT` and `DELETE /journal/<id>/chapters/<chapter id>` link and unlink.
+- `POST /journal/<id>/start-chapter` takes the project and `after` (a chapter id, or none for the end), and returns the
+  new chapter.
+- `GET /chapters/<id>` carries its plans (id, title, date); `GET /journal` carries each entry's `is_plan` and chapters,
+  and takes `plans=1` and `plans=unlinked` with a project; `GET /offline` carries the same for the journal entries it
+  sends.
+- `POST /items` already takes a journal entry with a passage; with it, it takes `chapter_ids` to link as well.
+- Starting an experiment links its drafts in the same transaction (§18.4).
+
+**Export** writes, in a journal entry's frontmatter, `plan: true` and `chapters: [<chapter id>, …]` (current,
+experiment or retired). **Restore** reads the Journal after the chapters, so it relinks them through its map of the
+export's chapter ids; a chapter id it can't find is skipped, and the entry stays a plan. An older export has neither key.
+
+**For the move from the Google Doc** (§8), a plan is a file in `Journal/` like any other, with `plan: true`, `project:`,
+and `chapters:` naming the `id`s of the chapter files it is for; a plan for a chapter not written yet has no `chapters:`
+and is listed under *Plans with no chapter yet*.
+
+*Done when* the table and endpoints exist with their migration; deleting a plan or an empty chapter removes their links;
+and exporting and restoring a world keeps every plan with its chapters, including one for a retired chapter and one with
+no chapter.
+
+### 18.6 The demo world and the Guide
+
+**The demo world** (backend/src/quarry/demo.py) gains three plans, planted through the export layout like the rest:
+
+- *What the River Kept, first plan* (2026-09-20) and *What the River Kept, again* (2026-10-04), both for chapter 3 of
+  The Ferryman's Daughter, so it shows two tabs. The second has a fact on Brother Cade recorded from it as planned and a
+  `??` line.
+- *After the Locks* (2026-10-18), a plan in The Ferryman's Daughter with no chapter yet, under *Plans with no chapter yet*.
+
+**The Guide** (§15) gains a fourteenth walkthrough:
+
+| # | Walkthrough | Min | What it does |
+|---|---|---|---|
+| 14 | Planning a chapter | 1 | Chapter 3 with *Plan* open beside it; the two plans' tabs; a line typed in the plan and Ctrl+Shift+P back to the chapter; a card in the plan as of chapter 3; a question from a plan passage, ticked for chapter 3 and in its Loose ends; *After the Locks* on the project page and *Start a chapter from it*; the same chapter on the phone, flipping to the plan and back. Points at dragging the divider. |
+
+The Guide's total becomes about 27 minutes, and the end-to-end run plays it with the others (§15.3).
+
+*Done when* loading the demo world shows chapter 3 with `2 plans`, both in its split, and *After the Locks* under *Plans
+with no chapter yet*; and the walkthrough plays with no skipped step in the end-to-end run.
+
+### 18.7 Not building
+
+- **A plan template**, beats, scene cards or an outline structure: a plan is written freely, as the Journal is (§14).
+- **Links from a plan line to a paragraph**, stored positions or anchors in the prose (§18.4).
+- **A followed or done state** on a plan or its lines; facts, tasks and decisions carry state where it is wanted.
+- **Opening the plan by itself**, or any prompt to write one.
+- **Scrolling the plan with the chapter**: the two panes scroll on their own.
+- **Other things beside the chapter** (another chapter, an entry page): cards, the thread reading and History cover
+  those; the split is for the chapter's plan.
+
+### 18.8 Open questions for phase 16
+
+None left. Thomas's answers are in DECISIONS.md (2026-10-26):
+
+- a plan is a journal entry, marked as a plan and linked to its chapters, opened beside the chapter (§18.1, §18.2);
+- a plan for a chapter not written yet waits on the project page until *Start a chapter from it* (§18.3);
+- no links from plan lines to paragraphs; the link is the chapter (§18.4);
+- and on the phone, *Plan* flips between the chapter and the plan (§18.2).
+
+## 19. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -3543,7 +3790,7 @@ Thomas's answers are in DECISIONS.md (2026-10-26):
   - calendars, or packs of real history: time stays a sortable number (§13.1.1);
   - a soundtrack feature: the share target already records where a link came from.
 
-## 19. Open questions
+## 20. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?
