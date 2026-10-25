@@ -44,7 +44,9 @@ Every entry has:
 - **One line** (a summary shown when hovering a name anywhere) and **notes** (free Markdown).
 - **Matching:**
   - *Match capitals exactly* is on by default; switch it off for names that are never ordinary words.
-  - For characters with a multi-word name, the *first name* also matches unless another entry claims it.
+  - For characters with a multi-word name, the *first name* also matches unless another entry is called that.
+    A first name or other name that two entries claim is *shared*: a bare use is ambiguous until a margin-note
+    line such as `%% Isolde: Isolde Marr` says who it means from there on ([SPEC.md](SPEC.md) §14.10).
   - *Not in this sense*: phrases where the name is an ordinary word ("rose garden" for a character called Rose),
     added from the card when a match is wrong, so it is never matched there again.
 - **Facts**: labelled values, optionally true only for a stretch of the story (§4).
@@ -283,7 +285,8 @@ the fact*, *intentional* (planted on purpose: never flagged again) or *later* (k
 
 **Margin notes.** A line starting with `%%` in a chapter is a note to yourself. It is shown dimmed, ignored by the
 word count and left out of the compiled manuscript and the export's `manuscript.md`. It is still exported (in the
-chapter file) so nothing is lost.
+chapter file) so nothing is lost. A margin note of the form `%% Isolde: Isolde Marr` is also a choice: it
+says which entry a shared name means from that line on ([SPEC.md](SPEC.md) §14.10).
 
 ## 8. Data model additions
 
