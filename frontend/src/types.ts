@@ -29,6 +29,8 @@ export interface World {
   /** one optional line about the world (docs/SPEC.md §14.4), and this person's focus in it (§14.9) */
   premise?: string | null;
   focus?: "writing" | "planning";
+  /** a Guide walkthrough's copy of the demo world (docs/SPEC.md §15) */
+  sandbox?: boolean;
 }
 
 export interface User {

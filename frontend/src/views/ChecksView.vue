@@ -26,14 +26,20 @@ watch(planned, (on) => {
   void load();
 });
 
+// only the latest load's answer counts: ticking Include planned while the page's first load is still on its way must
+// not be overwritten by that first answer arriving after it
+let loads = 0;
 async function load() {
   if (!world.value) return;
   error.value = "";
+  const me = ++loads;
   try {
-    [list.value, settled.value] = await Promise.all([checks(worldSlug.value, undefined, planned.value), resolutions(worldSlug.value)]);
+    const got = await Promise.all([checks(worldSlug.value, undefined, planned.value), resolutions(worldSlug.value)]);
+    if (me !== loads) return;
+    [list.value, settled.value] = got;
     loaded.value = true;
   } catch (e) {
-    error.value = (e as Error).message;
+    if (me === loads) error.value = (e as Error).message;
   }
 }
 watch(worldSlug, load, { immediate: true });

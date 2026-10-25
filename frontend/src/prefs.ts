@@ -62,7 +62,9 @@ export const DEFAULT_PREFS: WritingPrefs = {
 
 const KEY = "quarry.prefs";
 
-function read(): WritingPrefs {
+export const PREFS_KEY = KEY;
+
+export function readPrefs(): WritingPrefs {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<WritingPrefs>;
     return { ...DEFAULT_PREFS, ...raw, editors: { ...DEFAULT_PREFS.editors, ...(raw.editors ?? {}) } };
@@ -72,7 +74,7 @@ function read(): WritingPrefs {
 }
 
 export const usePrefs = defineStore("prefs", {
-  state: (): WritingPrefs => read(),
+  state: (): WritingPrefs => readPrefs(),
   actions: {
     set<K extends keyof WritingPrefs>(key: K, value: WritingPrefs[K]) {
       this[key] = value as never;

@@ -45,6 +45,7 @@ export const router = createRouter({
         },
         { path: "new-world", name: "new-world", component: () => import("./views/NewWorldView.vue") },
         { path: "settings", name: "settings", component: () => import("./views/SettingsView.vue") },
+        { path: "guide", name: "guide", component: () => import("./views/GuideView.vue"), meta: { width: "wide" } },
         { path: "w/:world", name: "world", component: () => import("./views/WorldView.vue") },
         { path: "w/:world/settings", name: "world-settings", component: () => import("./views/WorldSettingsView.vue") },
         { path: "w/:world/capture", name: "capture", component: () => import("./views/CaptureView.vue") },
@@ -81,7 +82,9 @@ export const router = createRouter({
 function currentWorld() {
   const s = useSession();
   const last = readLastUsed();
-  return (last.world && s.world(last.world)) || s.worlds[0];
+  // a Guide sandbox is only opened from the Guide or the switcher, never by itself
+  const w = last.world ? s.world(last.world) : undefined;
+  return (w && !w.sandbox ? w : undefined) ?? s.worlds.find((x) => !x.sandbox);
 }
 
 /**

@@ -22,6 +22,7 @@ from .api import (
     decisions,
     front,
     demo,
+    guide,
     history,
     items,
     journal,
@@ -79,12 +80,13 @@ class SecurityHeaders:
                 h += [
                     (b"x-content-type-options", b"nosniff"),
                     (b"referrer-policy", b"same-origin"),
-                    (b"x-frame-options", b"DENY"),
+                    # framed only by Quarry itself: the Guide shows the phone screens in a frame (docs/SPEC.md §15)
+                    (b"x-frame-options", b"SAMEORIGIN"),
                     # styles stay inline-friendly: the editor (CodeMirror) injects its own style elements
                     (b"content-security-policy",
                      b"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
                      b"script-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; "
-                     b"frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+                     b"frame-ancestors 'self'; base-uri 'self'; form-action 'self'"),
                 ]
                 if path.startswith("/assets/"):
                     h.append((b"cache-control", b"public, max-age=31536000, immutable"))
@@ -188,6 +190,7 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.include_router(restructure.router)
     app.include_router(manuscript.router)
     app.include_router(demo.router)
+    app.include_router(guide.router)
     app.include_router(transfer.router)
     app.include_router(world.router)
     app.include_router(storytime.router)

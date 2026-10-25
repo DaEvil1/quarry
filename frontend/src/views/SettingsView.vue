@@ -147,6 +147,7 @@ onMounted(() => Promise.all([loadKeys(), loadCodes(), loadOffline()]));
   <div class="page-head">
     <div>
       <h1>Settings</h1>
+      <p class="muted">New to something here? <RouterLink :to="{ name: 'guide' }" data-testid="settings-guide">The Guide</RouterLink> walks through it.</p>
     </div>
     <button type="button" class="btn btn-sm" @click="signOut">Sign out</button>
   </div>

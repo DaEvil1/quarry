@@ -35,6 +35,7 @@ Thumbs.db
 # Build and test output
 /backend/src/quarry/web/
 /frontend/test-results/
+/frontend/guide-videos/
 /frontend/playwright-report/
 /frontend/perf-results.json
 /frontend/perf-timeline.json
