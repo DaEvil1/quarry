@@ -55,6 +55,7 @@ export const router = createRouter({
         { path: "w/:world/bible/:id/read", name: "entity-read", component: () => import("./views/ThreadView.vue") },
         { path: "w/:world/checks", name: "checks", component: () => import("./views/ChecksView.vue") },
         { path: "w/:world/graph", name: "graph", component: () => import("./views/GraphView.vue") },
+        { path: "w/:world/timeline", name: "timeline", component: () => import("./views/TimelineView.vue") },
         { path: "w/:world/where", name: "where", component: () => import("./views/WhereView.vue") },
         { path: "w/:world/names", name: "names", component: () => import("./views/NameCheckView.vue") },
         { path: "w/:world/items/:id", name: "item", component: () => import("./views/ItemView.vue") },

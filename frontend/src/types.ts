@@ -120,6 +120,10 @@ export interface Entity extends EntityRef {
   gender: Gender | null;
   /** in the bible's list: the projects whose current chapters name it */
   named_in: string[];
+  /** an event's when (docs/SPEC.md §13.2.1): a chapter it happens in, a time, or outside time; null: not placed yet */
+  when?: { chapter: string | null; at: number | null; end: number | null; label: string | null; approx: boolean; outside: boolean } | null;
+  /** an era's colour */
+  era_colour?: string | null;
 }
 
 export type Standing = "canon" | "planned" | "rumour";
@@ -223,6 +227,8 @@ export interface EntityDetail {
   facts: Fact[];
   relationships: Relationship[];
   chapter_titles: Record<string, string>;
+  /** an event's tellings (Told in) */
+  tellings?: import("./history").Telling[];
 }
 
 export interface NearMissGroup {
@@ -319,6 +325,9 @@ export interface StoryChapter extends Partial<TimeValue> {
   set_approx?: boolean;
   /** a tale or flashback with no time: set before the story */
   early?: boolean;
+  /** the chapter's one line and status, for its card on the Timeline */
+  summary?: string;
+  status?: string | null;
   /** its place in happened order; null outside time (absent from an older copy: book order) */
   clock?: number | null;
 }

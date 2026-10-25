@@ -8,6 +8,7 @@ import { useSession } from "../stores/session";
 import { ENTITY_KINDS, type Entity, type EntityKind } from "../types";
 import { useCards } from "../world/cards";
 import { filterText, groupBy, labelsOfKind, matches, norm, parseFilter, valuesAtEnd, type LabelReader, type ValueFilter } from "../world/labels";
+import { eventTime } from "../world/eras";
 import { SPECIES_COLUMN, speciesAtEnd } from "../world/species";
 import NotFoundView from "./NotFoundView.vue";
 
@@ -113,8 +114,27 @@ const values = (e: Entity, label: string) => {
 const heading = (label: string) => (label === SPECIES_COLUMN ? "Species" : label);
 // the characters table gets a Species column once any character is recorded as being one
 const hasSpecies = computed(() => kind.value === "character" && cards.cards.some((c) => c.kind === "character" && speciesAtEnd(c, null, cards.indexOf).length));
+// the events table gets a When column (docs/SPEC.md §13.2.1) that sorts in happened order: times, then events in a
+// chapter with no time (in book order), then outside time, then those not placed yet
+const hasWhen = computed(() => kind.value === "event");
+const chaptersById = computed(() => new Map(cards.timeline.map((c) => [c.id, c])));
+function whenKey(e: Entity): number {
+  const c = cards.byId.get(e.id);
+  if (!c?.when) return Number.MAX_VALUE;
+  if (c.when.outside) return 1e300;
+  const t = eventTime(c, chaptersById.value);
+  if (t) return t.t;
+  return 1e299 + (chaptersById.value.get(c.when.chapter ?? "")?.index ?? 0);
+}
+function whenCell(e: Entity): { text: string; colour?: string } {
+  const c = cards.byId.get(e.id);
+  if (!c?.when) return { text: "" };
+  if (c.whenText) return { text: c.whenText, colour: c.whenColour };
+  return { text: c.when.chapter ? `in ${cards.chapterTitle(c.when.chapter) ?? "a chapter"}` : "" };
+}
 function sortKey(e: Entity): string | number {
   if (sortBy.value === "name") return e.name.toLowerCase();
+  if (sortBy.value === "@when") return whenKey(e);
   if (sortBy.value === "summary") return e.summary.toLowerCase();
   if (sortBy.value === "level") return e.project ? projectName(e.project).toLowerCase() : "";
   if (sortBy.value === "#") return e.mention_count;
@@ -247,13 +267,14 @@ async function add() {
             <th><button type="button" class="th-sort" @click="sortOn('name')">Name</button></th>
             <th><button type="button" class="th-sort" @click="sortOn('summary')">In one line</button></th>
             <th v-if="severalBooks"><button type="button" class="th-sort" @click="sortOn('level')">Level</button></th>
+            <th v-if="hasWhen"><button type="button" class="th-sort" data-testid="sort-when" @click="sortOn('@when')">When</button></th>
             <th v-for="c in columns" :key="c"><button type="button" class="th-sort" @click="sortOn(c)">{{ heading(c) }}</button></th>
             <th class="num" title="Mentions"><button type="button" class="th-sort" @click="sortOn('#')">#</button></th>
           </tr>
         </thead>
         <tbody v-for="s in sections" :key="s.key" :class="{ elsewhere: s.elsewhere }" :data-testid="`section-${s.key}`">
           <tr v-if="s.title" class="section-head">
-            <th :colspan="4 + columns.length">
+            <th :colspan="4 + columns.length + (hasWhen ? 1 : 0)">
               <button v-if="s.value" type="button" class="linkish" :title="`Only ${heading(groupLabel)}: ${s.value}`" @click="addFilter({ label: groupLabel, value: s.value })">{{ s.title }}</button>
               <template v-else>{{ s.title }}</template>
               <span class="muted"> ({{ s.items.length }})</span>
@@ -267,6 +288,7 @@ async function add() {
             </td>
             <td class="muted">{{ e.summary }}</td>
             <td v-if="severalBooks" class="small">{{ e.project ? projectName(e.project) : "World" }}</td>
+            <td v-if="hasWhen" class="small" data-testid="when-cell"><span :class="whenCell(e).colour ? `era-${whenCell(e).colour} era-tint` : 'muted'">{{ whenCell(e).text }}</span></td>
             <td v-for="c in columns" :key="c" class="fact-cell">
               <button v-for="v in values(e, c)" :key="v" type="button" class="value-link" :title="`Only ${heading(c)}: ${v}`" @click="addFilter({ label: c, value: v })">{{ v }}</button>
             </td>

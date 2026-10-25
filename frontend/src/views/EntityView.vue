@@ -22,6 +22,11 @@ import InlineText from "../components/InlineText.vue";
 import MentionStrip from "../components/MentionStrip.vue";
 import AsOfPicker from "../components/AsOfPicker.vue";
 import RelationsPanel from "../components/RelationsPanel.vue";
+import TimeField from "../components/TimeField.vue";
+import { chronology as getChronology, type Chronology } from "../history";
+import { ageText, birthOf, deathOf, ERA_COLOURS } from "../world/eras";
+import { entitySlice } from "../world/slice";
+import { timeText } from "../world/when";
 import UndoToast from "../components/UndoToast.vue";
 import { readLastUsed } from "../lastUsed";
 import { useSession } from "../stores/session";
@@ -272,6 +277,47 @@ async function dismissEvidence(x: EvidenceFinding) {
   await loadEvidence();
 }
 
+// ---- history (docs/SPEC.md §13.2): an event's when, an era's colour, its tellings; ages; the entry's own timeline ----
+const isEvent = computed(() => detail.value?.entity.kind === "event");
+const when = computed(() => detail.value?.entity.when ?? null);
+const whenMode = computed(() => (!when.value ? "none" : when.value.outside ? "outside" : when.value.chapter ? "chapter" : "time"));
+const whenEra = computed(() => cards.eraOf(cards.byId.get(id.value)?.when?.at ?? (when.value?.chapter ? cards.timeline.find((c) => c.id === when.value!.chapter)?.set_time : null)));
+function setWhen(mode: string) {
+  if (mode === "none") void save({ time_chapter_id: null, time_at: null, outside_time: false });
+  else if (mode === "outside") void save({ outside_time: true });
+  else if (mode === "chapter") picking.value = "chapter";
+  else picking.value = "time";
+}
+const picking = ref<"chapter" | "time" | null>(null);
+const isEra = computed(() => cards.eras.some((e) => e.id === id.value));
+const eraColour = computed(() => cards.eras.find((e) => e.id === id.value)?.colour ?? null);
+// ages, beside the facts: "34 as of chapter 9 · born year 278"
+const chaptersMap = computed(() => new Map(cards.timeline.map((c) => [c.id, c])));
+const life = computed(() => {
+  const c = cards.byId.get(id.value);
+  if (!c || c.kind !== "character") return null;
+  const birth = birthOf(c, cards.byId, chaptersMap.value);
+  const death = deathOf(c, cards.byId, chaptersMap.value);
+  if (!birth && !death) return null;
+  const point = asOf.value === null ? null : typeof asOf.value === "number" ? cards.indexOf.timeOf?.(asOf.value) ?? null : "time" in asOf.value ? asOf.value.time : null;
+  const where = atTime.value !== null ? `as of ${timeText({ time_at: atTime.value }, unit.value)}` : asOfId.value ? `as of ${cards.chapterTitle(asOfId.value) ?? "this chapter"}` : "";
+  const age = point != null ? ageText(birth, death, { t: point, approx: false }, { word: false }) : "";
+  const parts = [age && where ? `${age} ${where}` : "", birth ? `born ${timeText({ time_at: birth.t, time_approx: birth.approx }, unit.value)}` : "", death && birth ? `died at ${Math.floor(death.t - birth.t)}` : death ? `died ${timeText({ time_at: death.t, time_approx: death.approx }, unit.value)}` : ""];
+  return parts.filter(Boolean).join(" · ");
+});
+// the entry's own slice of the Timeline
+const chron = ref<Chronology | null>(null);
+watch(worldSlug, async (w) => (chron.value = await getChronology(w).catch(() => null)), { immediate: true });
+const slice = computed(() => {
+  const c = cards.byId.get(id.value);
+  if (!c) return [];
+  return entitySlice({ card: c, cards: cards.byId, timeline: cards.timeline, chronology: chron.value, eras: cards.eras, unit: unit.value });
+});
+const sliceAfter = computed(() => {
+  const p = asOf.value === null ? null : typeof asOf.value === "number" ? cards.indexOf.timeOf?.(asOf.value) ?? null : "time" in asOf.value ? asOf.value.time : null;
+  return (t: number | null) => p != null && t != null && t > p;
+});
+
 // labels expected on every entry of this kind that it hasn't got: the Archivist's findings, on its own page
 const resolved = ref<Resolution[]>([]);
 watch(worldSlug, async (w) => (resolved.value = await resolutions(w).catch(() => [])), { immediate: true });
@@ -376,7 +422,7 @@ async function notForThisOne(label: string) {
     </section>
 
     <div v-if="cards.timeline.length || cards.anyTime" class="as-of">
-      <AsOfPicker :timeline="cards.timeline" :unit="unit" :asof="asOfId" :at="atTime" :times="cards.timed || cards.anyTime" @pick="setAsOf" />
+      <AsOfPicker :timeline="cards.timeline" :unit="unit" :asof="asOfId" :at="atTime" :times="cards.timed || cards.anyTime" :era-of="cards.eraOf" @pick="setAsOf" />
       <span v-if="asOfOutside" class="muted small" data-testid="outside-note">Outside time: what changes over time isn't shown</span>
     </div>
 
@@ -393,6 +439,43 @@ async function notForThisOne(label: string) {
       </div>
     </details>
 
+    <p v-if="life" class="small life-line" data-testid="life-line">{{ life }}</p>
+
+    <section v-if="isEvent" class="card event-when" data-testid="event-when">
+      <div class="card-head"><h2>When</h2></div>
+      <div class="actions">
+        <select class="filter" :value="picking ?? whenMode" aria-label="When it happens" data-testid="when-mode" @change="setWhen(($event.target as HTMLSelectElement).value)">
+          <option value="none">not placed yet</option>
+          <option value="chapter">in a chapter</option>
+          <option value="time">a time</option>
+          <option value="outside">outside time</option>
+        </select>
+        <select v-if="(picking ?? whenMode) === 'chapter'" class="filter" :value="when?.chapter ?? ''" aria-label="The chapter it happens in" data-testid="when-chapter"
+          @change="(picking = null), save({ time_chapter_id: ($event.target as HTMLSelectElement).value || null })">
+          <option value="" disabled>a chapter…</option>
+          <option v-for="c in cards.timeline" :key="c.id" :value="c.id">{{ c.title }}</option>
+        </select>
+        <TimeField v-if="(picking ?? whenMode) === 'time'" :value="{ time_at: when?.at ?? null, time_end: when?.end, time_label: when?.label, time_approx: when?.approx, outside_time: false }" :unit="unit" label="When it happens" :era-of="cards.eraOf"
+          @save="(v) => ((picking = null), save({ time_chapter_id: null, time_at: v.time_at, time_end: v.time_end ?? null, time_label: v.time_label ?? null, time_approx: !!v.time_approx, outside_time: !!v.outside_time }))" />
+        <span v-if="whenMode === 'chapter' && whenEra" class="small era-tint" :class="`era-${whenEra.colour}`" data-testid="when-era">{{ whenEra.name }}</span>
+        <span v-if="whenMode === 'outside'" class="small muted">outside time</span>
+      </div>
+      <div v-if="isEra" class="era-colours" data-testid="era-colours">
+        <span class="small muted">Colour</span>
+        <button v-for="c in ERA_COLOURS" :key="c" type="button" class="era-swatch" :class="[`era-${c}`, { on: eraColour === c }]" :aria-label="`Colour ${c}`" :aria-pressed="eraColour === c" @click="save({ era_colour: c })" />
+      </div>
+      <div v-if="detail.tellings?.length" class="told-in" data-testid="told-in">
+        <h3 class="small muted">Told in</h3>
+        <blockquote v-for="t in detail.tellings" :key="t.id" class="telling" data-testid="telling">
+          <p class="prose">“{{ t.passage }}”</p>
+          <footer class="small">
+            <RouterLink v-if="t.chapter" :to="{ name: 'chapter', params: { world: world.slug, id: t.chapter.id }, query: t.at >= 0 ? { at: String(t.at) } : {} }">{{ t.chapter.title }}</RouterLink>
+            <span v-if="t.changed" class="pill warn" data-testid="passage-changed">passage changed</span>
+          </footer>
+        </blockquote>
+      </div>
+    </section>
+
     <FactsPanel
       :world="world.slug"
       :entity="detail.entity"
@@ -404,6 +487,7 @@ async function notForThisOne(label: string) {
       :as-of="asOf"
       :index-of="cards.indexOf"
       :unit="unit"
+      :era-of="cards.eraOf"
       @changed="changed"
       @error="(m) => (error = m)"
     />
@@ -418,6 +502,7 @@ async function notForThisOne(label: string) {
       :as-of="asOf"
       :index-of="cards.indexOf"
       :unit="unit"
+      :era-of="cards.eraOf"
       @changed="changed"
       @error="(m) => (error = m)"
     />
@@ -434,6 +519,24 @@ async function notForThisOne(label: string) {
           <span v-if="k.path.length" class="muted small"> (via {{ k.path.join(" → ") }})</span>
         </li>
       </ul>
+    </section>
+
+    <section v-if="slice.length" class="card entity-timeline" data-testid="entity-timeline">
+      <div class="card-head">
+        <h2>Timeline</h2>
+        <RouterLink class="small" :to="{ name: 'timeline', params: { world: world.slug }, query: { lanes: detail.entity.id } }" data-testid="open-in-timeline">Open in the Timeline</RouterLink>
+      </div>
+      <ol class="rows slice">
+        <li v-for="r in slice" :key="r.key" :class="{ off: sliceAfter(r.t) }" data-testid="slice-row">
+          <span class="slice-when small" :class="r.era ? `era-${r.era.colour} era-tint` : 'muted'">{{ r.when || "—" }}<template v-if="r.era"> · {{ r.era.name }}</template></span>
+          <span class="grow">
+            <RouterLink v-if="r.link?.entity" :to="{ name: 'entity', params: { world: world.slug, id: r.link.entity } }">{{ r.text }}</RouterLink>
+            <RouterLink v-else-if="r.link?.chapter" :to="{ name: 'chapter', params: { world: world.slug, id: r.link.chapter } }">{{ r.text }}</RouterLink>
+            <template v-else>{{ r.text }}</template>
+          </span>
+          <span v-if="r.age" class="small muted" data-testid="slice-age">{{ r.age }}</span>
+        </li>
+      </ol>
     </section>
 
     <section class="card">

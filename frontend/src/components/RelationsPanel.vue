@@ -4,6 +4,7 @@ import { computed, ref, watch } from "vue";
 import { addRelationship, changeRole, deleteRelationship, roleSuggestions, rolesFor, typeOptions, updateRelationship, type RoleSuggestions } from "../bible";
 import type { Entity, EntityRef, RelationType, Relationship, Span, Standing, StoryChapter } from "../types";
 import { holds, type At, type IndexOf } from "../world/time";
+import type { Era } from "../world/eras";
 import type { Unit } from "../world/when";
 import EntityPicker from "./EntityPicker.vue";
 import InlineText from "./InlineText.vue";
@@ -22,6 +23,7 @@ const props = defineProps<{
   asOf: At | null;
   indexOf: IndexOf;
   unit?: Unit;
+  eraOf?: (t: number | null | undefined) => Era | null;
 }>();
 const off = (r: Relationship) => props.asOf !== null && !holds(r, props.asOf, props.indexOf);
 const setSpan = (r: Relationship, span: Span) => run(() => updateRelationship(props.world, r, span));
@@ -133,7 +135,7 @@ function doChange(r: Relationship) {
             <select class="standing" :class="r.standing" :value="r.standing" aria-label="Standing" @change="run(() => updateRelationship(props.world, r, { standing: ($event.target as HTMLSelectElement).value as Standing }))">
               <option v-for="s in STANDINGS" :key="s" :value="s">{{ s }}</option>
             </select>
-            <SpanPicker :span="r" :timeline="props.timeline" :unit="props.unit" @save="(sp) => setSpan(r, sp)" />
+            <SpanPicker :span="r" :timeline="props.timeline" :unit="props.unit" :era-of="props.eraOf" @save="(sp) => setSpan(r, sp)" />
             <span v-if="r.note" class="muted small">— {{ r.note }}</span>
             <button v-if="r.has_role && props.timeline.length && changing !== r.id" type="button" class="linkish small" data-testid="change-role" @click="startChange(r)">Change role from here…</button>
             <form v-if="changing === r.id" class="span-form" data-testid="change-role-form" @submit.prevent="doChange(r)" @keydown.esc.prevent="changing = null">

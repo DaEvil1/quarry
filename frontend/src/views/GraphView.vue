@@ -301,7 +301,7 @@ const flatPlaces = computed(() => {
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
 
     <div class="toolbar graph-tools">
-      <AsOfPicker v-if="cards.timeline.length || cards.anyTime" :timeline="cards.timeline" :unit="unit" :asof="asOfId" :at="atTime" :times="cards.timed || cards.anyTime" testid="graph-as-of"
+      <AsOfPicker v-if="cards.timeline.length || cards.anyTime" :timeline="cards.timeline" :unit="unit" :asof="asOfId" :at="atTime" :times="cards.timed || cards.anyTime" :era-of="cards.eraOf" testid="graph-as-of"
         @pick="(c) => setQuery({ asof: c.asof, at: c.at !== undefined ? String(c.at) : undefined })" />
       <label v-if="tab === 'graph' && projects.length > 1" class="small muted">Book
         <select class="filter" :value="book" data-testid="graph-book" @change="setQuery({ book: ($event.target as HTMLSelectElement).value || undefined })">

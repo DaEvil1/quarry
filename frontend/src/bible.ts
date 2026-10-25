@@ -36,6 +36,14 @@ export const createEntity = (world: string, body: { name: string; kind: EntityKi
 export type EntityChanges = Partial<Pick<Entity, "name" | "kind" | "aliases" | "body" | "summary" | "match_case" | "first_name_alias" | "exclusions">> & {
   project?: string | null;
   gender?: Gender | null;
+  /** an event's when: a chapter, a time (number, end, label, about), outside time, or none of them */
+  time_chapter_id?: string | null;
+  time_at?: number | null;
+  time_end?: number | null;
+  time_label?: string | null;
+  time_approx?: boolean;
+  outside_time?: boolean;
+  era_colour?: string | null;
 };
 
 /** The entry changed on another device since it was loaded here; `current` is the server's copy. */

@@ -2,17 +2,16 @@
 import { computed, nextTick, ref } from "vue";
 
 import type { TimeValue } from "../types";
+import type { Era } from "../world/eras";
 import { numberOf, parseTime, timeText, type Unit } from "../world/when";
 
 // When something is set (docs/SPEC.md §13.1.1): a time (a number, an optional end, a free label, "about"), not set,
 // or outside time. Shown as text ("year 312", the label with the number small beside it, "outside time"); click to
 // change it in place, Enter or Set saves, Esc cancels. `carried` is shown, muted, when it has no time of its own.
-const props = withDefaults(defineProps<{ value: TimeValue; unit: Unit; label?: string; placeholder?: string; carried?: string; disabled?: boolean }>(), {
-  label: "When",
-  placeholder: "+ when",
-  carried: "",
-  disabled: false,
-});
+const props = withDefaults(
+  defineProps<{ value: TimeValue; unit: Unit; label?: string; placeholder?: string; carried?: string; disabled?: boolean; eraOf?: (t: number | null | undefined) => Era | null; carriedAt?: number | null }>(),
+  { label: "When", placeholder: "+ when", carried: "", disabled: false, eraOf: undefined, carriedAt: null },
+);
 const emit = defineEmits<{ save: [value: TimeValue] }>();
 
 const editing = ref(false);
@@ -24,6 +23,8 @@ const approx = ref(false);
 const box = ref<HTMLInputElement | null>(null);
 const text = computed(() => timeText(props.value, props.unit));
 const small = computed(() => numberOf(props.value, props.unit));
+// a time carries its era: its tint and its name (docs/SPEC.md §13.2.1)
+const era = computed(() => props.eraOf?.(props.value.outside_time ? null : (props.value.time_at ?? props.carriedAt)) ?? null);
 const bad = computed(() => state.value === "time" && (parseTime(at.value) === null || (end.value.trim() !== "" && (parseTime(end.value) === null || parseTime(end.value)! < parseTime(at.value)!))));
 
 async function start() {
@@ -60,10 +61,11 @@ function choose(s: "time" | "none" | "outside") {
 
 <template>
   <span v-if="!editing" class="time-field" :class="{ unset: !text, outside: props.value.outside_time }" data-testid="time-field">
-    <button type="button" class="linkish small" :aria-label="`${props.label}: ${text || 'not set'}`" :disabled="props.disabled" @click="start">
-      <template v-if="text">{{ text }}<span v-if="small" class="time-number">{{ small }}</span></template>
-      <template v-else-if="props.carried"><span class="time-carried" :title="'Carries on from the chapter before it'">{{ props.carried }}</span></template>
+    <button type="button" class="linkish small" :class="era ? `era-${era.colour}` : ''" :aria-label="`${props.label}: ${text || 'not set'}`" :disabled="props.disabled" @click="start">
+      <template v-if="text"><span :class="{ 'era-tint': era }">{{ text }}</span><span v-if="small" class="time-number">{{ small }}</span></template>
+      <template v-else-if="props.carried"><span class="time-carried" :class="{ 'era-tint': era }" :title="'Carries on from the chapter before it'">{{ props.carried }}</span></template>
       <template v-else>{{ props.placeholder }}</template>
+      <span v-if="era && (text || props.carried)" class="era-name" data-testid="era-name"> · {{ era.name }}</span>
     </button>
   </span>
   <form v-else class="time-form" data-testid="time-form" @submit.prevent="save" @keydown.esc.prevent.stop="editing = false">

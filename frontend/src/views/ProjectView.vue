@@ -574,7 +574,7 @@ async function save() {
                 <template v-else>{{ c.summary }}</template>
               </span>
               <span class="chapter-when small muted" data-testid="chapter-when">
-                <TimeField :value="{ time_at: c.time_at ?? null, time_end: c.time_end, time_label: c.time_label, time_approx: c.time_approx, outside_time: c.outside_time }" :unit="unit" :label="`When ${c.title} is set`" placeholder="+ when" :carried="carried(c)" :disabled="offlineCopy" @save="(v) => setTime(c, v)" />
+                <TimeField :value="{ time_at: c.time_at ?? null, time_end: c.time_end, time_label: c.time_label, time_approx: c.time_approx, outside_time: c.outside_time }" :unit="unit" :label="`When ${c.title} is set`" placeholder="+ when" :carried="carried(c)" :carried-at="storyOf(c).set_time ?? null" :era-of="cards.eraOf" :disabled="offlineCopy" @save="(v) => setTime(c, v)" />
                 <span v-if="setEarlier(i)" class="set-earlier small" data-testid="set-earlier">set earlier · <button type="button" class="linkish" @click="setTime(c, { told_as: 'flashback' })">mark it a flashback</button></span>
               </span>
             </span>
@@ -624,7 +624,7 @@ async function save() {
                 <RouterLink :to="{ name: 'chapter', params: { world: world.slug, id: d.id } }">{{ d.title }}</RouterLink>
                 <span class="chapter-summary small muted">
                   <InlineText :value="d.summary" :label="`Summary of ${d.title}`" placeholder="+ one line" :maxlength="300" @save="(v) => about(d, { summary: v })" />
-                  <TimeField :value="{ time_at: d.time_at ?? null, time_end: d.time_end, time_label: d.time_label, time_approx: d.time_approx, outside_time: d.outside_time }" :unit="unit" :label="`When ${d.title} is set`" @save="(v) => setTime(d, v)" />
+                  <TimeField :value="{ time_at: d.time_at ?? null, time_end: d.time_end, time_label: d.time_label, time_approx: d.time_approx, outside_time: d.outside_time }" :unit="unit" :label="`When ${d.title} is set`" :era-of="cards.eraOf" @save="(v) => setTime(d, v)" />
                 </span>
               </span>
               <span v-if="d.status" class="status-pill" :style="{ '--strength': strength(d.status) }">{{ d.status.label }}</span>

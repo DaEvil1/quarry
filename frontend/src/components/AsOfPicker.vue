@@ -2,16 +2,21 @@
 import { computed, ref, watch } from "vue";
 
 import type { StoryChapter } from "../types";
+import type { Era } from "../world/eras";
 import { asOfLabel, parseTime, timeFormat, type Unit } from "../world/when";
 
 // "As of" (docs/SPEC.md §13.1.6): the book's chapters per project in book order, each with its set time and mark
 // (`14 · The Drowned Bell — tale, year −800`), and once anything has a time, "At a time…": a number. Kept in the
 // address by the page: `?asof=<chapter>` or `?at=<number>`.
-const props = withDefaults(defineProps<{ timeline: StoryChapter[]; unit: Unit; asof: string; at: number | null; times?: boolean; testid?: string; label?: string }>(), {
-  times: false,
-  testid: "as-of",
-  label: "As of",
-});
+const props = withDefaults(
+  defineProps<{ timeline: StoryChapter[]; unit: Unit; asof: string; at: number | null; times?: boolean; testid?: string; label?: string; eraOf?: (t: number | null | undefined) => Era | null }>(),
+  { times: false, testid: "as-of", label: "As of", eraOf: undefined },
+);
+/** a chapter's label, with its time's era when it has one */
+const optionText = (c: StoryChapter, n: number) => {
+  const era = props.eraOf?.(c.outside_time ? null : c.time_at);
+  return `${asOfLabel(c, n, props.unit)}${era ? ` · ${era.name}` : ""}`;
+};
 const emit = defineEmits<{ pick: [choice: { asof?: string; at?: number }] }>();
 
 const groups = computed(() => {
@@ -54,7 +59,7 @@ function setTime() {
     <select :id="`${props.testid}-select`" class="filter" :value="value" :data-testid="props.testid" @change="change(($event.target as HTMLSelectElement).value)">
       <option value="">the whole story</option>
       <optgroup v-for="p in groups" :key="p.name" :label="p.name">
-        <option v-for="x in p.chapters" :key="x.c.id" :value="x.c.id">{{ props.times ? asOfLabel(x.c, x.n, props.unit) : x.c.title }}</option>
+        <option v-for="x in p.chapters" :key="x.c.id" :value="x.c.id">{{ props.times ? optionText(x.c, x.n) : x.c.title }}</option>
       </optgroup>
       <option v-if="props.times" value="@time">At a time…</option>
     </select>

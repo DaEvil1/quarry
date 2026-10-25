@@ -2,13 +2,17 @@
 import { computed, ref } from "vue";
 
 import type { Span, StoryChapter } from "../types";
+import type { Era } from "../world/eras";
 import { spanText } from "../world/time";
 import { parseTime, timeFormat, timeText, type Unit } from "../world/when";
 
 // When a fact or relationship holds: "always" until set, then "from Storm", "year 0 – Storm", "outside time"… Each side
 // is a chapter (with its time) or a time (a number and "about"), never both (docs/SPEC.md §13.1.5); outside time has
 // no bounds at all (§13.1.8). Click to change.
-const props = withDefaults(defineProps<{ span: Span; timeline: StoryChapter[]; unit?: Unit }>(), { unit: () => ({ unit: "year", units: "years" }) });
+const props = withDefaults(defineProps<{ span: Span; timeline: StoryChapter[]; unit?: Unit; eraOf?: (t: number | null | undefined) => Era | null }>(), {
+  unit: () => ({ unit: "year", units: "years" }),
+  eraOf: undefined,
+});
 const emit = defineEmits<{ save: [span: Span] }>();
 
 const editing = ref(false);
@@ -20,7 +24,15 @@ const fromApprox = ref(false);
 const untilApprox = ref(false);
 const outside = ref(false);
 const titles = computed(() => new Map(props.timeline.map((c) => [c.id, c.title])));
-const text = computed(() => spanText(props.span, (id) => titles.value.get(id), timeFormat(props.unit)));
+// a time in a span carries its era's name: "from year 278 · the Long Ebb"
+const fmt = computed(() => {
+  const base = timeFormat(props.unit);
+  return (t: number, approx?: boolean) => {
+    const era = props.eraOf?.(t);
+    return era ? `${base(t, approx)} · ${era.name}` : base(t, approx);
+  };
+});
+const text = computed(() => spanText(props.span, (id) => titles.value.get(id), fmt.value));
 const projects = computed(() => {
   const out: { name: string; chapters: StoryChapter[] }[] = [];
   for (const c of props.timeline) {

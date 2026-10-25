@@ -11,6 +11,8 @@ const PATHS = {
   names: "M2 11c1-2 2 2 3 0s2 2 3 0 2 2 3 0 2 2 3 0M3 7.5 5 2.5l2 5M3.7 5.8h2.6M9 2.5h2.5a1.5 1.5 0 0 1 0 3H9zm0 3h3a1.5 1.5 0 0 1 0 3H9z",
   checks: "M2.5 4.5l1.5 1.5 2.5-3M2.5 10.5l1.5 1.5 2.5-3M8.5 4.5h5M8.5 10.5h5",
   graph: "M4 4.5a1.5 1.5 0 1 0 0-.01zM12 3.5a1.5 1.5 0 1 0 0-.01zM8 12a1.5 1.5 0 1 0 0-.01zM5.3 4.6 10.6 3.8M4.7 5.8 7.3 10.7M11.3 4.9 8.7 10.6",
+  // a line with marks along it: the Timeline
+  timeline: "M1.5 8h13M4 5v6M8.5 6v4M12 4.5v7",
   // a map pin over a grid: where everyone is
   where: "M8 14s4-4.2 4-7.5a4 4 0 0 0-8 0C4 9.8 8 14 8 14zM8 5.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6z",
   project: "M4 1.5h5.5L12.5 4.5V14.5h-8.5zM9.5 1.5v3h3M6 8h4.5M6 10.5h4.5",

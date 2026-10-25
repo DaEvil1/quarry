@@ -40,7 +40,7 @@ def graph(slug: str, co: bool = Query(default=False), user: User = Depends(curre
     edges = [{"id": str(r.id), "a": str(r.a_id), "b": str(r.b_id), "type_id": str(r.type_id),
               "label": types[r.type_id].label, "reverse_label": types[r.type_id].reverse_label,
               "standing": r.standing, "from_chapter_id": _sid(r.from_chapter_id),
-              "until_chapter_id": _sid(r.until_chapter_id), **time_bounds(r)}
+              "until_chapter_id": _sid(r.until_chapter_id), **time_bounds(r), "role": r.role}
              for r in db.scalars(select(Relationship).where(Relationship.world_id == world.id))]
     presence = [{"entity_id": str(p.entity_id), "place_id": str(p.place_id), "chapter_id": str(p.chapter_id)}
                 for p in db.scalars(select(Presence).where(Presence.world_id == world.id))]

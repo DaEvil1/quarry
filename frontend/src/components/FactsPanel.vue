@@ -6,6 +6,7 @@ import { addFact, deleteFact, setLabelSwitches, updateFact, type KindSuggestions
 import { ENTITY_KINDS, type Entity, type Fact, type Span, type Standing, type StoryChapter } from "../types";
 import { filterText } from "../world/labels";
 import { factsAsOf, norm, type At, type IndexOf } from "../world/time";
+import type { Era } from "../world/eras";
 import type { Unit } from "../world/when";
 import InlineText from "./InlineText.vue";
 import SpanPicker from "./SpanPicker.vue";
@@ -26,6 +27,7 @@ const props = defineProps<{
   asOf: At | null;
   indexOf: IndexOf;
   unit?: Unit;
+  eraOf?: (t: number | null | undefined) => Era | null;
 }>();
 const emit = defineEmits<{ changed: []; error: [message: string] }>();
 const route = useRoute();
@@ -144,7 +146,7 @@ const filterLink = (f: Fact) => ({ name: "bible-kind", params: { world: props.wo
           <td v-if="!r.several" class="grow">
             <InlineText :value="r.facts[0]!.value" label="Value" placeholder="—" :maxlength="5000" :list="listFor(r.label)" @save="(v) => set(r.facts[0]!, { value: v })" />
             <RouterLink v-if="r.facts[0]!.value.trim()" class="value-filter small" :to="filterLink(r.facts[0]!)" :title="`Every ${props.entity.kind} with ${r.label}: ${r.facts[0]!.value}`" :aria-label="`Every ${props.entity.kind} with ${r.label}: ${r.facts[0]!.value}`">≡</RouterLink>
-            <SpanPicker :span="r.facts[0]!" :timeline="props.timeline" :unit="props.unit" @save="(sp) => setSpan(r.facts[0]!, sp)" />
+            <SpanPicker :span="r.facts[0]!" :timeline="props.timeline" :unit="props.unit" :era-of="props.eraOf" @save="(sp) => setSpan(r.facts[0]!, sp)" />
             <div class="evidence small muted">
               <InlineText
                 :value="r.facts[0]!.evidence ?? ''"
@@ -159,7 +161,7 @@ const filterLink = (f: Fact) => ({ name: "bible-kind", params: { world: props.wo
             <div class="value-chips" data-testid="value-chips">
               <span v-for="f in r.facts" :key="f.id" class="chip static value-chip" :class="[f.standing, { off: now && !now.has(f.id) }]" data-testid="value-chip">
                 <InlineText :value="f.value" label="Value" placeholder="—" :maxlength="5000" :list="listFor(r.label)" @save="(v) => set(f, { value: v })" />
-                <SpanPicker :span="f" :timeline="props.timeline" :unit="props.unit" @save="(sp) => setSpan(f, sp)" />
+                <SpanPicker :span="f" :timeline="props.timeline" :unit="props.unit" :era-of="props.eraOf" @save="(sp) => setSpan(f, sp)" />
                 <button type="button" class="chip-x" :aria-label="`Remove ${r.label}: ${f.value}`" @click="run(() => deleteFact(props.world, f.id))">×</button>
               </span>
             </div>

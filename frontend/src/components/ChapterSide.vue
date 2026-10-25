@@ -4,6 +4,7 @@ import { computed, ref } from "vue";
 import type { Cut } from "../cuts";
 import type { About, Chapter, StatusRef } from "../manuscript";
 import type { EntityRef, Presence, TimeValue } from "../types";
+import type { Era } from "../world/eras";
 import type { Unit } from "../world/when";
 import InlineText from "./InlineText.vue";
 import TimeField from "./TimeField.vue";
@@ -24,6 +25,8 @@ const props = defineProps<{
   /** the world's unit of time, and the time this chapter carries on from when it has none of its own */
   unit?: Unit;
   carried?: string;
+  carriedAt?: number | null;
+  eraOf?: (t: number | null | undefined) => Era | null;
 }>();
 const placeOf = computed(() => new Map(props.presence.map((p) => [p.entity_id, p.place])));
 const emit = defineEmits<{
@@ -69,7 +72,7 @@ const open = ref<string | null>(null);
       </select>
       <h3 class="small muted">Set in</h3>
       <p class="small" data-testid="side-when">
-        <TimeField :value="{ time_at: props.chapter.time_at ?? null, time_end: props.chapter.time_end, time_label: props.chapter.time_label, time_approx: props.chapter.time_approx, outside_time: props.chapter.outside_time } as TimeValue" :unit="props.unit ?? { unit: 'year', units: 'years' }" label="Set in" :carried="props.carried" @save="(v) => emit('when', v)" />
+        <TimeField :value="{ time_at: props.chapter.time_at ?? null, time_end: props.chapter.time_end, time_label: props.chapter.time_label, time_approx: props.chapter.time_approx, outside_time: props.chapter.outside_time } as TimeValue" :unit="props.unit ?? { unit: 'year', units: 'years' }" label="Set in" :carried="props.carried" :carried-at="props.carriedAt ?? null" :era-of="props.eraOf" @save="(v) => emit('when', v)" />
       </p>
       <h3 class="small muted"><label for="chapter-told-as">Told as</label></h3>
       <select id="chapter-told-as" class="filter" :value="props.chapter.told_as ?? ''" data-testid="told-as-select" @change="emit('when', { told_as: (($event.target as HTMLSelectElement).value || null) as 'flashback' | 'tale' | null })">

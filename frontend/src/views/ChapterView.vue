@@ -2,7 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter, type RouteLocationRaw } from "vue-router";
 
-import { addRelationship, createEntity, endBefore as endBeforeRole, fixes, getEntity, setLabelSwitches, typeOptions, updateEntity } from "../bible";
+import { addFact, addRelationship, createEntity, endBefore as endBeforeRole, fixes, getEntity, setLabelSwitches, typeOptions, updateEntity, updateFact } from "../bible";
+import { recordEvent, undoRecord } from "../history";
 import ChapterSide from "../components/ChapterSide.vue";
 import CompanionPanel from "../components/CompanionPanel.vue";
 import {
@@ -26,6 +27,7 @@ import { EditorView } from "@codemirror/view";
 import { around, chapterCuts, cutLabel, findPlace, listCuts, markPutBack, removeCut, type Cut } from "../cuts";
 import { changesLine, changesSince } from "../editor/changes";
 import { createProse, countWords, type Prose, type WorldHooks } from "../editor/prose";
+import type { HistoryActions } from "../editor/strips";
 import { ChapterSaver, type SaveStatus } from "../editor/saver";
 import {
   closeRange,
@@ -65,7 +67,8 @@ import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import { localToday, type EntityRef, type Presence } from "../types";
 import { useCards } from "../world/cards";
-import { chapterWhen, unitOf } from "../world/when";
+import { chapterWhen, timeText, unitOf } from "../world/when";
+import { norm } from "../world/time";
 import { analyse, linkKey, storyText, type Finding } from "../world/findings";
 import NotFoundView from "./NotFoundView.vue";
 
@@ -390,6 +393,7 @@ const worldHooks: WorldHooks = {
   },
   cut: (from, to) => void cutToBin(from, to),
   several: (kind, label) => cards.several(kind, label),
+  history: (from, to, raw) => historyActions(from, to, raw),
   isAt: (id) => ({
     here: () => presence.value.find((p) => p.entity_id === id)?.place ?? null,
     places: placesForChapter,
@@ -417,6 +421,97 @@ const worldHooks: WorldHooks = {
     },
   }),
 };
+// ---- recording history from the prose (docs/SPEC.md §13.2.3) ----
+/** The entries named in a passage, by the matcher that colours names, in order. */
+function namedIn(raw: string): EntityRef[] {
+  const m = currentMatcher();
+  const out: EntityRef[] = [];
+  let from = 0;
+  for (const line of raw.split("\n")) {
+    for (const h of m.scanLine(line, from, false)) {
+      if (h.kind === "near_miss" || out.some((x) => x.id === h.entityId)) continue;
+      const c = cards.byId.get(h.entityId);
+      if (c) out.push({ id: c.id, name: c.name, kind: c.kind });
+    }
+    from += line.length + 1;
+  }
+  return out;
+}
+function historyActions(_from: number, _to: number, raw: string): HistoryActions {
+  const ch = chapter.value!;
+  const passage = raw.trim();
+  const named = namedIn(raw);
+  const u = unitOf(world.value);
+  const inChapter = new Set((ch.mentions ?? []).map((m) => m.entity_id));
+  const own = ch.told_as && ch.time_at != null && !ch.outside_time ? { text: timeText(ch, u), at: ch.time_at, approx: !!ch.time_approx } : null;
+  const factOf = (id: string, which: "born" | "died") =>
+    cards.byId.get(id)?.facts.find((f) => (which === "born" ? norm(f.label) === "born" : norm(f.label) === "status" && /\b(dead|deceased|died|killed|slain|murdered)\b/i.test(f.value)));
+  return {
+    named,
+    events: () => {
+      const events = byLevel(cards.names.filter((n) => n.kind === "event"));
+      const rank = (e: EntityRef) => (named.some((n) => n.id === e.id) ? 0 : inChapter.has(e.id) ? 1 : 2);
+      return [...events].sort((a, b) => rank(a) - rank(b));
+    },
+    relatedTo: (eventId) => new Set((cards.byId.get(eventId)?.relations ?? []).map((r) => r.other.id)),
+    eventWhen: (eventId) => {
+      const c = cards.byId.get(eventId);
+      return c?.whenText ? { text: c.whenText, at: c.when?.at ?? null } : null;
+    },
+    chapterTime: own,
+    untimed: !!ch.told_as && ch.time_at == null && !ch.outside_time,
+    record: async (r) => {
+      try {
+        const done = await recordEvent(worldSlug.value, {
+          event_id: r.eventId,
+          name: r.name,
+          chapter_id: ch.id,
+          passage,
+          taking: r.taking.map((x) => ({ entity_id: x.id, role: x.role })),
+          when: r.when ? { time_at: r.when.at, time_approx: r.when.approx } : null,
+          time_choice: r.choice,
+        });
+        await cards.refresh(worldSlug.value);
+        analyseNow();
+        const n = r.taking.length;
+        toast.value = {
+          label: `Recorded “${done.event.name}” · ${n} taking part`,
+          undo: async () => {
+            await undoRecord(worldSlug.value, done);
+            await cards.refresh(worldSlug.value);
+            analyseNow();
+          },
+          actions: [{ label: "Open", run: () => router.push({ name: "entity", params: { world: worldSlug.value, id: done.event_id } }) }],
+        };
+      } catch (e) {
+        error.value = (e as Error).message;
+      }
+    },
+    life: (id) => {
+      const title = (f: ReturnType<typeof factOf>) => (f?.from ? (cards.chapterTitle(f.from) ?? "another chapter") : null);
+      return { born: title(factOf(id, "born")), died: title(factOf(id, "died")) };
+    },
+    // born here / died here: a fact from this chapter, with the passage as evidence; one that exists moves here
+    setLife: async (id, which) => {
+      try {
+        const { entity, facts } = await getEntity(worldSlug.value, id);
+        const existing = facts.find((f) => (which === "born" ? norm(f.label) === "born" : norm(f.label) === "status" && /\b(dead|deceased|died|killed|slain|murdered)\b/i.test(f.value)) && f.from_chapter_id);
+        const span = { from_chapter_id: ch.id, from_time: null, evidence: passage.slice(0, 5000), established_in_chapter_id: ch.id };
+        if (existing) await updateFact(worldSlug.value, existing, span);
+        else await addFact(worldSlug.value, entity.id, { label: which === "born" ? "born" : "status", value: which === "born" ? "" : "dead", ...span });
+        await cards.refresh(worldSlug.value);
+        await afterWorldChange();
+      } catch (e) {
+        error.value = (e as Error).message;
+      }
+    },
+    setChapterTime: () => {
+      showPanel.value = true;
+      void nextTick(() => (document.querySelector('[data-testid="side-when"] button') as HTMLButtonElement | null)?.click());
+    },
+  };
+}
+
 // ---- the writing companion (docs/WORLD-MODEL.md §7) ----
 const mode = ref(prefs.mode);
 watch(mode, (m) => {
@@ -768,7 +863,7 @@ const carriedWhen = computed(() => {
 
 // ---- the cuts bin (docs/SPEC.md §11.3) ----
 const cuts = ref<Cut[]>([]);
-const toast = ref<{ label: string; undo: (() => Promise<void>) | null } | null>(null);
+const toast = ref<{ label: string; undo: (() => Promise<void>) | null; actions?: { label: string; run: () => unknown }[] } | null>(null);
 /** this chapter's cuts in the bin, and those still waiting on this device to be sent */
 const panelCuts = computed(() => [
   ...outbox.cuts
@@ -1189,12 +1284,14 @@ const experimentText = computed(() => {
         @when="setChapterWhen"
         :unit="timeUnit"
         :carried="carriedWhen"
+        :carried-at="cards.timeline.find((c) => c.id === chapter?.id)?.set_time ?? null"
+        :era-of="cards.eraOf"
         @put-back="(c, where) => putBack(c, where)"
         @copy="copyCut"
         @since="chooseSince"
       />
     </CompanionPanel>
-    <UndoToast :label="toast?.label ?? null" :undo="toast?.undo ?? null" @dismiss="toast = null" />
+    <UndoToast :label="toast?.label ?? null" :undo="toast?.undo ?? null" :actions="toast?.actions ?? []" :ms="toast?.actions ? 12000 : 6000" @dismiss="toast = null" />
 
     <HistoryPanel
       v-if="showHistory && chapter"

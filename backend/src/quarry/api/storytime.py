@@ -65,13 +65,17 @@ def timeline(slug: str, user: User = Depends(current_user), db: Session = Depend
     world, _ = member_world(db, user, slug)
     order = story_order(db, world)
     clock = Clock(order)
+    from ..models import ChapterStatus
+
+    ids = [p.id for p in world.projects]
+    status = {s.id: s.label for s in db.scalars(select(ChapterStatus).where(ChapterStatus.project_id.in_(ids)))} if ids else {}
     out = []
     for i, (c, p) in enumerate(order):
         x = clock.by_id[c.id]
         out.append({"id": str(c.id), "title": c.title, "project": p.slug, "project_name": p.name, "index": i,
                     "pov": str(c.pov_entity_id) if c.pov_entity_id else None, "gap_chapters": p.gap_chapters,
                     **times(c), "set_time": x.set_time, "set_approx": x.set_approx, "early": x.early,
-                    "clock": x.place})
+                    "clock": x.place, "summary": c.summary, "status": status.get(c.status_id) if c.status_id else None})
     return out
 
 

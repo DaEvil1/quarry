@@ -23,6 +23,8 @@ export interface GraphData {
     until_time?: number | null;
     until_approx?: boolean;
     outside_time?: boolean;
+    /** the A side's role in the B side's group (docs/SPEC.md §13.4) */
+    role?: string | null;
   }[];
   types: { id: string; a_kind: string; b_kind: string; label: string; reverse_label: string | null }[];
   presence: { entity_id: string; place_id: string; chapter_id: string }[];
