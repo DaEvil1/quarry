@@ -29,11 +29,11 @@ export default defineConfig({
     { name: "demo", testMatch: demo, dependencies: ["setup"], workers: 1, use: chromium },
     // the Guide's walkthroughs, one sandbox at a time (each replaces the last), so one worker; each walkthrough is a
     // test of its own, so --shard can spread them over several runners, each with its own Quarry
-    { name: "guide", testMatch: "guide.spec.ts", dependencies: ["setup"], workers: 1, fullyParallel: true, use: chromium },
+    { name: "guide", testMatch: /\/guide(-[a-z]+)?\.spec\.ts$/, dependencies: ["setup"], workers: 1, fullyParallel: true, use: chromium },
     // each builds a world of its own
     {
       name: "own",
-      testIgnore: [/\/phase1\.spec\.ts$/, chain, demo, /\/guide\.spec\.ts$/, /\/update\.spec\.ts$/],
+      testIgnore: [/\/phase1\.spec\.ts$/, chain, demo, /\/guide(-[a-z]+)?\.spec\.ts$/, /\/update\.spec\.ts$/],
       dependencies: ["setup"],
       use: chromium,
     },

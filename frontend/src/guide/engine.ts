@@ -4,6 +4,8 @@
 
 import { EditorView } from "@codemirror/view";
 
+import { comfortable } from "./place";
+
 /** An element on the page: a CSS selector, narrowed to the ones holding `text`, and the `nth` of those. */
 export interface Target {
   css: string;
@@ -181,4 +183,40 @@ export async function perform(el: HTMLElement, act: Act, opts: { slow: boolean; 
 function editorOf(el: HTMLElement): EditorView | null {
   const dom = el.closest(".cm-editor") ?? el.ownerDocument.querySelector(".cm-editor");
   return dom ? EditorView.findFromDOM(dom as HTMLElement) : null;
+}
+
+/** One frame of `win` (or 50 ms, in a tab the browser isn't drawing). */
+function frame(win: Window): Promise<void> {
+  return new Promise((done) => {
+    const t = setTimeout(done, 50);
+    win.requestAnimationFrame(() => {
+      clearTimeout(t);
+      done();
+    });
+  });
+}
+
+/**
+ * Bring what a step points at into view before it is shown (docs/SPEC.md §15.1): if it isn't comfortably on screen,
+ * scroll it to the middle (a tall one to the top), through any scrolling boxes it sits in, smoothly unless `smooth`
+ * is off (the instant pace, or a writer who asks for reduced motion), and wait until it has stopped moving.
+ */
+export async function bringIntoView(el: HTMLElement, opts: { smooth: boolean; stopped: () => boolean }): Promise<void> {
+  const win = el.ownerDocument.defaultView ?? window;
+  const view = { width: win.innerWidth, height: win.innerHeight };
+  const r0 = el.getBoundingClientRect();
+  if (comfortable(r0, view)) return;
+  const reduced = win.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  const smooth = opts.smooth && !reduced;
+  el.scrollIntoView({ block: r0.height > view.height * 0.6 ? "start" : "center", inline: "nearest", behavior: smooth ? "smooth" : "auto" });
+  // settled: three frames in a row without moving
+  const end = Date.now() + (smooth ? 1500 : 300);
+  let last = el.getBoundingClientRect();
+  let still = 0;
+  while (Date.now() < end && !opts.stopped() && still < 3) {
+    await frame(win);
+    const r = el.getBoundingClientRect();
+    still = Math.abs(r.top - last.top) < 0.5 && Math.abs(r.left - last.left) < 0.5 ? still + 1 : 0;
+    last = r;
+  }
 }

@@ -4,7 +4,7 @@
 import { computed } from "vue";
 
 import { TOURS } from "../guide/tours";
-import { useGuide } from "../stores/guide";
+import { useGuide, type Spotlight } from "../stores/guide";
 import { useSession } from "../stores/session";
 
 const guide = useGuide();
@@ -19,6 +19,11 @@ const doneOn = (id: string) => {
   const at = guide.done[id];
   return at ? new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "";
 };
+const SPOTLIGHT: { value: Spotlight; label: string }[] = [
+  { value: "watching", label: "while watching" },
+  { value: "always", label: "always" },
+  { value: "never", label: "never" },
+];
 const minutes = computed(() => TOURS.reduce((n, t) => n + t.minutes, 0));
 </script>
 
@@ -46,6 +51,19 @@ const minutes = computed(() => TOURS.reduce((n, t) => n + t.minutes, 0));
     <button type="button" class="linkish" data-testid="guide-delete-sandbox" @click="guide.clear()">Delete it</button>
   </div>
 
+  <div class="guide-settings small muted">
+    <label for="guide-spotlight">Dim the page around what a step points at</label>
+    <select
+      id="guide-spotlight"
+      class="filter"
+      data-testid="guide-spotlight"
+      :value="guide.spotlight"
+      @change="guide.setSpotlight(($event.target as HTMLSelectElement).value as Spotlight)"
+    >
+      <option v-for="o in SPOTLIGHT" :key="o.value" :value="o.value">{{ o.label }}</option>
+    </select>
+  </div>
+
   <ul class="guide-list">
     <li v-for="(t, i) in TOURS" :key="t.id" class="card guide-tour" :data-testid="`guide-tour-${t.id}`">
       <div class="card-head">
@@ -67,6 +85,15 @@ const minutes = computed(() => TOURS.reduce((n, t) => n + t.minutes, 0));
 </template>
 
 <style scoped>
+.guide-settings {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.guide-settings select {
+  width: auto;
+}
 .guide-list {
   list-style: none;
   padding: 0;
