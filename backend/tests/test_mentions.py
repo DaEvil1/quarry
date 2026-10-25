@@ -121,3 +121,27 @@ def test_longest_match_wins_across_capitals_settings():
     old = entity("Old")
     found = Matcher([harbour, old]).scan("at old harbour, Old waits")
     assert [(f.matched, f.entity_id) for f in found] == [("old harbour", harbour.id), ("Old", old.id)]
+
+
+def test_the_branching_pattern_matches_what_the_plain_alternation_did():
+    """The names are compiled letter by letter (fast with thousands of names); it must find exactly what the plain
+    alternation of them, longest first, found."""
+    import random
+    import re
+
+    from quarry.mentions import SUFFIX, trie_pattern
+
+    rnd = random.Random(5)
+    syl = ["ar", "an", "a", "bel", "be", "cor", "c", "dan", "el", "e", "is", "or", "o", "s", "’s"]
+    names = sorted({"".join(rnd.choice(syl) for _ in range(rnd.randint(1, 3))).capitalize()
+                    + (" " + rnd.choice(syl).capitalize() if rnd.random() < .3 else "") for _ in range(300)})
+    names += ["The Grey Keeper", "the Grey Keeper", "Old Harbour", "Old"]
+    words = [*names, *(n.lower() for n in names[:50]), "and", "Arx", "Belx", "O'", "-", "s"]
+    for flags, forms in ((0, names), (re.IGNORECASE, [n.lower() for n in names])):
+        plain = re.compile(r"(?<![\w'’-])(" + "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))
+                           + r")" + SUFFIX + r"(?![\w])", flags)
+        trie = re.compile(r"(?<![\w'’-])(" + trie_pattern(forms) + r")" + SUFFIX + r"(?![\w])", flags)
+        for _ in range(300):
+            text = "".join(rnd.choice(words) + rnd.choice([" ", "", "'s ", ". ", "-", "s "]) for _ in range(40))
+            assert [(m.span(), m.group(1)) for m in plain.finditer(text)] == \
+                [(m.span(), m.group(1)) for m in trie.finditer(text)], text

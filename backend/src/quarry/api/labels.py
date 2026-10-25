@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Entity, Fact, FactLabel, RelationType, Relationship, Resolution, Role, User, World
 from .deps import current_user
-from .world import KINDS, norm
+from .world import KINDS, fact_label, norm
 from .worlds import member_world
 
 router = APIRouter(prefix="/api/worlds/{slug}")
@@ -404,11 +404,7 @@ def set_switches(slug: str, kind: Kind, label: str, body: SwitchesIn, user: User
     label = " ".join(label.split())
     if not label or len(label) > 100:
         raise HTTPException(422, "Give the label.")
-    row = db.scalar(select(FactLabel).where(FactLabel.world_id == world.id, FactLabel.kind == kind,
-                                            func.lower(FactLabel.label) == norm(label)))
-    if row is None:
-        row = FactLabel(world_id=world.id, kind=kind, label=label, several=False, expected=False, asked=False)
-        db.add(row)
+    row = fact_label(db, world.id, kind, label)
     for field in ("several", "expected", "asked"):
         value = getattr(body, field)
         if value is not None:

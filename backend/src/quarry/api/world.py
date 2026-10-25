@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -361,6 +362,17 @@ def fact_suggestions(slug: str, user: User = Depends(current_user), db: Session 
     return out
 
 
+def fact_label(db: Session, world_id: uuid.UUID, kind: str, label: str) -> FactLabel:
+    """A label's switches row for a kind, made (all off) if there is none. Two saves that both use a label for the
+    first time at once each get the one row, instead of the second failing on the unique name."""
+    db.execute(insert(FactLabel).values(id=uuid.uuid4(), world_id=world_id, kind=kind, label=label, several=False,
+                                        expected=False, asked=False)
+               .on_conflict_do_nothing(index_elements=[FactLabel.world_id, FactLabel.kind, func.lower(FactLabel.label)]))
+    return db.scalars(select(FactLabel).where(FactLabel.world_id == world_id, FactLabel.kind == kind,
+                                              func.lower(FactLabel.label) == label.lower())
+                      .execution_options(populate_existing=True)).one()
+
+
 def label_prompt(db: Session, world: World, e: Entity, label: str, had_it: bool) -> dict | None:
     """The one-time question when a new fact brings its label to three (or more) entries of the kind: asked once per
     label and kind, and marked asked in the same save, so a prompt ignored or shown on another device isn't shown
@@ -373,13 +385,9 @@ def label_prompt(db: Session, world: World, e: Entity, label: str, had_it: bool)
         .where(Fact.world_id == world.id, Entity.kind == e.kind)).all() if norm(lab) == key})
     if count < COMMON_AT:
         return None
-    row = db.scalar(select(FactLabel).where(FactLabel.world_id == world.id, FactLabel.kind == e.kind,
-                                            func.lower(FactLabel.label) == key))
-    if row is not None and (row.asked or row.expected):
+    row = fact_label(db, world.id, e.kind, label)
+    if row.asked or row.expected:
         return None
-    if row is None:
-        row = FactLabel(world_id=world.id, kind=e.kind, label=label)
-        db.add(row)
     row.asked = True
     return {"kind": e.kind, "label": label, "count": count}
 

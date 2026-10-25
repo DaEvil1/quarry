@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..mentions import refresh_source, refresh_world
+from ..mentions import forget_source, matcher_for, refresh_names, refresh_source
 from ..models import (
     Chapter,
     Decision,
@@ -229,9 +229,10 @@ def create_entity(slug: str, body: EntityIn, user: User = Depends(current_user),
                body=body.body, summary=" ".join(body.summary.split()), match_case=body.match_case,
                first_name_alias=body.first_name_alias, exclusions=_clean_aliases("", body.exclusions),
                project_id=_level(world, body.project), gender=body.gender, created_by=user.id, updated_by=user.id)
+    before = matcher_for(db, world.id)
     db.add(e)
     db.flush()
-    refresh_world(db, world.id)
+    refresh_names(db, world.id, before, also=[("entity", e.id)])
     db.commit()
     return _out(e, 0, _slugs(world))
 
@@ -313,6 +314,7 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
         return JSONResponse(status_code=409, content={
             "detail": "This entry changed on another device. Here is the newer version.",
             "entity": _out(e, 0, _slugs(world)).model_dump(mode="json")})
+    before = matcher_for(db, world.id)
     names_changed = False
     old_name = e.name
     aliases = _clean_aliases(old_name, body.aliases) if body.aliases is not None else list(e.aliases)
@@ -383,9 +385,9 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
     e.updated_by = user.id
     db.flush()
     if names_changed:
-        refresh_world(db, world.id)
+        refresh_names(db, world.id, before, also=[("entity", e.id)])
     else:
-        refresh_source(db, world.id, "entity", e.id, e.body)
+        refresh_source(db, world.id, "entity", e.id, e.body, before)
     db.commit()
     out = _out(e, 0, _slugs(world))
     out.kept_alias = kept
@@ -412,10 +414,13 @@ def delete_entity(slug: str, entity_id: uuid.UUID, user: User = Depends(current_
                   db: Session = Depends(get_db)) -> None:
     world, _ = member_world(db, user, slug)
     e = _entity(db, world, entity_id)
+    before = matcher_for(db, world.id)
     db.execute(delete(ItemLink).where(ItemLink.target_table == "entity", ItemLink.target_id == e.id))
     db.delete(e)
+    # what its own page named goes with it
+    forget_source(db, "entity", e.id)
     db.flush()
-    refresh_world(db, world.id)
+    refresh_names(db, world.id, before)
     db.commit()
 
 
@@ -444,12 +449,18 @@ def near_misses(slug: str, user: User = Depends(current_user), db: Session = Dep
         .order_by(Mention.matched_text, Mention.source_table)
     ).all()
     projects = {p.id: p.slug for p in world.projects}
+    # the texts they are in, a query per kind of text rather than one each
+    texts: dict[tuple[str, uuid.UUID], object] = {}
+    for table in {m.source_table for m, _ in rows}:
+        model = SOURCES[table]
+        ids = list({m.source_id for m, _ in rows if m.source_table == table})
+        texts.update(((table, r.id), r) for r in db.scalars(select(model).where(model.id.in_(ids))))
     groups: dict[tuple[str, uuid.UUID], dict] = {}
     for m, name in rows:
         g = groups.setdefault((m.matched_text, m.entity_id), {
             "token": m.matched_text, "entity": {"id": str(m.entity_id), "name": name}, "count": 0, "sources": []})
         g["count"] += 1
-        row = db.get(SOURCES[m.source_table], m.source_id)
+        row = texts.get((m.source_table, m.source_id))
         if row is not None:
             g["sources"].append({"source_table": m.source_table, "source_id": str(m.source_id),
                                  "title": title_of(row), "project": projects.get(getattr(row, "project_id", None)),
@@ -475,13 +486,14 @@ def list_ignores(slug: str, user: User = Depends(current_user), db: Session = De
 def add_ignore(slug: str, body: IgnoreIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     world, _ = member_world(db, user, slug)
     token = body.token.strip()
+    before = matcher_for(db, world.id)
     try:
         db.add(NameIgnore(world_id=world.id, token=token))
         db.flush()
     except IntegrityError:
         db.rollback()
         return {"token": token}
-    refresh_world(db, world.id)
+    refresh_names(db, world.id, before)
     db.commit()
     return {"token": token}
 
@@ -489,8 +501,9 @@ def add_ignore(slug: str, body: IgnoreIn, user: User = Depends(current_user), db
 @router.delete("/name-ignores/{token}", status_code=204)
 def remove_ignore(slug: str, token: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
     world, _ = member_world(db, user, slug)
+    before = matcher_for(db, world.id)
     db.execute(delete(NameIgnore).where(NameIgnore.world_id == world.id, NameIgnore.token == token))
-    refresh_world(db, world.id)
+    refresh_names(db, world.id, before)
     db.commit()
 
 
@@ -507,6 +520,7 @@ def replace_near_miss(slug: str, body: ReplaceIn, user: User = Depends(current_u
         q = q.where(Mention.source_table == body.source_table, Mention.source_id == body.source_id)
     pattern = re.compile(r"(?<![\w'’-])" + re.escape(body.token) + r"(?![\w])")
     changed = 0
+    rewritten = []
     for table, sid in db.execute(q).all():
         row = db.get(SOURCES[table], sid)
         if row is None:
@@ -522,7 +536,10 @@ def replace_near_miss(slug: str, body: ReplaceIn, user: User = Depends(current_u
                 row.version += 1
             row.updated_by = user.id
             changed += n
+            rewritten.append((table, row))
     db.flush()
-    refresh_world(db, world.id)
+    matcher = matcher_for(db, world.id)
+    for table, row in rewritten:
+        refresh_source(db, world.id, table, row.id, text_of(row), matcher)
     db.commit()
     return {"replaced": changed}

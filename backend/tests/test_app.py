@@ -73,3 +73,14 @@ def test_cli_passkey_reset(client: Client, passkey: SoftPasskey, capsys, db_url)
 def test_head_requests_are_answered(client: Client):
     assert client.head("/healthz").status_code == 200
     assert client.head("/").status_code in (200, 503)
+
+
+def test_large_answers_are_gzipped_but_not_sign_in(signed_in: Client):
+    signed_in.post("/api/worlds", json={"name": "Coast"})
+    for i in range(30):
+        signed_in.post("/api/worlds/coast/entities", json={"name": f"Varren {i}", "summary": "Keeper of the lamp."})
+    r = signed_in.get("/api/worlds/coast/cards", headers={"Accept-Encoding": "gzip"})
+    assert r.status_code == 200 and r.headers["content-encoding"] == "gzip" and len(r.json()) == 30
+    assert "content-encoding" not in signed_in.get("/api/worlds/coast/cards", headers={"Accept-Encoding": ""}).headers
+    r = signed_in.get("/api/auth/recovery-codes", headers={"Accept-Encoding": "gzip"})
+    assert r.status_code == 200 and "content-encoding" not in r.headers

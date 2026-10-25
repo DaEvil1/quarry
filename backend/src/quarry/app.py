@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from sqlalchemy import text
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__
@@ -106,6 +107,21 @@ def run_migrations() -> None:
     command.upgrade(cfg, "head")
 
 
+class Compressed(GZipMiddleware):
+    """Responses of a kilobyte or more, gzipped for a browser that takes it: a world's cards and its offline copy
+    shrink five to seven times on the way to a phone. Not sign-in and setup, whose answers carry secrets (recovery
+    codes), so nothing a page can make the server repeat is ever compressed beside them."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        super().__init__(app, minimum_size=1024, compresslevel=6)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["path"].startswith(("/api/auth", "/api/setup")):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
 def _mount_frontend(app: FastAPI) -> None:
     """Serve the built frontend: real files as they are, any other path gets index.html (client-side routes)."""
     root = get_settings().web_path.resolve()
@@ -140,6 +156,7 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
                   openapi_url="/api/openapi.json" if s.docs else None)
     app.add_middleware(SameOriginWrites)
     app.add_middleware(SecurityHeaders)
+    app.add_middleware(Compressed)
 
     @app.api_route("/healthz", methods=["GET", "HEAD"], include_in_schema=False)
     def healthz() -> PlainTextResponse:

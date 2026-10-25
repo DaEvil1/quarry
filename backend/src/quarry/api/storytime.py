@@ -210,11 +210,13 @@ def where_everyone_is(slug: str, project: str | None = Query(default=None), kind
     all_entities = {e.id: e for e in db.scalars(select(Entity).where(Entity.world_id == world.id))}
     mentions: dict[uuid.UUID, list[tuple[int, uuid.UUID, str]]] = defaultdict(list)
     if chapter_ids:
-        for m in db.scalars(select(Mention).where(Mention.source_table == "chapter", Mention.source_id.in_(chapter_ids),
-                                                  Mention.kind != "near_miss").order_by(Mention.start)):
-            e = all_entities.get(m.entity_id)
+        for source_id, start, entity_id in db.execute(
+                select(Mention.source_id, Mention.start, Mention.entity_id)
+                .where(Mention.source_table == "chapter", Mention.source_id.in_(chapter_ids), Mention.kind != "near_miss")
+                .order_by(Mention.start)):
+            e = all_entities.get(entity_id)
             if e is not None:
-                mentions[m.source_id].append((m.start, e.id, e.kind))
+                mentions[source_id].append((start, e.id, e.kind))
     recorded: dict[tuple[uuid.UUID, uuid.UUID], Presence] = {}
     if chapter_ids:
         for p in db.scalars(select(Presence).where(Presence.chapter_id.in_(chapter_ids))):

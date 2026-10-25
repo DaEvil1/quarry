@@ -66,10 +66,11 @@ def cooccurrence(db: Session, world) -> list[dict]:  # type: ignore[no-untyped-d
     if not chapters:
         return []
     by_chapter: dict[uuid.UUID, list[tuple[int, uuid.UUID]]] = defaultdict(list)
-    for m in db.scalars(select(Mention).where(Mention.source_table == "chapter",
-                                              Mention.source_id.in_([c.id for c in chapters]),
-                                              Mention.kind != "near_miss")):
-        by_chapter[m.source_id].append((m.start, m.entity_id))
+    for source_id, start, entity_id in db.execute(
+            select(Mention.source_id, Mention.start, Mention.entity_id)
+            .where(Mention.source_table == "chapter", Mention.source_id.in_([c.id for c in chapters]),
+                   Mention.kind != "near_miss")):
+        by_chapter[source_id].append((start, entity_id))
     pairs: dict[tuple[uuid.UUID, uuid.UUID], Counter] = defaultdict(Counter)
     for ch in chapters:
         starts = _paragraph_bounds(ch.body)

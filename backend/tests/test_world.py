@@ -163,3 +163,31 @@ def test_decisions_tagged_with_entries(world: Client):
     assert [(x["text"], x["tagged"]) for x in idet["decisions"]] == [("Isolde leaves in spring", False)]
     r = world.patch(f"{W}/decisions/{d['id']}", json={"entities": [v["id"], i["id"]]})
     assert [e["name"] for e in r.json()["entities"]] == ["Isolde", "Varren"]
+
+
+def test_first_uses_of_a_label_at_once_share_one_row(world: Client):
+    """Two saves that both bring a label in for the first time, at the same moment, each get the label's one row
+    (the second waits for the first) instead of failing on its unique name."""
+    import threading
+
+    from sqlalchemy import func, select
+
+    from quarry.api.world import fact_label
+    from quarry.db import session_factory
+    from quarry.models import FactLabel, World
+
+    first, second = session_factory()(), session_factory()()
+    world_id = first.scalar(select(World.id))
+    a = fact_label(first, world_id, "character", "Eye colour")
+    got: list[FactLabel] = []
+    t = threading.Thread(target=lambda: got.append(fact_label(second, world_id, "character", "eye colour")))
+    t.start()
+    t.join(0.5)
+    assert t.is_alive()  # waiting on the first one's row
+    first.commit()
+    t.join(5)
+    second.commit()
+    assert got and got[0].id == a.id
+    assert first.scalar(select(func.count()).select_from(FactLabel)) == 1
+    first.close()
+    second.close()
