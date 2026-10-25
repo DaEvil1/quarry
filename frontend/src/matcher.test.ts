@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { Card } from "./world/cards";
-import { Matcher, osa } from "./world/matcher";
+import { type Hit, Matcher, osa } from "./world/matcher";
+import CASES from "./world/sharednames.cases.json";
 
 const card = (name: string, extra: Partial<Card> = {}): Card => ({
   id: name,
@@ -102,5 +103,38 @@ describe("osa", () => {
     expect(osa("Quasiata", "Quasita")).toBe(1);
     expect(osa("abc", "abc")).toBe(0);
     expect(osa("Mountains", "Isolde", 2)).toBe(3);
+  });
+});
+
+// shared names (docs/SPEC.md §14.10): the same table of cases as backend/tests/test_mentions.py
+describe("shared names and choice lines (same cases as the server)", () => {
+  const firsts = CASES.first_names as Record<string, string>;
+  const cards = CASES.entities.map((e) =>
+    card(e.name, { id: e.id, kind: e.kind as Card["kind"], aliases: e.aliases ?? [], first_name: firsts[e.id] ?? null }),
+  );
+  const m = new Matcher(cards);
+  // the server stores one mention per entry: an ambiguous name once per claimant, a settled one once per choice
+  const expand = (hs: Hit[]) =>
+    hs.flatMap((h) =>
+      h.chosen ? h.chosen.map((id) => [h.matched, "alias", id])
+      : h.kind === "ambiguous" && h.shared ? h.shared.ids.map((id) => [h.matched, "ambiguous", id])
+      : [[h.matched, h.kind, h.entityId]],
+    );
+
+  for (const c of CASES.cases) {
+    it(c.about, () => {
+      expect(expand(m.scanSource(c.text, (c as { source?: string }).source ?? "chapter"))).toEqual(c.expect);
+    });
+  }
+
+  it("lists invalid choice lines too, with no ids, and the claimants to offer", () => {
+    const [bad, ok] = m.choices("%% Isolde: Mar\n%% Isolde: Marr, Senn", 10);
+    expect(bad).toMatchObject({ start: 10, key: "isolde", ids: [], owners: ["marr", "senn"] });
+    expect(ok.ids).toEqual(["marr", "senn"]);
+  });
+
+  it("a shared name of two kinds is coloured as a plain name", () => {
+    expect(m.scan("the Quay")[0]).toMatchObject({ kind: "ambiguous", entityKind: "name" });
+    expect(m.scan("Isolde")[0]).toMatchObject({ kind: "ambiguous", entityKind: "character" });
   });
 });

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import uuid
+from pathlib import Path
 
-from quarry.mentions import Matcher
+import pytest
+
+from quarry.mentions import Matcher, first_name_aliases, scan_source
 from quarry.models import Entity
 
 
@@ -97,9 +101,10 @@ def test_first_names_of_characters():
     lord = entity("Lord Mordoch")
     twins = [entity("Ada Kell"), entity("Ada Morn")]
     m = Matcher([hale, lord, *twins])
-    # titles are skipped; a first name two people share belongs to neither; "The …" names have none
+    # titles are skipped; a first name two people share is shared (ambiguous for each); "The …" names have none
     assert [(f.matched, f.kind) for f in m.scan("Varren met Lord Mordoch. Mordoch nodded. Ada left.")] == [
-        ("Varren", "alias"), ("Lord Mordoch", "exact"), ("Mordoch", "alias")]
+        ("Varren", "alias"), ("Lord Mordoch", "exact"), ("Mordoch", "alias"), ("Ada", "ambiguous"),
+        ("Ada", "ambiguous")]
     assert Matcher([entity("The Grey Keeper")]).scan("Grey skies") == []
     hale.first_name_alias = False
     assert [f.matched for f in Matcher([hale]).scan("Varren and Varren Hale")] == ["Varren Hale"]
@@ -121,3 +126,28 @@ def test_longest_match_wins_across_capitals_settings():
     old = entity("Old")
     found = Matcher([harbour, old]).scan("at old harbour, Old waits")
     assert [(f.matched, f.entity_id) for f in found] == [("old harbour", harbour.id), ("Old", old.id)]
+
+
+# shared names (docs/SPEC.md §14.10): the same table of cases as frontend/src/matcher.test.ts
+CASES = json.loads((Path(__file__).parents[2] / "frontend/src/world/sharednames.cases.json").read_text("utf-8"))
+SHARED = {e["id"]: Entity(id=uuid.uuid5(uuid.NAMESPACE_URL, e["id"]), name=e["name"], kind=e["kind"],
+                          aliases=e.get("aliases", []), body="", match_case=e.get("match_case", True),
+                          first_name_alias=True, exclusions=[]) for e in CASES["entities"]}
+SHARED_KEY = {e.id: k for k, e in SHARED.items()}
+SHARED_M = Matcher(SHARED.values())
+
+
+def test_shared_first_names_are_given_to_each_claimant():
+    assert {SHARED_KEY[eid]: first for eid, first in first_name_aliases(SHARED.values()).items()} == \
+        CASES["first_names"]
+
+
+@pytest.mark.parametrize("case", CASES["cases"], ids=lambda c: c["about"])
+def test_shared_names(case):
+    found = scan_source(SHARED_M, case.get("source", "chapter"), case["text"])
+    assert [[f.matched, f.kind, SHARED_KEY[f.entity_id]] for f in found] == case["expect"]
+
+
+def test_shared_name_in_an_entrys_own_notes_means_itself():
+    found = scan_source(SHARED_M, "entity", "Isolde keeps the lamp. Isolde Senn does not.", SHARED["marr"].id)
+    assert [(f.matched, f.kind, SHARED_KEY[f.entity_id]) for f in found] == [("Isolde Senn", "exact", "senn")]
