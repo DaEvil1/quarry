@@ -35,7 +35,7 @@ import { usePrefs } from "../prefs";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import type { EntityRef, JournalDetail } from "../types";
-import { useCards } from "../world/cards";
+import { kindsOf, useCards } from "../world/cards";
 import { analyse, linkKey, type Finding } from "../world/findings";
 import { unitOf } from "../world/when";
 import NotFoundView from "./NotFoundView.vue";
@@ -191,8 +191,10 @@ const worldHooks: WorldHooks = {
   link: (id) => ({
     names: () => cards.names,
     options: (other) => {
-      const from = cards.byId.get(id)?.kind ?? "other";
-      return typeOptions(cards.types, from, other.kind).map((o) => ({ key: `${o.type.id}|${o.forward}`, reads: o.reads }));
+      // any of each one's kinds (docs/SPEC.md §14.8)
+      const me = cards.byId.get(id);
+      const them = cards.byId.get(other.id);
+      return typeOptions(cards.types, me ? kindsOf(me) : ["other"], them ? kindsOf(them) : [other.kind]).map((o) => ({ key: `${o.type.id}|${o.forward}`, reads: o.reads }));
     },
     add: (other, key) => {
       const [typeId, forward] = key.split("|");
@@ -212,7 +214,7 @@ function historyActions(raw: string): HistoryActions {
   return {
     named,
     events: () => {
-      const events = cards.names.filter((n) => n.kind === "event");
+      const events = cards.names.filter((n) => cards.hasKind(n.id, "event"));
       return [...events].sort((a, b) => Number(!named.some((n) => n.id === a.id)) - Number(!named.some((n) => n.id === b.id)));
     },
     relatedTo: (eventId) => new Set((cards.byId.get(eventId)?.relations ?? []).map((r) => r.other.id)),

@@ -67,7 +67,7 @@ import { usePrefs } from "../prefs";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import { localToday, type EntityRef, type Presence } from "../types";
-import { useCards } from "../world/cards";
+import { kindsOf, useCards } from "../world/cards";
 import { chapterWhen, timeText, unitOf } from "../world/when";
 import { includePlanned, setIncludePlanned } from "../focus";
 import { norm } from "../world/time";
@@ -373,7 +373,7 @@ function byLevel(list: EntityRef[]): (EntityRef & { where?: string })[] {
 /** places for "is at…": the ones named in this chapter first, then the rest */
 function placesForChapter(): EntityRef[] {
   const named = new Set((chapter.value?.mentions ?? []).filter((m) => m.entity_kind === "place").map((m) => m.entity_id));
-  const places = byLevel(cards.names.filter((n) => n.kind === "place"));
+  const places = byLevel(cards.names.filter((n) => cards.hasKind(n.id, "place")));
   return [...places.filter((p) => named.has(p.id)), ...places.filter((p) => !named.has(p.id))];
 }
 
@@ -417,8 +417,10 @@ const worldHooks: WorldHooks = {
   link: (id) => ({
     names: () => byLevel(cards.names),
     options: (other) => {
-      const from = cards.byId.get(id)?.kind ?? "other";
-      return typeOptions(cards.types, from, other.kind).map((o) => ({ key: `${o.type.id}|${o.forward}`, reads: o.reads }));
+      // any of each one's kinds (docs/SPEC.md §14.8)
+      const me = cards.byId.get(id);
+      const them = cards.byId.get(other.id);
+      return typeOptions(cards.types, me ? kindsOf(me) : ["other"], them ? kindsOf(them) : [other.kind]).map((o) => ({ key: `${o.type.id}|${o.forward}`, reads: o.reads }));
     },
     add: (other, key) => {
       const [typeId, forward] = key.split("|");
@@ -533,7 +535,7 @@ function historyActions(_from: number, _to: number, raw: string): HistoryActions
   return {
     named,
     events: () => {
-      const events = byLevel(cards.names.filter((n) => n.kind === "event"));
+      const events = byLevel(cards.names.filter((n) => cards.hasKind(n.id, "event")));
       const rank = (e: EntityRef) => (named.some((n) => n.id === e.id) ? 0 : inChapter.has(e.id) ? 1 : 2);
       return [...events].sort((a, b) => rank(a) - rank(b));
     },

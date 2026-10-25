@@ -44,6 +44,8 @@ export type EntityChanges = Partial<Pick<Entity, "name" | "kind" | "aliases" | "
   time_approx?: boolean;
   outside_time?: boolean;
   era_colour?: string | null;
+  /** the kinds it is as well, in order; never the main kind (docs/SPEC.md §14.8) */
+  also_kinds?: EntityKind[];
 };
 
 /** The entry changed on another device since it was loaded here; `current` is the server's copy. */
@@ -228,8 +230,10 @@ export function rolesFor(sug: RoleSuggestions, typeId: string, groupId: string):
 
 /** The ways two kinds can be related, read from the first one's side: types that fit forward (it is A) or
  * backward (it is B, read with the reverse label). Symmetric types appear once. */
-export function typeOptions(types: RelationType[], from: string, to: string): { type: RelationType; reads: string; forward: boolean }[] {
-  const fits = (kind: string, side: string) => side === "*" || side === kind;
+/** The relationship types that can join two entries, as they read from the first. Each side is a kind, or all of an
+ * entry's kinds (an entry of more than one kind is offered the types of each, docs/SPEC.md §14.8). */
+export function typeOptions(types: RelationType[], from: string | string[], to: string | string[]): { type: RelationType; reads: string; forward: boolean }[] {
+  const fits = (kind: string | string[], side: string) => side === "*" || (Array.isArray(kind) ? kind.includes(side) : side === kind);
   const out: { type: RelationType; reads: string; forward: boolean }[] = [];
   for (const t of types) {
     const forward = fits(from, t.a_kind) && fits(to, t.b_kind);

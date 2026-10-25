@@ -5,9 +5,12 @@
 import type { EntityKind, Gender, Standing } from "../types";
 import { atOrBefore, holds, type At, type IndexOf } from "./time";
 
+/** A node that is a place, as its main kind or an added one (docs/SPEC.md §14.8). */
+const isPlace = (n: { kind: string; also_kinds?: string[] } | undefined): boolean => !!n && (n.kind === "place" || !!n.also_kinds?.includes("place"));
+
 export interface GraphData {
   /** with each entry's level (a project's slug, or null for the world) and a character's gender */
-  nodes: { id: string; name: string; kind: EntityKind; summary: string; project?: string | null; gender?: Gender | null }[];
+  nodes: { id: string; name: string; kind: EntityKind; summary: string; project?: string | null; gender?: Gender | null; also_kinds?: EntityKind[] }[];
   edges: {
     id: string;
     a: string;
@@ -185,7 +188,7 @@ const isInside = (label: string, reverse: string | null) => /^(inside|in|part of
 /** Places nested by inside/contains, each with who lives or works there and who is there as of a chapter. */
 export function placeTree(data: GraphData, asOf: At | null, indexOf: IndexOf, chapterAt: string | null): PlaceNode[] {
   const node = new Map(data.nodes.map((n) => [n.id, n]));
-  const places = data.nodes.filter((n) => n.kind === "place");
+  const places = data.nodes.filter((n) => isPlace(n));
   const tree = new Map<string, PlaceNode>(places.map((p) => [p.id, { id: p.id, name: p.name, children: [], people: [], here: [] }]));
   const parent = new Map<string, string>();
   const holdsNow = (e: GraphData["edges"][number]) => asOf === null || holds(e, asOf, indexOf);
@@ -194,11 +197,11 @@ export function placeTree(data: GraphData, asOf: At | null, indexOf: IndexOf, ch
     const a = node.get(e.a);
     const b = node.get(e.b);
     if (!a || !b) continue;
-    if (a.kind === "place" && b.kind === "place" && isInside(e.label, e.reverse_label)) {
+    if (isPlace(a) && isPlace(b) && isInside(e.label, e.reverse_label)) {
       if (!parent.has(a.id)) parent.set(a.id, b.id);
-    } else if (b.kind === "place" && a.kind !== "place") {
+    } else if (isPlace(b) && !isPlace(a)) {
       addPerson(tree.get(b.id)!, e.reverse_label ?? e.label, a);
-    } else if (a.kind === "place" && b.kind !== "place") {
+    } else if (isPlace(a) && !isPlace(b)) {
       addPerson(tree.get(a.id)!, e.label, b);
     }
   }
