@@ -163,6 +163,12 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
             <button type="button" class="qchip quiet" title="Leave it in its book's bible; not flagged again for this book" @click="props.actions.resolve(f.rule, f.key, 'intentional')">Intentional</button>
           </template>
 
+          <template v-if="f.rule === 'evidence_retired' && f.evidence">
+            <button v-for="c in f.evidence.found.slice(0, 2)" :key="c.id" type="button" class="qchip primary" @click="props.actions.reAnchor(f, c.id)">Re-anchor to {{ c.title }}</button>
+            <button v-if="f.a" type="button" class="qchip" @click="props.actions.open(f.a)">Re-anchor…</button>
+            <button type="button" class="qchip quiet" @click="props.actions.resolve(f.rule, f.key, 'intentional')">Dismiss</button>
+          </template>
+
           <template v-if="f.rule === 'missing_label'">
             <button type="button" class="qchip primary" @click="props.actions.addLabel(f.a!, f.label!)">Add it</button>
             <button type="button" class="qchip quiet" @click="props.actions.resolve(f.rule, f.key, 'intentional')">Not for this one</button>

@@ -4,31 +4,50 @@ import { useRoute, useRouter } from "vue-router";
 
 import { get, patch, unreachable } from "../api";
 import InlineText from "../components/InlineText.vue";
+import RetireReview from "../components/RetireReview.vue";
+import TimeField from "../components/TimeField.vue";
+import UndoToast from "../components/UndoToast.vue";
 import WordHistoryChart from "../components/WordHistory.vue";
 import { age, listItems } from "../items";
 import {
+  addDraft,
   checkpointAll,
+  closeRange,
   createChapter,
   getManuscript,
+  getSalvage,
   getWordHistory,
+  orderDrafts,
   reorderChapters,
+  retireMany,
+  reviewLine,
   setAbout,
+  setRange,
+  startRange,
   statusStrength,
   statuses as statusApi,
+  undoReview,
+  type About,
   type ChapterInfo,
   type ChapterStatus,
+  type Choice,
+  type Experiment,
   type Manuscript,
+  type Reviewed,
   type StatusRef,
   type WordHistory,
 } from "../manuscript";
 import { localManuscript } from "../offline";
 import { useSession } from "../stores/session";
-import { PROJECT_KINDS, firstLine, kindLabel, type Item, type Project, type ProjectKind, type World } from "../types";
+import { PROJECT_KINDS, firstLine, kindLabel, localToday, type Item, type Project, type ProjectKind, type StoryChapter, type World } from "../types";
+import { useCards } from "../world/cards";
+import { chapterWhen, unitOf } from "../world/when";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
 const router = useRouter();
 const session = useSession();
+const cards = useCards();
 
 const world = computed(() => session.world(String(route.params.world)));
 const project = computed(() =>
@@ -64,13 +83,192 @@ async function load() {
   }
 }
 watch(project, load, { immediate: true });
+watch(() => world.value?.slug, (w) => w && void cards.load(w), { immediate: true });
 
-// experiments listed under the chapter they would replace
-const experimentsOf = (id: string) => manuscript.value?.experiments.filter((x) => x.replaces_id === id) ?? [];
-const orphanExperiments = computed(() => {
-  const ids = new Set(manuscript.value?.chapters.map((c) => c.id));
-  return manuscript.value?.experiments.filter((x) => !x.replaces_id || !ids.has(x.replaces_id)) ?? [];
+// ---- when each chapter is set (docs/SPEC.md §13.1.2): edited in place, muted after the summary ----
+const unit = computed(() => unitOf(world.value));
+const story = computed(() => new Map(cards.timeline.map((c) => [c.id, c])));
+/** A chapter's time as the clock reads it: its own, or the one it carries on from (from the cards' timeline). */
+function storyOf(c: ChapterInfo): StoryChapter {
+  const s = story.value.get(c.id);
+  return { id: c.id, title: c.title, project: c.project, project_name: "", index: 0, ...(s ?? {}), time_at: c.time_at ?? null, time_end: c.time_end, time_label: c.time_label, time_approx: c.time_approx, outside_time: c.outside_time, told_as: c.told_as };
+}
+const carried = (c: ChapterInfo) => {
+  const w = chapterWhen(storyOf(c), unit.value);
+  return w.own ? "" : w.text;
+};
+/** Own time earlier than the chapter before it, with no mark: a quiet hint, one click to mark it a flashback. */
+function setEarlier(i: number): boolean {
+  const list = manuscript.value?.chapters ?? [];
+  const c = list[i];
+  const prev = list[i - 1];
+  if (!c || !prev || c.told_as || c.time_at == null || c.outside_time) return false;
+  const before = prev.time_at ?? story.value.get(prev.id)?.set_time ?? null;
+  return before !== null && c.time_at < before;
+}
+async function setTime(c: ChapterInfo, about: About) {
+  await aboutChange(c, about);
+  void cards.refresh(world.value?.slug);
+}
+
+// ---- restructuring (docs/SPEC.md §13.6): a range picked with Shift-click, experiments across it, and the review
+// before anything leaves the book ----
+const selected = ref<string[]>([]);
+let anchor: string | null = null;
+function pickRow(c: ChapterInfo, e: MouseEvent) {
+  const list = manuscript.value?.chapters ?? [];
+  if (e.shiftKey && anchor) {
+    const a = list.findIndex((x) => x.id === anchor);
+    const b = list.findIndex((x) => x.id === c.id);
+    selected.value = list.slice(Math.min(a, b), Math.max(a, b) + 1).map((x) => x.id);
+  } else {
+    selected.value = selected.value.length === 1 && selected.value[0] === c.id ? [] : [c.id];
+    anchor = c.id;
+  }
+  starting.value = null;
+}
+const picked = computed(() => (manuscript.value?.chapters ?? []).filter((c) => selected.value.includes(c.id)));
+const numberOf = (id: string) => (manuscript.value?.chapters ?? []).findIndex((c) => c.id === id) + 1;
+const rangeText = (ids: string[]) => {
+  const ns = ids.map(numberOf).filter((n) => n > 0).sort((a, b) => a - b);
+  return ns.length > 1 ? `${ns[0]}–${ns[ns.length - 1]}` : String(ns[0] ?? "");
+};
+const starting = ref<null | "range" | "before" | "after">(null);
+const newTitle2 = ref("");
+const startFrom = ref<"copy" | "scratch">("copy");
+function beginStart(kind: "range" | "before" | "after") {
+  starting.value = kind;
+  newTitle2.value = kind === "range" ? "New beginning" : "New chapters";
+  startFrom.value = "copy";
+}
+async function doStart() {
+  const w = world.value;
+  const p = project.value;
+  if (!w || !p || !starting.value || !newTitle2.value.trim()) return;
+  error.value = "";
+  try {
+    const first = picked.value[0]!;
+    const last = picked.value[picked.value.length - 1]!;
+    const out = await startRange(w.slug, p.slug, starting.value === "range"
+      ? { title: newTitle2.value, start: startFrom.value, range: picked.value.map((c) => c.id) }
+      : { title: newTitle2.value, start: "scratch", insert: { chapter_id: (starting.value === "before" ? first : last).id, side: starting.value } });
+    starting.value = null;
+    selected.value = [];
+    open.value = out.id;
+    await load();
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+
+// experiments: under the last chapter of their range, or at the place they add at
+const experiments = computed(() => manuscript.value?.experiments ?? []);
+const inRange = computed(() => new Set(experiments.value.flatMap((x) => x.range.map((r) => r.id))));
+const rangeEnd = (x: Experiment) => [...x.range].reverse().find((r) => (manuscript.value?.chapters ?? []).some((c) => c.id === r.id))?.id;
+const experimentsAfter = (id: string) => experiments.value.filter((x) => (x.range.length ? rangeEnd(x) === id : x.insert?.side === "after" && x.insert.chapter_id === id));
+const experimentsBefore = (id: string) => experiments.value.filter((x) => !x.range.length && x.insert?.side === "before" && x.insert.chapter_id === id);
+const placed = computed(() => new Set((manuscript.value?.chapters ?? []).flatMap((c) => [...experimentsAfter(c.id), ...experimentsBefore(c.id)].map((x) => x.id))));
+const orphanExperiments = computed(() => experiments.value.filter((x) => !placed.value.has(x.id)));
+const short2 = (n: number) => (n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`);
+function experimentLine(x: Experiment): string {
+  const drafts = `${x.drafts.length} draft${x.drafts.length === 1 ? "" : "s"} (${short2(x.words)})`;
+  if (x.range.length) return `${x.title} · replaces ${rangeText(x.range.map((r) => r.id))} (${short2(x.range_words)} words) · ${drafts}`;
+  if (x.insert) return `${x.title} · adds ${x.drafts.length} draft${x.drafts.length === 1 ? "" : "s"} ${x.insert.side} chapter ${numberOf(x.insert.chapter_id)}`;
+  return `${x.title} · ${drafts}`;
+}
+const open = ref<string | null>(null);
+const draftTitle = ref("");
+const copyFrom = ref("");
+const retiredChapters = ref<{ id: string; title: string }[]>([]);
+async function openExperiment(x: Experiment) {
+  open.value = open.value === x.id ? null : x.id;
+  if (open.value && world.value && project.value) {
+    retiredChapters.value = (await getSalvage(world.value.slug, project.value.slug).catch(() => [])).map((s) => ({ id: s.id, title: s.title }));
+  }
+}
+async function newDraft(x: Experiment) {
+  const w = world.value;
+  if (!w) return;
+  try {
+    await addDraft(w.slug, x.id, copyFrom.value ? { copy_from: copyFrom.value } : { title: draftTitle.value.trim() || undefined });
+    draftTitle.value = copyFrom.value = "";
+    await load();
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+async function moveDraft(x: Experiment, i: number, by: -1 | 1) {
+  const w = world.value;
+  if (!w) return;
+  const ids = x.drafts.map((d) => d.id);
+  const [d] = ids.splice(i, 1);
+  ids.splice(i + by, 0, d!);
+  await orderDrafts(w.slug, x.id, ids).catch((e: Error) => (error.value = e.message));
+  await load();
+}
+async function newRange(x: Experiment) {
+  const w = world.value;
+  if (!w || !picked.value.length) return;
+  try {
+    await setRange(w.slug, x.id, { range: picked.value.map((c) => c.id) });
+    selected.value = [];
+    await load();
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+
+// the review before chapters leave: retiring a selection, a draft, or closing an experiment
+const reviewing = ref<null | { chapters: { id: string; title: string }[]; verb: string; experiment?: Experiment; outcome?: "accepted" | "harvested" | "rejected" }>(null);
+const decision = ref("");
+const targets = computed(() => {
+  const leaving = new Set(reviewing.value?.chapters.map((c) => c.id) ?? []);
+  const staying = (manuscript.value?.chapters ?? []).filter((c) => !leaving.has(c.id)).map((c) => ({ id: c.id, title: c.title }));
+  const drafts = reviewing.value?.outcome === "accepted" ? (reviewing.value.experiment?.drafts ?? []).map((d) => ({ id: d.id, title: `${d.title} (draft)` })) : [];
+  return [...drafts, ...staying];
 });
+function retireSelected() {
+  reviewing.value = { chapters: picked.value.map((c) => ({ id: c.id, title: c.title })), verb: picked.value.length > 1 ? `Retire ${picked.value.length} chapters` : "Retire" };
+}
+function retireDraft(d: ChapterInfo) {
+  reviewing.value = { chapters: [{ id: d.id, title: d.title }], verb: "Remove the draft" };
+}
+function closeExp(x: Experiment, outcome: "accepted" | "harvested" | "rejected") {
+  const leaving = outcome === "accepted" ? x.range.filter((r) => r.state === "current") : x.drafts;
+  reviewing.value = { chapters: leaving.map((c) => ({ id: c.id, title: c.title })), verb: { accepted: "Accept", harvested: "Harvest", rejected: "Reject" }[outcome], experiment: x, outcome };
+  decision.value = "";
+}
+const toast = ref<{ label: string; undo: () => Promise<void> } | null>(null);
+async function reviewed(review: Choice[], notes: Record<string, string>) {
+  const w = world.value;
+  const r = reviewing.value;
+  if (!w || !r) return;
+  error.value = "";
+  try {
+    let done: Reviewed;
+    if (r.experiment && r.outcome) {
+      done = await closeRange(w.slug, r.experiment.id, { outcome: r.outcome, review, notes, decision: decision.value || undefined, decided_on: localToday() });
+      notice.value = done.said?.join(" ") ?? "";
+    } else {
+      done = await retireMany(w.slug, r.chapters.map((c) => c.id), review, notes);
+    }
+    reviewing.value = null;
+    selected.value = [];
+    const what = r.outcome === "accepted" ? `Accepted “${r.experiment?.title}”` : r.outcome ? `${r.verb}ed “${r.experiment?.title}”` : `Retired ${r.chapters.length === 1 ? `“${r.chapters[0]!.title}”` : `${r.chapters.length} chapters`}`;
+    toast.value = {
+      label: `${what} · ${reviewLine(done.summary)}`,
+      undo: async () => {
+        await undoReview(w.slug, done.id);
+        await load();
+        void cards.refresh(w.slug);
+      },
+    };
+    await load();
+    void cards.refresh(w.slug);
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
 
 // ---- new chapter ----
 const newTitle = ref("");
@@ -130,6 +328,9 @@ async function loadStatuses() {
   statusList.value = await statusApi.list(w.slug, p.slug).catch(() => statusList.value);
 }
 async function about(c: ChapterInfo, changes: { summary?: string; status_id?: string | null }) {
+  await aboutChange(c, changes);
+}
+async function aboutChange(c: ChapterInfo, changes: About) {
   const w = world.value;
   if (!w) return;
   picking.value = null;
@@ -316,22 +517,45 @@ async function save() {
 
     <section class="card">
       <div class="card-head"><h2>Manuscript</h2></div>
+      <div v-if="selected.length" class="selection-bar" data-testid="selection-bar">
+        <span class="small">{{ selected.length === 1 ? `Chapter ${rangeText(selected)}` : `Chapters ${rangeText(selected)}` }} picked <span class="muted">(Shift-click to pick a range)</span></span>
+        <button type="button" class="btn btn-sm" data-testid="start-experiment" @click="beginStart('range')">Start an experiment…</button>
+        <button type="button" class="btn btn-sm" data-testid="add-before" @click="beginStart('before')">Add chapters before…</button>
+        <button type="button" class="btn btn-sm" data-testid="add-after" @click="beginStart('after')">Add chapters after…</button>
+        <button type="button" class="btn btn-sm" data-testid="retire-selected" @click="retireSelected">Retire…</button>
+        <button type="button" class="btn btn-sm quiet" @click="selected = []">Clear</button>
+      </div>
+      <form v-if="starting" class="card actions start-form" data-testid="start-form" @submit.prevent="doStart" @keydown.esc.prevent="starting = null">
+        <label class="small" for="exp-title">{{ starting === "range" ? `An experiment replacing ${rangeText(selected)}` : `New chapters ${starting} chapter ${rangeText(selected.slice(starting === "before" ? 0 : -1))}` }}</label>
+        <input id="exp-title" v-model="newTitle2" class="filter grow" maxlength="300" required aria-label="Experiment title" />
+        <select v-if="starting === 'range'" v-model="startFrom" class="filter" aria-label="Start from">
+          <option value="copy">from copies</option>
+          <option value="scratch">from scratch</option>
+        </select>
+        <button class="btn btn-sm btn-primary" type="submit">Start</button>
+        <button class="btn btn-sm" type="button" @click="starting = null">Cancel</button>
+      </form>
       <ol class="chapters" data-testid="chapters">
         <template v-for="(c, i) in manuscript?.chapters ?? []" :key="c.id">
+          <li v-for="x in experimentsBefore(c.id)" :key="x.id" class="chapter-row experiment" data-testid="experiment-row">
+            <button type="button" class="linkish grow" @click="openExperiment(x)">↳ {{ experimentLine(x) }}</button>
+          </li>
           <li
             class="chapter-row"
-            :class="{ dragging: dragging === c.id }"
+            :class="{ dragging: dragging === c.id, picked: selected.includes(c.id), 'in-range': inRange.has(c.id) }"
             draggable="true"
+            :data-testid="`chapter-${i + 1}`"
             @dragstart="dragging = c.id"
             @dragend="dragging = null"
             @dragover.prevent
             @drop.prevent="drop(c.id)"
           >
             <span class="drag" aria-hidden="true">⋮⋮</span>
-            <span class="muted small chapter-no">{{ i + 1 }}</span>
+            <button type="button" class="muted small chapter-no linkish" :aria-label="`Pick chapter ${i + 1}`" :aria-pressed="selected.includes(c.id)" @click="pickRow(c, $event)">{{ i + 1 }}</button>
             <span class="grow chapter-name">
               <span class="chapter-head">
               <RouterLink :to="{ name: 'chapter', params: { world: world.slug, id: c.id } }">{{ c.title }}</RouterLink>
+              <span v-if="c.told_as" class="pill told-as" data-testid="told-as">{{ c.told_as }}</span>
               <span class="status-at">
                 <button type="button" class="status-pill" :class="{ unset: !c.status }" :style="c.status ? { '--strength': strength(c.status) } : {}"
                   :aria-label="`Status of ${c.title}: ${c.status?.label ?? 'none'}`" data-testid="status-pill" :disabled="offlineCopy"
@@ -349,6 +573,10 @@ async function save() {
                 <InlineText v-if="!offlineCopy" :value="c.summary" :label="`Summary of ${c.title}`" placeholder="+ one line" :maxlength="300" @save="(v) => about(c, { summary: v })" />
                 <template v-else>{{ c.summary }}</template>
               </span>
+              <span class="chapter-when small muted" data-testid="chapter-when">
+                <TimeField :value="{ time_at: c.time_at ?? null, time_end: c.time_end, time_label: c.time_label, time_approx: c.time_approx, outside_time: c.outside_time }" :unit="unit" :label="`When ${c.title} is set`" placeholder="+ when" :carried="carried(c)" :disabled="offlineCopy" @save="(v) => setTime(c, v)" />
+                <span v-if="setEarlier(i)" class="set-earlier small" data-testid="set-earlier">set earlier · <button type="button" class="linkish" @click="setTime(c, { told_as: 'flashback' })">mark it a flashback</button></span>
+              </span>
             </span>
             <span v-if="c.pov" class="pill">{{ c.pov.name }}</span>
             <span class="muted small chapter-words">{{ c.words.toLocaleString() }} w</span>
@@ -365,17 +593,69 @@ async function save() {
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
             </button>
           </li>
-          <li v-for="x in experimentsOf(c.id)" :key="x.id" class="chapter-row experiment">
-            <span class="pill accent">experiment</span>
-            <RouterLink class="grow" :to="{ name: 'chapter', params: { world: world.slug, id: x.id } }">{{ x.title }}</RouterLink>
-            <span class="muted small chapter-words">{{ x.words.toLocaleString() }} w</span>
+          <li v-for="x in experimentsAfter(c.id)" :key="x.id" class="chapter-row experiment" data-testid="experiment-row">
+            <button type="button" class="linkish grow" @click="openExperiment(x)">↳ {{ experimentLine(x) }}</button>
           </li>
         </template>
-        <li v-for="x in orphanExperiments" :key="x.id" class="chapter-row experiment">
-          <span class="pill accent">experiment</span>
-          <RouterLink class="grow" :to="{ name: 'chapter', params: { world: world.slug, id: x.id } }">{{ x.title }}</RouterLink>
+        <li v-for="x in orphanExperiments" :key="x.id" class="chapter-row experiment" data-testid="experiment-row">
+          <button type="button" class="linkish grow" @click="openExperiment(x)">↳ {{ experimentLine(x) }}</button>
         </li>
       </ol>
+      <template v-for="x in experiments" :key="`open-${x.id}`">
+        <section v-if="open === x.id" class="card experiment-card" data-testid="experiment">
+          <div class="card-head">
+            <h3>{{ x.title }}</h3>
+            <span class="actions">
+              <RouterLink class="btn btn-sm" :to="{ name: 'read', params: { world: world.slug, project: project.slug }, query: { as_if: x.id } }" data-testid="read-as-if">Read as if accepted</RouterLink>
+              <button type="button" class="btn btn-sm btn-primary" data-testid="accept" @click="closeExp(x, 'accepted')">Accept</button>
+              <button type="button" class="btn btn-sm" @click="closeExp(x, 'harvested')">Harvest</button>
+              <button type="button" class="btn btn-sm" @click="closeExp(x, 'rejected')">Reject</button>
+            </span>
+          </div>
+          <p v-if="x.lost.length" class="notice warn small" data-testid="lost">
+            {{ x.lost.length }} of its chapters {{ x.lost.length === 1 ? "was" : "were" }} replaced{{ x.replaced_by ? ` by “${x.replaced_by}”` : "" }}.
+            <button v-if="selected.length" type="button" class="linkish" @click="newRange(x)">Give it chapters {{ rangeText(selected) }} instead</button>
+            <span v-else class="muted">Pick the chapters it should replace now, then give it them.</span>
+          </p>
+          <ol class="chapters drafts" data-testid="drafts">
+            <li v-for="(d, j) in x.drafts" :key="d.id" class="chapter-row" data-testid="draft">
+              <span class="muted small chapter-no">{{ j + 1 }}</span>
+              <span class="grow chapter-name">
+                <RouterLink :to="{ name: 'chapter', params: { world: world.slug, id: d.id } }">{{ d.title }}</RouterLink>
+                <span class="chapter-summary small muted">
+                  <InlineText :value="d.summary" :label="`Summary of ${d.title}`" placeholder="+ one line" :maxlength="300" @save="(v) => about(d, { summary: v })" />
+                  <TimeField :value="{ time_at: d.time_at ?? null, time_end: d.time_end, time_label: d.time_label, time_approx: d.time_approx, outside_time: d.outside_time }" :unit="unit" :label="`When ${d.title} is set`" @save="(v) => setTime(d, v)" />
+                </span>
+              </span>
+              <span v-if="d.status" class="status-pill" :style="{ '--strength': strength(d.status) }">{{ d.status.label }}</span>
+              <span class="muted small chapter-words">{{ d.words.toLocaleString() }} w</span>
+              <button type="button" class="icon-btn" :disabled="j === 0" :aria-label="`Move draft ${d.title} up`" @click="moveDraft(x, j, -1)">↑</button>
+              <button type="button" class="icon-btn" :disabled="j === x.drafts.length - 1" :aria-label="`Move draft ${d.title} down`" @click="moveDraft(x, j, 1)">↓</button>
+              <button type="button" class="icon-btn" :aria-label="`Remove draft ${d.title}`" @click="retireDraft(d)">×</button>
+            </li>
+          </ol>
+          <form class="actions" data-testid="new-draft" @submit.prevent="newDraft(x)">
+            <input v-model="draftTitle" class="filter grow" maxlength="300" placeholder="New draft title" aria-label="New draft title" :disabled="!!copyFrom" />
+            <select v-model="copyFrom" class="filter" aria-label="Copy a chapter in">
+              <option value="">or copy a chapter in…</option>
+              <optgroup label="In the book">
+                <option v-for="c in manuscript?.chapters ?? []" :key="c.id" :value="c.id">{{ c.title }}</option>
+              </optgroup>
+              <optgroup v-if="retiredChapters.length" label="Salvage">
+                <option v-for="c in retiredChapters" :key="c.id" :value="c.id">{{ c.title }}</option>
+              </optgroup>
+            </select>
+            <button class="btn btn-sm" type="submit">{{ copyFrom ? "Copy in" : "New draft" }}</button>
+          </form>
+        </section>
+      </template>
+      <template v-if="reviewing">
+        <div v-if="reviewing.outcome === 'accepted' || reviewing.outcome === 'rejected'" class="field">
+          <label for="close-decision2" class="small">Decision (optional)</label>
+          <input id="close-decision2" v-model="decision" class="filter" type="text" maxlength="1000" />
+        </div>
+        <RetireReview :world="world.slug" :chapters="reviewing.chapters" :experiment="reviewing.outcome === 'accepted' ? reviewing.experiment?.id : undefined" :targets="targets" :verb="reviewing.verb" @done="reviewed" @cancel="reviewing = null" />
+      </template>
       <p v-if="manuscript && !manuscript.chapters.length" class="empty">No chapters yet.</p>
       <form class="actions new-chapter" @submit.prevent="addChapter">
         <label for="new-chapter" class="visually-hidden">New chapter title</label>
@@ -401,6 +681,7 @@ async function save() {
     </div>
 
     <WordHistoryChart v-if="history" :history="history" />
+    <UndoToast :label="toast?.label ?? null" :undo="toast?.undo ?? null" :ms="15000" @dismiss="toast = null" />
 
     <section v-if="statusList.length || !offlineCopy" class="card" data-testid="statuses">
       <div class="card-head">

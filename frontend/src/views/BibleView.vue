@@ -73,7 +73,7 @@ function dropFilter(f: ValueFilter) {
 
 const reader = computed<LabelReader>(() => ({
   several: (k, label) => cards.several(k, label),
-  last: cards.timeline.length ? cards.timeline.length - 1 : null,
+  last: cards.lastPlace,
   indexOf: cards.indexOf,
 }));
 

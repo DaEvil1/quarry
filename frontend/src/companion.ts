@@ -77,6 +77,8 @@ export interface PanelActions {
   several(kind: EntityKind, label: string): void;
   /** two holders of a one-at-a-time role: end the earlier one where the later one starts */
   endBefore(earlier: string, later: string): void;
+  /** evidence in a retired chapter: point it at another chapter */
+  reAnchor(f: Finding, chapterId: string): void;
   saveNote(text: string): void;
   stash(): void;
   update(): void;

@@ -19,6 +19,7 @@ import {
 import type { Since } from "../editor/companion";
 import { chapterPresence, setPresence } from "../storytime";
 import HistoryPanel from "../components/HistoryPanel.vue";
+import RetireReview from "../components/RetireReview.vue";
 import UndoToast from "../components/UndoToast.vue";
 import { EditorView } from "@codemirror/view";
 
@@ -27,13 +28,20 @@ import { changesLine, changesSince } from "../editor/changes";
 import { createProse, countWords, type Prose, type WorldHooks } from "../editor/prose";
 import { ChapterSaver, type SaveStatus } from "../editor/saver";
 import {
-  closeExperiment,
+  closeRange,
+  retireMany,
+  reviewLine,
+  undoReview,
+  type Choice,
   getChapter,
   reinstateChapter,
   restoreRevision,
-  retireChapter,
   saveChapter,
   setAbout,
+  evidenceRetired,
+  reAnchor as reAnchorEvidence,
+  type About,
+  type EvidenceFinding,
   snapshot,
   startExperiment,
   statuses as statusApi,
@@ -57,6 +65,7 @@ import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import { localToday, type EntityRef, type Presence } from "../types";
 import { useCards } from "../world/cards";
+import { chapterWhen, unitOf } from "../world/when";
 import { analyse, linkKey, storyText, type Finding } from "../world/findings";
 import NotFoundView from "./NotFoundView.vue";
 
@@ -451,6 +460,7 @@ function analyseNow() {
     project: ch.project,
     projectName: (slug) => world.value?.projects.find((p) => p.slug === slug)?.name ?? slug,
     expected: (kind) => cards.expected(kind),
+    evidence: evidence.value,
   }).filter((f) => prefs.editors[f.editor].on);
   // visible in the browser's performance tools, and to the performance check (frontend/perf)
   performance.measure("quarry:analyse", { start: started });
@@ -642,6 +652,16 @@ const panelActions: PanelActions = {
       error.value = (e as Error).message;
     }
   },
+  async reAnchor(f, chapterId) {
+    if (!f.evidence) return;
+    try {
+      await reAnchorEvidence(worldSlug.value, f.evidence.kind, f.evidence.id, chapterId);
+      await loadEvidence();
+      analyseNow();
+    } catch (e) {
+      error.value = (e as Error).message;
+    }
+  },
   async endBefore(earlier, later) {
     try {
       await endBeforeRole(worldSlug.value, earlier, later);
@@ -716,6 +736,35 @@ async function setChapterAbout(about: { summary?: string; status_id?: string | n
     error.value = (e as Error).message;
   }
 }
+
+// evidence resting on passages in retired chapters (docs/SPEC.md §13.6.3), for the Archivist
+const evidence = ref<EvidenceFinding[]>([]);
+async function loadEvidence() {
+  evidence.value = await evidenceRetired(worldSlug.value).catch(() => evidence.value);
+}
+watch(worldSlug, () => void loadEvidence(), { immediate: true });
+
+// when it is set and how it is told (docs/SPEC.md §13.1.2): labels, saved without the version check
+async function setChapterWhen(about: About) {
+  const ch = chapter.value;
+  if (!ch) return;
+  error.value = "";
+  try {
+    const out = await setAbout(worldSlug.value, ch.id, about);
+    if (chapter.value?.id === ch.id)
+      chapter.value = { ...chapter.value, time_at: out.time_at, time_end: out.time_end, time_label: out.time_label, time_approx: out.time_approx, outside_time: out.outside_time, told_as: out.told_as };
+    void cards.refresh(worldSlug.value);
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+const timeUnit = computed(() => unitOf(world.value));
+const carriedWhen = computed(() => {
+  const ch = chapter.value;
+  const s = ch ? cards.timeline.find((c) => c.id === ch.id) : undefined;
+  if (!s || s.time_at != null || s.outside_time) return "";
+  return chapterWhen(s, timeUnit.value).text;
+});
 
 // ---- the cuts bin (docs/SPEC.md §11.3) ----
 const cuts = ref<Cut[]>([]);
@@ -955,29 +1004,46 @@ async function experiment(from: "copy" | "scratch") {
 }
 
 const closing = ref<"accepted" | "harvested" | "rejected" | "retire" | null>(null);
-const note = ref("");
 const decision = ref("");
-async function confirmClose() {
+// what leaves the book (the review before it, docs/SPEC.md §13.6.2): this chapter when retiring; when closing an
+// experiment, its range (accepting) or its drafts (harvesting, rejecting)
+const leavingBook = computed(() => {
+  const ch = chapter.value;
+  if (!ch || !closing.value) return [];
+  if (closing.value === "retire") return [{ id: ch.id, title: ch.title }];
+  const x = ch.experiment;
+  if (!x) return [{ id: ch.id, title: ch.title }];
+  return closing.value === "accepted" ? x.range.filter((r) => r.state === "current").map((r) => ({ id: r.id, title: r.title })) : x.drafts.map((d) => ({ id: d.id, title: d.title }));
+});
+const reviewTargets = computed(() => {
+  const out = new Set(leavingBook.value.map((c) => c.id));
+  const drafts = closing.value === "accepted" ? (chapter.value?.experiment?.drafts ?? []).map((d) => ({ id: d.id, title: `${d.title} (draft)` })) : [];
+  return [...drafts, ...cards.timeline.filter((c) => !out.has(c.id)).map((c) => ({ id: c.id, title: c.title }))];
+});
+async function confirmClose(review: Choice[], notes: Record<string, string>) {
   const ch = chapter.value;
   if (!ch || !closing.value) return;
   await saver?.leave();
   error.value = "";
   try {
-    if (closing.value === "retire") {
-      await retireChapter(worldSlug.value, ch.id, note.value);
-    } else {
-      await closeExperiment(worldSlug.value, ch.id, closing.value, {
-        note: note.value || undefined,
-        decision: decision.value || undefined,
-        decided_on: localToday(),
-      });
-    }
     const outcome = closing.value;
+    const done =
+      outcome === "retire"
+        ? await retireMany(worldSlug.value, [ch.id], review, notes)
+        : await closeRange(worldSlug.value, ch.experiment!.id, { outcome, review, notes, decision: decision.value || undefined, decided_on: localToday() });
     closing.value = null;
-    note.value = decision.value = "";
+    decision.value = "";
+    void cards.refresh(worldSlug.value);
+    const undo = async () => {
+      await undoReview(worldSlug.value, done.id);
+      void cards.refresh(worldSlug.value);
+      await load();
+    };
     if (outcome === "accepted") {
       await load();
-      notice.value = "Accepted: this draft is now the chapter. The old one is in Salvage.";
+      const one = (chapter.value?.experiment?.range.length ?? 0) <= 1 && (chapter.value?.experiment?.drafts.length ?? 0) <= 1;
+      notice.value = `${one ? "Accepted: this draft is now the chapter. The old one is in Salvage." : "Accepted: the drafts are in the book; what they replace is in Salvage."} ${done.said?.join(" ") ?? ""}`.trim();
+      toast.value = { label: `Accepted · ${reviewLine(done.summary)}`, undo };
     } else {
       await router.push({ name: "project", params: { world: worldSlug.value, project: ch.project } });
     }
@@ -994,11 +1060,20 @@ async function reinstate() {
 }
 
 const CLOSE_TEXT = {
-  accepted: { verb: "Accept", note: "Anything worth keeping from the old chapter? (optional)" },
-  harvested: { verb: "Harvest", note: "What was alive in this draft?" },
-  rejected: { verb: "Reject", note: "Why, or what to remember? (optional)" },
-  retire: { verb: "Retire", note: "What was alive in this chapter? (optional)" },
+  accepted: { verb: "Accept" },
+  harvested: { verb: "Harvest" },
+  rejected: { verb: "Reject" },
+  retire: { verb: "Retire" },
 } as const;
+/** "Rewrite of “Two”", "Replaces chapters “One” – “Five”", "Adds chapters before “One”" */
+const experimentText = computed(() => {
+  const x = chapter.value?.experiment;
+  if (!x) return "a chapter";
+  if (x.range.length === 1) return `Rewrite of ${x.range[0]!.title}`;
+  if (x.range.length) return `${x.title}: replaces “${x.range[0]!.title}” – “${x.range[x.range.length - 1]!.title}”`;
+  if (x.insert) return `${x.title}: adds chapters ${x.insert.side} “${x.insert.title}”`;
+  return x.title;
+});
 </script>
 
 <template>
@@ -1027,9 +1102,10 @@ const CLOSE_TEXT = {
 
       <div v-if="chapter?.state === 'experiment'" class="notice accent experiment-bar" data-testid="experiment-bar">
         <span>
-          Rewrite of <strong>{{ chapter.replaces_title ?? "a chapter" }}</strong>.
-          <template v-if="chapter.replaces_id">
-            <RouterLink :to="{ name: 'chapter', params: { world: world.slug, id: chapter.replaces_id } }">Peek at the old one</RouterLink>
+          <strong data-testid="experiment-what">{{ experimentText }}</strong>.
+          <template v-if="chapter.experiment && chapter.experiment.drafts.length > 1"> Draft {{ chapter.experiment.drafts.findIndex((d) => d.id === chapter!.id) + 1 }} of {{ chapter.experiment.drafts.length }}.</template>
+          <template v-for="(r, i) in chapter.experiment?.range ?? []" :key="r.id">
+            <RouterLink :to="{ name: 'chapter', params: { world: world.slug, id: r.id } }">{{ i ? "" : "Peek at " }}{{ (chapter.experiment?.range.length ?? 0) > 1 ? `“${r.title}”` : "the old one" }}</RouterLink><template v-if="i < (chapter.experiment?.range.length ?? 0) - 1"> · </template>
           </template>
         </span>
         <span class="actions">
@@ -1043,20 +1119,13 @@ const CLOSE_TEXT = {
         <button type="button" class="btn btn-sm" @click="reinstate">Put back in the book</button>
       </div>
 
-      <form v-if="closing" class="card form wide close-form" @submit.prevent="confirmClose">
-        <div class="field">
-          <label for="close-note">{{ CLOSE_TEXT[closing].note }}</label>
-          <textarea id="close-note" v-model="note" class="capture-box" rows="3" :required="closing === 'harvested'" />
-        </div>
+      <template v-if="closing">
         <div v-if="closing === 'accepted' || closing === 'rejected'" class="field">
           <label for="close-decision">Decision (optional)</label>
-          <input id="close-decision" v-model="decision" type="text" maxlength="1000" />
+          <input id="close-decision" v-model="decision" class="filter" type="text" maxlength="1000" />
         </div>
-        <div class="actions">
-          <button class="btn btn-primary" type="submit">{{ CLOSE_TEXT[closing].verb }}</button>
-          <button class="btn" type="button" @click="closing = null">Cancel</button>
-        </div>
-      </form>
+        <RetireReview :world="world.slug" :chapters="leavingBook" :experiment="closing === 'accepted' ? chapter?.experiment?.id : undefined" :targets="reviewTargets" :verb="CLOSE_TEXT[closing].verb" @done="confirmClose" @cancel="closing = null" />
+      </template>
 
       <div v-if="offlineCopy" class="notice offline small" role="status" data-testid="offline-copy">
         Offline: this is the copy on this device. What you write is kept here and saved when you're back.
@@ -1117,6 +1186,9 @@ const CLOSE_TEXT = {
         @experiment="experiment"
         @retire="closing = 'retire'"
         @about="setChapterAbout"
+        @when="setChapterWhen"
+        :unit="timeUnit"
+        :carried="carriedWhen"
         @put-back="(c, where) => putBack(c, where)"
         @copy="copyCut"
         @since="chooseSince"

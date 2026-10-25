@@ -520,3 +520,23 @@ def test_existing_experiments_get_a_range_from_the_migration(db_url: str):
     with admin.connect() as c:
         c.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
     admin.dispose()
+
+
+def test_demo_world_shows_time_and_restructuring(signed_in: Client):
+    world = signed_in.post("/api/worlds/demo").json()
+    D = f"/api/worlds/{world['slug']}"
+    tl = {c["title"]: c for c in signed_in.get(f"{D}/timeline").json()}
+    assert (tl["The Crossing"]["set_time"], tl["Ash Season"]["set_time"]) == (412, 413)
+    tale = tl["The Ferryman's Tale"]
+    assert (tale["told_as"], tale["set_time"], tale["clock"]) == ("tale", 372, 0)
+    found = signed_in.get(f"{D}/checks").json()
+    # Oskar is named in the tale, set before his death: no finding there; Pell's age disagrees with his birth
+    assert not any(c["rule"] == "dead_mentioned" and c["chapter"]["title"] == "The Ferryman's Tale" for c in found)
+    assert any(c["rule"] == "age_conflict" and "Pell" in c["message"] for c in found)
+    ash = signed_in.get(f"{D}/projects/ash-season/chapters").json()
+    [x] = ash["experiments"]
+    assert ([r["title"] for r in x["range"]], len(x["drafts"])) == (["Ash Season", "The Cartographer"], 2)
+    [prologue] = signed_in.get(f"{D}/projects/the-ferrymans-daughter/salvage").json()
+    assert prologue["still_tied"]["facts"] == 1
+    [evidence] = signed_in.get(f"{D}/evidence-retired").json()
+    assert evidence["chapter"]["title"] == "Prologue: The Delta Remembers"

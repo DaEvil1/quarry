@@ -16,6 +16,12 @@ holds several values.
 For species, roles and vocabulary (docs/SPEC.md §13.3–§13.5) it has three species (human, dog, and the marsh-wights
 of the delta) with an "is a", an "appears as" and a "native to"; the Warden-Captain as a role on the River Wardens,
 marked one at a time, with one clash planted; and an ancestor of the family, centuries back.
+
+For time and restructuring (docs/SPEC.md §13.1, §13.6) its chapters are set in years: the first book in year 412, Ash
+Season a year on, with a short tale set forty years before, in which Oskar (recorded dead in the present) appears
+without a finding. Some of the family have births, so ages show (and Pell's age disagrees with his, planted). Two
+chapters of Ash Season have an experiment across them, and the retired prologue still has a fact tied to it, with its
+evidence passage in it.
 """
 
 from __future__ import annotations
@@ -48,6 +54,7 @@ BIBLE: list[dict] = [
         "summary": "The ferryman's daughter; seventeen, stubborn, better on the water than on land.",
         "facts": [
             {"label": "pronunciation", "value": "TAM-zin VAY"},
+            {"label": "born", "value": "", "from_time": 395},
             {"label": "age", "value": "17"},
             {"label": "eye colour", "value": "green", "evidence": "her green eyes narrowed against the glare",
              "established_in": "b1-c1"},
@@ -78,6 +85,7 @@ BIBLE: list[dict] = [
         "summary": "Tamsin's father, the ferryman at Carrow Ferry. Drowns on the night of the Flood of Lanterns.",
         "facts": [
             {"label": "occupation", "value": "ferryman"},
+            {"label": "born", "value": "", "from_time": 350, "from_approx": True},
             {"label": "status", "value": "alive"},
             {"label": "status", "value": "dead", "from": "b1-c3", "evidence": "The river kept him.",
              "established_in": "b1-c2"},
@@ -94,7 +102,7 @@ BIBLE: list[dict] = [
     {
         "id": "agathe", "name": "Agathe Vey", "kind": "character", "gender": "female",
         "summary": "Oskar's mother, the ferrywoman before him; drowned in a spring flood long before the story.",
-        "facts": [{"label": "status", "value": "dead"}],
+        "facts": [{"label": "born", "value": "", "from_time": 322}, {"label": "status", "value": "dead", "from_time": 390}],
         "relationships": [
             {"type": "parent of", "type_kinds": ["character", "character"], "to": "oskar"},
             {"type": "parent of", "type_kinds": ["character", "character"], "to": "linnet"},
@@ -181,8 +189,8 @@ BIBLE: list[dict] = [
     },
     {
         "id": "pell", "name": "Pell", "kind": "character",
-        # no one-liner on purpose: the Archivist asks for one
-        "facts": [{"label": "age", "value": "12"}],
+        # no one-liner on purpose: the Archivist asks for one; and an age that disagrees with his birth, for Checks
+        "facts": [{"label": "born", "value": "", "from_time": 397}, {"label": "age", "value": "12"}],
         "relationships": [{"type": "friend of", "type_kinds": ["character", "character"], "to": "moss"}],
         "is_at": [{"chapter": "b1-c1", "place": "ferry-house"}],
         "body": _p("Runs errands along the landing for a coin or a story."),
@@ -209,7 +217,10 @@ BIBLE: list[dict] = [
     {
         "id": "delta", "name": "The Ninefold Delta", "kind": "place", "aliases": ["the delta"],
         "summary": "Nine channels, a thousand islands, and water that never stays where it was put.",
-        "facts": [{"label": "climate", "value": "wet springs, ash-grey summers when the mountains burn"}],
+        "facts": [{"label": "climate", "value": "wet springs, ash-grey summers when the mountains burn"},
+                  # tied to the retired prologue, with its evidence there: still tied in Salvage, and the Archivist's
+                  {"label": "shape", "value": "an open hand of nine channels", "from": "b1-s1",
+                   "evidence": "the delta was a hand held open to the sea", "established_in": "b1-s1"}],
         "body": _p("The river splits into nine channels before the sea. They move a little every year."),
     },
     {
@@ -360,7 +371,7 @@ BOOK_TWO = "Ash Season"
 
 CHAPTERS: list[dict] = [
     {
-        "id": "b1-c1", "summary": 'The Wardens come for the toll; Oskar gives Tamsin the compass.', "status": 'polished', "project": BOOK_ONE, "title": "The Crossing", "position": 0, "pov": "Tamsin Vey",
+        "id": "b1-c1", "time": {"at": 412}, "summary": 'The Wardens come for the toll; Oskar gives Tamsin the compass.', "status": 'polished', "project": BOOK_ONE, "title": "The Crossing", "position": 0, "pov": "Tamsin Vey",
         "body": _p(
             "The tidecall went out over the water at first light, three long notes that set the herons lifting "
             "from the reeds. Tamsin Vey let the last one fade before she cast off, the way her father had taught "
@@ -385,7 +396,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b1-c2", "summary": 'The Flood of Lanterns, and the night Oskar goes out on the water.', "status": 'rewritten', "project": BOOK_ONE, "title": "Lanterns on the Water", "position": 1, "pov": "Tamsin Vey",
+        "id": "b1-c2", "time": {"at": 412}, "summary": 'The Flood of Lanterns, and the night Oskar goes out on the water.', "status": 'rewritten', "project": BOOK_ONE, "title": "Lanterns on the Water", "position": 1, "pov": "Tamsin Vey",
         "body": _p(
             "The Flood of Lanterns came early that year. By dusk the water stood knee-deep in the lower lanes of "
             "Carrow Ferry, and every house had a lantern ready on its step, one for each of the drowned the "
@@ -404,7 +415,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b1-c3", "summary": 'Tamsin at Saltreach Abbey with Brother Cade and the compass.', "status": 'rewritten', "project": BOOK_ONE, "title": "What the River Kept", "position": 2, "pov": "Tamsin Vey",
+        "id": "b1-c3", "time": {"at": 412}, "summary": 'Tamsin at Saltreach Abbey with Brother Cade and the compass.', "status": 'rewritten', "project": BOOK_ONE, "title": "What the River Kept", "position": 2, "pov": "Tamsin Vey",
         "body": _p(
             "They never found Oskar. A boatman called Rook found the boat, upside down against the reeds below "
             "Marrow Locks, and towed it back without a word and without asking to be paid. Pell said that was "
@@ -423,7 +434,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b1-c4", "summary": 'Ilse writes the report, and hears of a cartographer.', "status": 'raw', "project": BOOK_ONE, "title": "The Locks", "position": 3, "pov": "Ilse Marrow",
+        "id": "b1-c4", "time": {"at": 412}, "summary": 'Ilse writes the report, and hears of a cartographer.', "status": 'raw', "project": BOOK_ONE, "title": "The Locks", "position": 3, "pov": "Ilse Marrow",
         # planted: told from Ilse's point of view, but she is never named in it
         "body": _p(
             "She wrote the report by lamplight in the gatehouse at Marrow Locks, while the water below the gates "
@@ -457,7 +468,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b2-c1", "summary": 'A year on: ash on the river, Tamsin running the ferry alone.', "status": 'draft', "project": BOOK_TWO, "title": "Ash Season", "position": 0, "pov": "Tamsin Vey",
+        "id": "b2-c1", "time": {"at": 413}, "summary": 'A year on: ash on the river, Tamsin running the ferry alone.', "status": 'draft', "project": BOOK_TWO, "title": "Ash Season", "position": 0, "pov": "Tamsin Vey",
         "body": _p(
             "A year later the mountains burned, and the ash came down the river for a month, grey on the water, "
             "grey on the reeds, grey in the folds of every sail. Tamsin ran the ferry alone now. She blew the "
@@ -471,7 +482,7 @@ CHAPTERS: list[dict] = [
         ),
     },
     {
-        "id": "b2-c2", "summary": 'Hesper Quill comes to Carrow Ferry with her maps.', "status": 'sketch', "project": BOOK_TWO, "title": "The Cartographer", "position": 1, "pov": "Hesper Quill",
+        "id": "b2-c2", "time": {"at": 413}, "summary": 'Hesper Quill comes to Carrow Ferry with her maps.', "status": 'sketch', "project": BOOK_TWO, "title": "The Cartographer", "position": 1, "pov": "Hesper Quill",
         "body": _p(
             "Hesper Quill had been told the ferry at Carrow Ferry was run by a girl who knew the channels better "
             "than any chart. She had been told this by three different people in Greywater, each of whom "
@@ -483,6 +494,30 @@ CHAPTERS: list[dict] = [
             "\"All maps of the delta are wrong,\" said Hesper. \"I'm trying to make one that's wrong more "
             "slowly.\"",
         ),
+    },
+    {
+        # a tale, set forty years before: Oskar is named in it, though he is recorded dead in the present
+        "id": "b2-c3", "time": {"at": 372, "label": "forty years before the ash"}, "told_as": "tale",
+        "summary": "Brother Cade tells of the night young Oskar first crossed in fog.", "status": "sketch",
+        "project": BOOK_TWO, "title": "The Ferryman's Tale", "position": 2, "pov": None,
+        "body": _p(
+            "\"He was younger than you are now,\" Brother Cade said, \"and twice as sure of himself.\"",
+            "Oskar Vey took the ferry out in a fog so thick the herons walked. He found the far landing by the sound "
+            "of the bell, and came back by the sound of his mother calling, and never told anyone he had been afraid.",
+        ),
+    },
+    # an experiment across two chapters of Ash Season, from copies
+    {
+        "id": "b2-x1", "summary": "Ash Season told from the water.", "status": "sketch", "project": BOOK_TWO,
+        "title": "Ash Season (from the water)", "state": "experiment", "position": 0, "pov": "Tamsin Vey",
+        "item": "item-ash-season",
+        "body": _p("The ash came down the river for a month, and Tamsin learned to read the water through it."),
+    },
+    {
+        "id": "b2-x2", "summary": "Hesper's maps, from the ferry.", "status": "sketch", "project": BOOK_TWO,
+        "title": "The Cartographer (from the water)", "state": "experiment", "position": 1, "pov": "Tamsin Vey",
+        "item": "item-ash-season",
+        "body": _p("Hesper Quill spread her maps across the ferry's bench, and the river moved under them."),
     },
 ]
 
@@ -538,6 +573,10 @@ ITEMS: list[dict] = [
      "source": "desk", "created_at": "2026-10-07T21:00:00+00:00", "tags": [],
      "title": "Lanterns on the Water (from the water)",
      "body": "Try chapter 2 from the boat, with Tamsin following him out."},
+    {"id": "item-ash-season", "kind": "experiment", "status": "open", "project": "ash-season",
+     "source": "desk", "created_at": "2026-10-08T21:00:00+00:00", "tags": [],
+     "title": "Ash Season, from the water", "replaces": ["b2-c1", "b2-c2"],
+     "body": "Both opening chapters of Ash Season from the ferry."},
 ]
 
 DECISIONS = [
@@ -580,7 +619,9 @@ def demo_files() -> dict[str, str]:
             meta["facts"] = [{"label": f["label"], "value": f["value"], "standing": f.get("standing", "canon"),
                               "evidence": f.get("evidence"), "note": f.get("note"),
                               "established_in": f.get("established_in"), "from": f.get("from"),
-                              "until": f.get("until")} for f in e["facts"]]
+                              "until": f.get("until"),
+                              **{k: f[k] for k in ("from_time", "from_approx", "until_time", "outside_time") if k in f}}
+                             for f in e["facts"]]
         if e.get("relationships"):
             meta["relationships"] = [{"type": r["type"], "type_kinds": r["type_kinds"], "to": r["to"],
                                       "to_name": names[r["to"]], "standing": r.get("standing", "canon"),
@@ -599,9 +640,16 @@ def demo_files() -> dict[str, str]:
         state = ch.get("state", "current")
         meta = {"id": ch["id"], "title": ch["title"], "state": state, "position": ch["position"], "pov": ch.get("pov"),
                 "summary": ch.get("summary", ""), "status": ch.get("status")}
+        if ch.get("time"):
+            meta["time"] = ch["time"]
+        if ch.get("told_as"):
+            meta["told_as"] = ch["told_as"]
         sub = {"current": "Manuscript", "experiment": "Experiments", "retired": "Salvage"}[state]
         if state == "experiment":
-            meta |= {"replaces": ch.get("replaces"), "item": ch.get("item")}
+            meta |= {"item": ch.get("item")}
+            if ch.get("replaces"):
+                # the older layout (a draft that replaces one chapter), which Restore still reads
+                meta["replaces"] = ch["replaces"]
         if state == "retired":
             meta |= {"harvest_notes": ch.get("harvest_notes", [])}
         files[f"{folders[ch['project']]}/{sub}/{ch['position'] + 1:02d} {ch['title'].replace(':', '')}.md"] = _doc(meta, ch["body"])
@@ -611,6 +659,8 @@ def demo_files() -> dict[str, str]:
         folder = slug_folder[i["project"]] if i["project"] else ROOT
         meta = {k: i.get(k) for k in ("id", "kind", "status", "title", "project", "source", "created_at", "closed_at",
                                       "closed_note", "tags")}
+        if i.get("replaces"):
+            meta["replaces"] = i["replaces"]
         files[f"{folder}/Planning/{i['status']}/{i['id']}.md"] = _doc(meta, i["body"])
 
     lines = ["# Decisions", ""]

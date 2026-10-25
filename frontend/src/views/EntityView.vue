@@ -20,16 +20,20 @@ import { resolutions, resolve, type Resolution } from "../companion";
 import FactsPanel from "../components/FactsPanel.vue";
 import InlineText from "../components/InlineText.vue";
 import MentionStrip from "../components/MentionStrip.vue";
+import AsOfPicker from "../components/AsOfPicker.vue";
 import RelationsPanel from "../components/RelationsPanel.vue";
 import UndoToast from "../components/UndoToast.vue";
 import { readLastUsed } from "../lastUsed";
 import { useSession } from "../stores/session";
 import { ENTITY_KINDS, GENDERS, type EntityDetail, type EntityKind, type Gender, type RelationType, type SourceRef } from "../types";
+import { evidenceRetired, reAnchor, type EvidenceFinding } from "../manuscript";
 import { useCards } from "../world/cards";
 import { Family, familyLinks, kinOf, kinText, readType } from "../world/family";
 import type { GraphData } from "../world/graph";
 import { isPronunciation, missingKey, missingLabels } from "../world/labels";
 import { speciesText } from "../world/species";
+import type { At } from "../world/time";
+import { unitOf } from "../world/when";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
@@ -45,20 +49,18 @@ const types = ref<RelationType[]>([]);
 const suggestions = ref<Record<string, KindSuggestions>>({});
 const missing = ref(false);
 
-// "as of chapter …": what is true at that point in the story (kept in the address, so it survives a reload)
+// "as of chapter …" or "as of a time": what is true at that point on the clock (kept in the address, so it survives a
+// reload: ?asof=<chapter> or ?at=<number>, docs/SPEC.md §13.1.6)
 const asOfId = computed(() => (typeof route.query.asof === "string" ? route.query.asof : ""));
-const asOf = computed(() => cards.indexOf(asOfId.value || null) ?? null);
-const asOfProjects = computed(() => {
-  const out: { name: string; chapters: typeof cards.timeline }[] = [];
-  for (const c of cards.timeline) {
-    const last = out[out.length - 1];
-    if (last?.name === c.project_name) last.chapters.push(c);
-    else out.push({ name: c.project_name, chapters: [c] });
-  }
-  return out;
+const atTime = computed(() => {
+  const n = typeof route.query.at === "string" ? Number(route.query.at) : NaN;
+  return Number.isFinite(n) ? n : null;
 });
-function setAsOf(id: string) {
-  void router.replace({ query: { ...route.query, asof: id || undefined } });
+const asOf = computed<At | null>(() => (atTime.value !== null ? { time: atTime.value } : (cards.pointOf(asOfId.value || null) ?? null)));
+const asOfOutside = computed(() => asOf.value !== null && typeof asOf.value === "object" && "outside" in asOf.value);
+const unit = computed(() => unitOf(world.value));
+function setAsOf(choice: { asof?: string; at?: number }) {
+  void router.replace({ query: { ...route.query, asof: choice.asof, at: choice.at !== undefined ? String(choice.at) : undefined } });
 }
 const error = ref("");
 const notice = ref("");
@@ -218,7 +220,7 @@ const pronunciation = computed(() => detail.value?.facts.find((f) => isPronuncia
 const species = computed(() => {
   const e = detail.value?.entity;
   if (e?.kind !== "character") return "";
-  const at = asOfId.value || cards.timeline[cards.timeline.length - 1]?.id || null;
+  const at = atTime.value !== null ? { time: atTime.value } : asOfId.value || cards.endChapter;
   return speciesText(cards.asOf(cards.byId.get(e.id), at));
 });
 
@@ -249,6 +251,26 @@ const kin = computed(() => {
     .map((k) => ({ ...k, who: node.get(k.id)!, word: kinText(k, node.get(k.id)?.gender), path: k.via.map((x) => node.get(x)?.name ?? "?") }))
     .sort((a, b) => a.who.name.localeCompare(b.who.name));
 });
+
+// evidence resting on a passage in a retired chapter (docs/SPEC.md §13.6.3): the Archivist's, on the entry's page
+const evidence = ref<EvidenceFinding[]>([]);
+async function loadEvidence() {
+  evidence.value = await evidenceRetired(worldSlug.value).catch(() => []);
+}
+watch([worldSlug, id], () => void loadEvidence(), { immediate: true });
+const evidenceHere = computed(() => evidence.value.filter((x) => x.entities.some((e) => e.id === id.value)));
+const anchoring = ref<string | null>(null);
+const anchorTo = ref("");
+async function doAnchor(x: EvidenceFinding) {
+  if (!anchorTo.value) return;
+  await act(() => reAnchor(worldSlug.value, x.kind, x.id, anchorTo.value), "The evidence points there now.");
+  anchoring.value = null;
+  await loadEvidence();
+}
+async function dismissEvidence(x: EvidenceFinding) {
+  await act(() => resolve(worldSlug.value, "evidence_retired", x.key, "intentional"), "Dismissed.");
+  await loadEvidence();
+}
 
 // labels expected on every entry of this kind that it hasn't got: the Archivist's findings, on its own page
 const resolved = ref<Resolution[]>([]);
@@ -322,9 +344,28 @@ async function notForThisOne(label: string) {
     <div v-if="notice" class="notice ok" role="status">{{ notice }}</div>
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
 
-    <MentionStrip v-if="cards.timeline.length" :world="world.slug" :entity-id="detail.entity.id" :timeline="cards.timeline" :counts="chapterCounts" :as-of="asOf" :class="`k-${detail.entity.kind}`" />
+    <MentionStrip v-if="cards.timeline.length" :world="world.slug" :entity-id="detail.entity.id" :timeline="cards.timeline" :counts="chapterCounts" :as-of="asOf" :index-of="cards.indexOf" :class="`k-${detail.entity.kind}`" />
 
-    <section v-if="missingHere.length" class="card findings-card" data-testid="entity-findings">
+    <section v-if="missingHere.length || evidenceHere.length" class="card findings-card" data-testid="entity-findings">
+      <div v-for="x in evidenceHere" :key="x.key" class="finding" data-rule="evidence_retired" data-testid="evidence-finding">
+        <span class="small">{{ x.message }} <span class="muted">“{{ x.passage }}”</span></span>
+        <form v-if="anchoring === x.key" class="actions" @submit.prevent="doAnchor(x)">
+          <select v-model="anchorTo" class="filter" aria-label="Re-anchor to">
+            <optgroup v-if="x.found.length" label="Where the passage is now">
+              <option v-for="c in x.found" :key="c.id" :value="c.id">{{ c.title }}{{ c.state === "experiment" ? " (draft)" : "" }}</option>
+            </optgroup>
+            <optgroup label="The book">
+              <option v-for="c in cards.timeline.filter((c) => !x.found.some((y) => y.id === c.id))" :key="c.id" :value="c.id">{{ c.title }}</option>
+            </optgroup>
+          </select>
+          <button class="btn btn-sm btn-primary" type="submit">Re-anchor</button>
+          <button class="btn btn-sm" type="button" @click="anchoring = null">Cancel</button>
+        </form>
+        <span v-else class="qrow">
+          <button type="button" class="qchip primary" @click="(anchoring = x.key), (anchorTo = x.found[0]?.id ?? '')">Re-anchor…</button>
+          <button type="button" class="qchip quiet" @click="dismissEvidence(x)">Dismiss</button>
+        </span>
+      </div>
       <div v-for="l in missingHere" :key="l" class="finding" data-rule="missing_label">
         <span class="small">{{ detail.entity.name }} has no {{ l }} (expected for {{ plural(detail.entity.kind) }}).</span>
         <span class="qrow">
@@ -334,14 +375,9 @@ async function notForThisOne(label: string) {
       </div>
     </section>
 
-    <div v-if="cards.timeline.length" class="as-of">
-      <label for="as-of" class="small muted">As of</label>
-      <select id="as-of" class="filter" :value="asOfId" data-testid="as-of" @change="setAsOf(($event.target as HTMLSelectElement).value)">
-        <option value="">the whole story</option>
-        <optgroup v-for="p in asOfProjects" :key="p.name" :label="p.name">
-          <option v-for="c in p.chapters" :key="c.id" :value="c.id">{{ c.title }}</option>
-        </optgroup>
-      </select>
+    <div v-if="cards.timeline.length || cards.anyTime" class="as-of">
+      <AsOfPicker :timeline="cards.timeline" :unit="unit" :asof="asOfId" :at="atTime" :times="cards.timed || cards.anyTime" @pick="setAsOf" />
+      <span v-if="asOfOutside" class="muted small" data-testid="outside-note">Outside time: what changes over time isn't shown</span>
     </div>
 
     <details class="card matching">
@@ -367,6 +403,7 @@ async function notForThisOne(label: string) {
       :timeline="cards.timeline"
       :as-of="asOf"
       :index-of="cards.indexOf"
+      :unit="unit"
       @changed="changed"
       @error="(m) => (error = m)"
     />
@@ -380,6 +417,7 @@ async function notForThisOne(label: string) {
       :timeline="cards.timeline"
       :as-of="asOf"
       :index-of="cards.indexOf"
+      :unit="unit"
       @changed="changed"
       @error="(m) => (error = m)"
     />
@@ -387,7 +425,7 @@ async function notForThisOne(label: string) {
     <section v-if="kin.length" class="card family-worked-out" data-testid="family-worked-out">
       <div class="card-head">
         <h2>Family, worked out</h2>
-        <span class="muted small">From the recorded parents, children and marriages{{ asOf !== null ? ", as of this chapter" : "" }}. To make one a relationship, record it above.</span>
+        <span class="muted small">From the recorded parents, children and marriages{{ asOf !== null ? ", as of this point" : "" }}. To make one a relationship, record it above.</span>
       </div>
       <ul class="plain-list">
         <li v-for="k in kin" :key="k.id + k.relation" :class="`k-${k.who.kind}`">

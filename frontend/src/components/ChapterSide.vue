@@ -2,9 +2,11 @@
 import { computed, ref } from "vue";
 
 import type { Cut } from "../cuts";
-import type { Chapter, StatusRef } from "../manuscript";
-import type { EntityRef, Presence } from "../types";
+import type { About, Chapter, StatusRef } from "../manuscript";
+import type { EntityRef, Presence, TimeValue } from "../types";
+import type { Unit } from "../world/when";
 import InlineText from "./InlineText.vue";
+import TimeField from "./TimeField.vue";
 
 // The chapter tab of the companion panel: summary and status, point of view, changes since a checkpoint, the names
 // in the chapter, cuts from it, harvest notes and chapter actions. Its own component so that typing (word count,
@@ -19,6 +21,9 @@ const props = defineProps<{
   cuts: (Cut & { waiting?: boolean })[];
   /** changes since a checkpoint: the labels there are, the one chosen, and what the panel says about it */
   since: { labels: string[]; chosen: string; line: string; revising: boolean };
+  /** the world's unit of time, and the time this chapter carries on from when it has none of its own */
+  unit?: Unit;
+  carried?: string;
 }>();
 const placeOf = computed(() => new Map(props.presence.map((p) => [p.entity_id, p.place])));
 const emit = defineEmits<{
@@ -27,6 +32,7 @@ const emit = defineEmits<{
   experiment: [from: "copy" | "scratch"];
   retire: [];
   about: [about: { summary?: string; status_id?: string | null }];
+  when: [about: About];
   putBack: [cut: Cut, where: "place" | "cursor"];
   copy: [cut: Cut];
   since: [label: string];
@@ -60,6 +66,16 @@ const open = ref<string | null>(null);
       <select id="chapter-status" class="filter" :value="props.chapter.status?.id ?? ''" @change="emit('about', { status_id: ($event.target as HTMLSelectElement).value || null })">
         <option value="">none</option>
         <option v-for="s in props.statuses" :key="s.id" :value="s.id">{{ s.label }}</option>
+      </select>
+      <h3 class="small muted">Set in</h3>
+      <p class="small" data-testid="side-when">
+        <TimeField :value="{ time_at: props.chapter.time_at ?? null, time_end: props.chapter.time_end, time_label: props.chapter.time_label, time_approx: props.chapter.time_approx, outside_time: props.chapter.outside_time } as TimeValue" :unit="props.unit ?? { unit: 'year', units: 'years' }" label="Set in" :carried="props.carried" @save="(v) => emit('when', v)" />
+      </p>
+      <h3 class="small muted"><label for="chapter-told-as">Told as</label></h3>
+      <select id="chapter-told-as" class="filter" :value="props.chapter.told_as ?? ''" data-testid="told-as-select" @change="emit('when', { told_as: (($event.target as HTMLSelectElement).value || null) as 'flashback' | 'tale' | null })">
+        <option value="">the present of the story</option>
+        <option value="flashback">a flashback</option>
+        <option value="tale">a tale (told by a character)</option>
       </select>
     </section>
     <section>

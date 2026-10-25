@@ -14,6 +14,7 @@ import type {
   RelationType,
   Relationship,
   SourceTable,
+  Span,
   Standing,
 } from "./types";
 
@@ -154,7 +155,7 @@ export const addRelationship = (
 export const updateRelationship = (
   world: string,
   r: Pick<Relationship, "id" | "version">,
-  changes: { standing?: Standing; note?: string | null; type_id?: string; from_chapter_id?: string | null; until_chapter_id?: string | null; role?: string | null },
+  changes: { standing?: Standing; note?: string | null; type_id?: string; role?: string | null } & Partial<Span>,
 ) =>
   patch<Relationship>(`${base(world)}/relationships/${r.id}`, { base_version: r.version, ...changes });
 export const deleteRelationship = (world: string, id: string) => del(`${base(world)}/relationships/${id}`);
@@ -164,9 +165,13 @@ export const deleteRelationship = (world: string, id: string) => del(`${base(wor
 /** Per relationship type: the roles used on it across the world, most used first, and the groups they're used in. */
 export type RoleSuggestions = Record<string, { role: string; count: number; groups: string[] }[]>;
 export const roleSuggestions = (world: string) => get<RoleSuggestions>(`${base(world)}/role-suggestions`);
-/** A promotion: the relationship ends just before `fromChapter`, and a copy with the new role starts there. */
-export const changeRole = (world: string, r: Pick<Relationship, "id" | "version">, role: string | null, fromChapter: string) =>
-  post<{ ended: Relationship; started: Relationship }>(`${base(world)}/relationships/${r.id}/change-role`, { base_version: r.version, role, from_chapter_id: fromChapter });
+/** A promotion: the relationship ends just before a chapter (or at a time), and a copy with the new role starts there. */
+export const changeRole = (world: string, r: Pick<Relationship, "id" | "version">, role: string | null, from: { chapter: string } | { time: number }) =>
+  post<{ ended: Relationship; started: Relationship }>(`${base(world)}/relationships/${r.id}/change-role`, {
+    base_version: r.version,
+    role,
+    ...("chapter" in from ? { from_chapter_id: from.chapter } : { from_time: from.time }),
+  });
 /** Two holders of a one-at-a-time role: the earlier one ends where the other starts. */
 export const endBefore = (world: string, earlier: string, later: string) => post<Relationship>(`${base(world)}/relationships/${earlier}/end-before/${later}`, {});
 export const setRoleSwitch = (world: string, role: string, oneAtATime: boolean) =>

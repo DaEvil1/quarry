@@ -43,7 +43,7 @@ def test_demo_world(signed_in: Client):
     assert signed_in.get(f"{W}/graph?co=true").json()["cooccurrence"]
 
     # planning, and what an export doesn't carry
-    assert len(signed_in.get(f"{W}/items?status=all").json()) == 7
+    assert len(signed_in.get(f"{W}/items?status=all").json()) == 8
     tagged = {e["name"] for d in signed_in.get(f"{W}/decisions").json() for e in d["entities"]}
     assert tagged == {"Oskar Vey", "The Brass Compass", "Tamsin Vey", "Hesper Quill"}
     assert len(signed_in.get(f"{W}/journal").json()) == 2

@@ -96,10 +96,18 @@ function tick(id: string, on: boolean) {
 const rows = computed(() => (grid.value?.rows ?? []).filter((r) => !hidden.value.has(r.entity.id)));
 const hiddenRows = computed(() => (grid.value?.rows ?? []).filter((r) => hidden.value.has(r.entity.id)));
 const found = computed(() => (grid.value ? shareFilter(grid.value, rows.value, new Set([...ticked.value].filter((id) => rows.value.some((r) => r.entity.id === id))), share.value) : { chapters: [], line: "" }));
+// told order (the book's, by default) or happened order, once any chapter has a time (docs/SPEC.md §13.1.4): the
+// clock first, then the chapters outside time, in book order
+const order = computed(() => (route.query.order === "happened" ? "happened" : "told"));
+const timed = computed(() => (grid.value?.chapters ?? []).some((c) => c.time_at != null || c.outside_time || c.told_as));
 const chapters = computed(() => {
   const keep = new Set(found.value.chapters);
-  return (grid.value?.chapters ?? []).map((c, i) => ({ ...c, n: i + 1 })).filter((c) => keep.has(c.id));
+  const list = (grid.value?.chapters ?? []).map((c, i) => ({ ...c, n: i + 1 })).filter((c) => keep.has(c.id));
+  if (order.value !== "happened") return list;
+  const onClock = list.filter((c) => c.clock != null).sort((a, b) => a.clock! - b.clock!);
+  return [...onClock, ...list.filter((c) => c.clock == null)];
 });
+const headWhen = (c: { set_text?: string; early?: boolean; time_at?: number | null }) => (c.early ? "before the story" : (c.set_text ?? ""));
 const projectsShown = computed(() => {
   const out: { name: string; span: number }[] = [];
   for (const c of chapters.value) {
@@ -172,6 +180,12 @@ const cellTitle = (r: WhereRow, c: WhereCell | undefined) => {
       <div class="where-add" data-testid="where-add">
         <EntityPicker :entities="cards.names" :exclude="rows.map((r) => r.entity.id)" placeholder="Add…" @pick="addRow" @cancel="() => {}" />
       </div>
+      <label v-if="timed" class="small muted">Order
+        <select class="filter" :value="order" data-testid="where-order" @change="setQuery({ order: ($event.target as HTMLSelectElement).value === 'happened' ? 'happened' : undefined })">
+          <option value="told">told</option>
+          <option value="happened">happened</option>
+        </select>
+      </label>
       <label class="small muted">Chapters
         <select class="filter" :value="share" data-testid="where-share" @change="setQuery({ share: ($event.target as HTMLSelectElement).value === 'all' ? undefined : ($event.target as HTMLSelectElement).value })">
           <option value="all">all</option>
@@ -187,7 +201,7 @@ const cellTitle = (r: WhereRow, c: WhereCell | undefined) => {
     <section v-if="grid && grid.chapters.length && rows.length" class="card table-card">
       <table class="where-grid" data-testid="where-grid">
         <thead>
-          <tr v-if="projectsShown.length > 1">
+          <tr v-if="projectsShown.length > 1 && order === 'told'">
             <th />
             <th v-for="p in projectsShown" :key="p.name" :colspan="p.span" class="project-head">{{ p.name }}</th>
           </tr>
@@ -198,6 +212,7 @@ const cellTitle = (r: WhereRow, c: WhereCell | undefined) => {
                 <span class="num-label">{{ c.n }}</span> <span class="title">{{ c.title }}</span>
               </RouterLink>
               <span v-if="c.pov" class="pov-head small k-character" :title="`Told from ${c.pov.name}'s point of view`">{{ c.pov.name }}</span>
+              <span v-if="timed && (headWhen(c) || c.told_as)" class="small muted head-when" data-testid="head-when">{{ [c.told_as, headWhen(c)].filter(Boolean).join(" · ") }}</span>
             </th>
           </tr>
           <tr v-if="Object.keys(grid.events).length" class="events-row">

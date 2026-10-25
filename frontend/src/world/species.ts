@@ -3,8 +3,8 @@
 // out from the cards (offline too), following "as of": pass a card as it reads at a chapter.
 
 import type { EntityRef } from "../types";
-import type { Card } from "./cards";
-import { holds, type IndexOf } from "./time";
+import { cardSpan, type Card } from "./cards";
+import { holds, type At, type IndexOf } from "./time";
 
 const IS_A = /^is an?$/i;
 const APPEARS = /^appears as( an?)?$/i;
@@ -44,7 +44,7 @@ export function possessors(card: Card | undefined): EntityRef[] {
  * for the characters table's column. */
 export function speciesAtEnd(card: Card, last: number | null, indexOf: IndexOf): string[] {
   if (card.kind !== "character") return [];
-  const span = (r: Rel) => ({ from_chapter_id: r.from, until_chapter_id: r.until });
+  const span = cardSpan;
   const out: string[] = [];
   for (const r of card.relations) {
     if (!isSpecies(r) || r.standing !== "canon") continue;
@@ -62,7 +62,7 @@ export const SPECIES_COLUMN = "@species";
  * grey. Species entries take their own colour. */
 export function speciesColours(
   data: { nodes: { id: string; name: string; kind: string }[]; edges: { a: string; b: string; label: string; reverse_label: string | null; standing: string; from_chapter_id: string | null; until_chapter_id: string | null }[] },
-  asOf: number | null,
+  asOf: At | null,
   indexOf: IndexOf,
 ): { of: Map<string, string>; legend: { id: string; name: string; count: number; colour: string | null }[] } {
   const kind = new Map(data.nodes.map((n) => [n.id, n.kind]));

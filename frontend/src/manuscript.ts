@@ -1,7 +1,7 @@
 // Manuscript calls: chapters, their history, experiments, salvage, and export/restore of a world.
 
 import { ApiError, del, get, patch, post, put } from "./api";
-import type { EntityKind, Mention, World } from "./types";
+import type { EntityKind, EntityRef, Mention, TimeValue, World } from "./types";
 
 const base = (world: string) => `/api/worlds/${encodeURIComponent(world)}`;
 
@@ -16,11 +16,33 @@ export interface ChapterInfo {
   summary: string;
   status: StatusRef | null;
   experiment_item_id: string | null;
-  replaces_id: string | null;
   words: number;
   version: number;
   updated_at: string;
   retired_at: string | null;
+  /** when it is set and how it is told (docs/SPEC.md §13.1.2) */
+  time_at?: number | null;
+  time_end?: number | null;
+  time_label?: string | null;
+  time_approx?: boolean;
+  outside_time?: boolean;
+  told_as?: "flashback" | "tale" | null;
+}
+
+/** An open experiment (docs/SPEC.md §13.6.1): the current chapters it would replace (its range), or where it only
+ * adds, and its drafts in order. */
+export interface Experiment {
+  id: string;
+  title: string;
+  status: string;
+  range: { id: string; title: string; state: string; words: number }[];
+  range_words: number;
+  insert: { chapter_id: string; title: string; side: "before" | "after" } | null;
+  drafts: ChapterInfo[];
+  words: number;
+  /** chapters of its range no longer in the book, and the experiment that replaced them */
+  lost: string[];
+  replaced_by: string | null;
 }
 
 export interface StatusRef {
@@ -44,13 +66,14 @@ export interface Chapter extends ChapterInfo {
   body: string;
   mentions: Mention[];
   harvest_notes: HarvestNote[];
-  replaces_title: string | null;
+  /** for a draft: its experiment, with the range it would replace (or where it adds) and its drafts */
+  experiment?: (Pick<Experiment, "id" | "title" | "status" | "range" | "insert" | "lost" | "replaced_by"> & { drafts: { id: string; title: string; position: number }[] }) | null;
   experiment_status: string | null;
 }
 
 export interface Manuscript {
   chapters: ChapterInfo[];
-  experiments: ChapterInfo[];
+  experiments: Experiment[];
   pov_tally: { name: string; chapters: number }[];
   words: number;
   retired: number;
@@ -75,6 +98,10 @@ export interface RevisionInfo {
 export interface SalvageEntry extends ChapterInfo {
   harvest_notes: HarvestNote[];
   match: { before: string; match: string; after: string } | null;
+  /** what its review did (docs/SPEC.md §13.6.2) */
+  review?: { id: string; keep: number; move: number; planned: number; drop: number } | null;
+  /** retired before reviews: what is still tied to it */
+  still_tied?: { facts: number; relationships: number; is_at: number; items: number; notes: number } | null;
 }
 
 export const REASON_LABELS: Record<RevisionInfo["reason"], string> = {
@@ -146,9 +173,87 @@ export const closeExperiment = (
 
 // ---- revising and salvaging (docs/SPEC.md §11) ----
 
-/** A chapter's summary and status: labels, not text, so no version check. */
-export const setAbout = (world: string, id: string, about: { summary?: string; status_id?: string | null }) =>
-  patch<ChapterInfo>(`${base(world)}/chapters/${id}/about`, about);
+/** A chapter's summary, status, time and mark: labels, not text, so no version check. */
+export type About = { summary?: string; status_id?: string | null; told_as?: "flashback" | "tale" | null } & Partial<TimeValue>;
+export const setAbout = (world: string, id: string, about: About) => patch<ChapterInfo>(`${base(world)}/chapters/${id}/about`, about);
+
+// ---- restructuring (docs/SPEC.md §13.6) ----
+
+export const startRange = (
+  world: string,
+  p: string,
+  body: { title: string; start: "scratch" | "copy"; range?: string[]; insert?: { chapter_id: string; side: "before" | "after" } },
+) => post<Experiment & { first: string }>(`${project(world, p)}/experiments`, body);
+export const getExperiment = (world: string, id: string) => get<Experiment>(`${base(world)}/experiments/${id}`);
+export const addDraft = (world: string, id: string, body: { title?: string; copy_from?: string }) => post<Chapter>(`${base(world)}/experiments/${id}/drafts`, body);
+export const orderDrafts = (world: string, id: string, ids: string[]) => put<Experiment>(`${base(world)}/experiments/${id}/drafts`, { ids });
+export const setRange = (world: string, id: string, body: { range?: string[]; insert?: { chapter_id: string; side: "before" | "after" } }) =>
+  put<Experiment>(`${base(world)}/experiments/${id}/range`, body);
+
+/** One thing tied to chapters leaving the book, with the choices that apply. */
+export interface Tie {
+  key: string;
+  kind: "fact" | "relationship" | "presence" | "link" | "note" | "event" | "telling";
+  id: string;
+  field: string;
+  chapter: { id: string; title: string };
+  text: string;
+  evidence: string | null;
+  entities: EntityRef[];
+  choices: ("keep" | "move" | "planned" | "drop")[];
+  default: "keep" | "move" | "planned" | "drop";
+  keep_text: string | null;
+  warn: string | null;
+  move_to: { id: string; title: string } | null;
+}
+export interface Choice {
+  key: string;
+  action: Tie["default"];
+  to?: string | null;
+}
+export interface Reviewed {
+  id: string;
+  summary: { keep: number; move: number; planned: number; drop: number };
+  chapters: string[];
+  said?: string[];
+  first?: string | null;
+}
+export const chapterTies = (world: string, ids: string[], experiment?: string) =>
+  get<{ rows: Tie[] }>(`${base(world)}/chapters/ties?ids=${ids.join(",")}${experiment ? `&experiment=${experiment}` : ""}`);
+export const retireMany = (world: string, ids: string[], review: Choice[], notes: Record<string, string>) =>
+  post<Reviewed>(`${base(world)}/chapters/retire`, { ids, review, notes });
+export const closeRange = (
+  world: string,
+  id: string,
+  body: { outcome: "accepted" | "rejected" | "harvested"; review: Choice[]; notes: Record<string, string>; decision?: string; decided_on?: string },
+) => post<Reviewed>(`${base(world)}/experiments/${id}/close`, body);
+export const undoReview = (world: string, id: string) => post<{ restored: number; skipped: number }>(`${base(world)}/retire-reviews/${id}/undo`);
+export const reviewRetired = (world: string, chapterId: string, review: Choice[]) => post<Reviewed>(`${base(world)}/chapters/${chapterId}/review`, { review });
+export const reinstateRows = (world: string, chapterId: string) =>
+  post<{ restored: number; skipped: number }>(`${base(world)}/chapters/${chapterId}/reinstate-review`);
+
+/** The Archivist: evidence resting on a passage in a retired chapter (docs/SPEC.md §13.6.3). */
+export interface EvidenceFinding {
+  rule: "evidence_retired";
+  key: string;
+  kind: "fact" | "relationship" | "telling";
+  id: string;
+  message: string;
+  chapter: { id: string; title: string };
+  passage: string;
+  entities: EntityRef[];
+  /** chapters where the passage is found now (current ones and drafts) */
+  found: { id: string; title: string; state: string }[];
+}
+export const evidenceRetired = (world: string) => get<EvidenceFinding[]>(`${base(world)}/evidence-retired`);
+export const reAnchor = (world: string, kind: EvidenceFinding["kind"], id: string, chapterId: string) =>
+  post(`${base(world)}/evidence/re-anchor`, { kind, id, chapter_id: chapterId });
+
+/** "14 kept, 3 moved, 1 dropped". */
+export function reviewLine(s: { keep: number; move: number; planned: number; drop: number }): string {
+  const parts = [[s.keep, "kept"], [s.move, "moved"], [s.planned, "marked planned"], [s.drop, "dropped"]] as const;
+  return parts.filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(", ") || "nothing tied";
+}
 
 export const statuses = {
   list: (world: string, p: string) => get<ChapterStatus[]>(`${project(world, p)}/statuses`),

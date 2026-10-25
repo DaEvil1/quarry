@@ -8,6 +8,7 @@ import { localChapters, syncWorld } from "../offline";
 import { useSession } from "../stores/session";
 import type { EntityRef } from "../types";
 import { useCards } from "../world/cards";
+import { asIfAccepted } from "../world/asif";
 import { segments, thread, threadCount, type Gap, type Para, type ThreadChapter } from "../world/thread";
 import NotFoundView from "./NotFoundView.vue";
 
@@ -54,7 +55,11 @@ const ordered = computed<(ThreadChapter & { label?: string })[]>(() => {
   const as = (c: (typeof list)[number], label?: string) => ({
     id: c.id, title: c.title, body: c.body, state: c.state, project: c.project, project_name: name.get(c.project) ?? c.project, label,
   });
-  const story = sort(list.filter((c) => c.state === "current")).map((c) => as(c));
+  // "as if accepted" (docs/SPEC.md §13.6.1): an experiment's drafts in place of its range
+  const item = typeof route.query.as_if === "string" ? route.query.as_if : null;
+  const story = item
+    ? projects.flatMap((p) => asIfAccepted(list, p.slug, item)).map((c) => as(c, c.draft ? "draft" : undefined))
+    : sort(list.filter((c) => c.state === "current")).map((c) => as(c));
   if (!all.value) return story;
   return [
     ...story,
