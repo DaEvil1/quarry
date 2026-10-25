@@ -2587,15 +2587,28 @@ order a writer would meet the features, each with its length, what it covers, wh
 and two buttons:
 
 - **Watch.** The steps do themselves. A pointer moves to what the step is about and presses it, typing goes a letter
-  at a time, and a ring shows what the caption is about, dimming the rest a little. **Pause**, **Next** and a speed of
+  at a time, and a ring shows what the caption is about. **Pause**, **Next** and a speed of
   0.5×, 0.75×, 1×, 1.5× or 2× (kept per device) are on the caption.
 - **Try it yourself.** The same steps, each waiting for the writer. The ring shows where; the caption says what to
   do ("Shift-click the highlighted button", "Select the highlighted paragraph"); the walkthrough moves on when it sees
   it done, by the click itself or by what appears after. **Do it for me** does the step instead.
 
-The caption sits in the bottom right corner, beside the prose, and moves to the top when what it points at is under
-it; it can be folded to its title line. Its buttons never take focus, so a field the walkthrough is typing in stays
-open. **End** stops a walkthrough at any step.
+Before a step shows, what it points at is brought into view: if it isn't comfortably on screen (between about an
+eighth and three quarters of the window's height), it is scrolled to the middle, through any scrolling box it sits in,
+smoothly (at once for a writer who asks for reduced motion, and at the tests' instant pace), and the ring and caption
+appear once it has stopped moving.
+
+The caption sits next to what it points at: below it if it fits, else above, right or left, shifted along to stay on
+screen. It never covers the target, what the next step will use, or the nav, and of the places that fit it takes the
+first that covers no text, else the one covering least. When nothing beside the target will do (a target nearly as
+big as the window) it keeps to a corner clear of it. It moves with the page as it scrolls or the window changes size,
+and a faint dashed line runs from it to the ring when the two are apart. On a phone it stays docked above the tab bar,
+with the line pointing up to what the step is about.
+
+The page around the ring can be dimmed a little, a soft spotlight that clicks still pass through. The Guide page sets
+when: while watching (the default, so a writer trying it sees the page as it is), always, or never. The caption can be
+folded to its title line. Its buttons never take focus, so a field the walkthrough is typing in stays open. **End**
+stops a walkthrough at any step.
 
 A walkthrough runs with the default writing settings (the panel open, Focus mode off, Drafting, asking for a note
 for next time), so its steps find what they point at whatever this device is set to. The writer's own settings are
@@ -2680,7 +2693,7 @@ new for them.
   deletes everything in it, as for any world.
 - `POST /api/guide/sandbox` deletes the writer's sandbox and makes a fresh one; `DELETE /api/guide/sandbox` deletes it.
   A world's answer says whether it is a sandbox.
-- On the device: which walkthroughs were seen and when, the speed, and the writer's own writing settings while a
+- On the device: which walkthroughs were seen and when, the speed, the spotlight, and the writer's own writing settings while a
   walkthrough runs (local storage, `quarry.guide*`); the step a walkthrough had reached (session storage, for *Carry
   on*).
 
