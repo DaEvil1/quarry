@@ -652,6 +652,35 @@ class DecisionLink(Base):
                                                  index=True)
 
 
+class DecisionFollowup(Base):
+    """A follow-up of a decision (docs/SPEC.md §16): the link from the decision to a planned fact or relationship, or a
+    task, that carries it out. Only the link: the row is an ordinary one, edited, made canon, closed or deleted
+    wherever it is. The follow-up outlives its row, as dropped, with its words. Done and to do are never stored: they
+    are worked out from the row each time they are read (§16.2)."""
+
+    __tablename__ = "decision_followups"
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(fact_id, relationship_id, item_id) <= 1", name="ck_decision_followups_one_row"),
+        UniqueConstraint("decision_id", "fact_id", name="uq_decision_followups_fact"),
+        UniqueConstraint("decision_id", "relationship_id", name="uq_decision_followups_relationship"),
+        UniqueConstraint("decision_id", "item_id", name="uq_decision_followups_item"),
+    )
+
+    id: Mapped[uuid.UUID] = _id()
+    decision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decisions.id", ondelete="CASCADE"), nullable=False,
+                                                   index=True)
+    fact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("facts.id", ondelete="SET NULL"), index=True)
+    relationship_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("relationships.id", ondelete="SET NULL"),
+                                                              index=True)
+    item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"), index=True)
+    # the row in words, kept for when it is gone ("Varren · status: dead · from chapter 9", "task: Plant the bell…")
+    what: Mapped[str] = mapped_column(Text, nullable=False)
+    # by Drop, or by deleting its row; a row with none of the three is dropped, dated or not
+    dropped_on: Mapped[date | None] = mapped_column(Date)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+
 class Presence(Base):
     """Where an entry (usually a character) is in a chapter: an explicit "is at", one place per chapter."""
 

@@ -319,10 +319,17 @@ def get_entity(slug: str, entity_id: uuid.UUID, user: User = Depends(current_use
                   "project": projects.get(d.project_id), "tagged": d.id in tagged}
                  for d in db.scalars(select(Decision).where(Decision.id.in_(tagged | named))
                                      .order_by(Decision.decided_on.desc()))] if tagged | named else []
+    from .followups import counts_for, entity_follows
+
+    counts = counts_for(db, [uuid.UUID(d["id"]) for d in decisions])
+    for d in decisions:
+        d["followups"] = counts.get(uuid.UUID(d["id"]))
     return {"entity": _out(e, sum(m["count"] for m in mentions), projects), "mentions": mentions, "unlinked": unlinked,
             "linked_items": linked_items, "near_misses": near, "first_appearance": list(first.values()),
             "unsettled": unsettled,
-            "decisions": decisions, **entity_world_detail(db, world, e),
+            "decisions": decisions,
+            # its facts and relationships that follow decisions, for the delete warning (docs/SPEC.md §16.6)
+            "follows": entity_follows(db, e.id), **entity_world_detail(db, world, e),
             # an event's tellings (Told in, docs/SPEC.md §13.2.3)
             "tellings": tellings_of(db, world, e.id) if e.kind == "event" else [],
             # and its notes in the Journal (Noted in, docs/SPEC.md §14.1.2)

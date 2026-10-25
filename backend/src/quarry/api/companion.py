@@ -157,7 +157,9 @@ def checks(db: Session, world: World, planned: bool = False) -> list[dict]:
                     "chapter": {"id": str(ch.id), "title": ch.title} if ch else None,
                     "entities": [_ref(e) for e in who], "_at": index.get(chapter_id, -1) if chapter_id else -1,
                     # resting on a planned row (Include planned): tagged, docs/SPEC.md §14.6
-                    "planned": any(getattr(x, "standing", "canon") == "planned" for x in rows), **extra})
+                    "planned": any(getattr(x, "standing", "canon") == "planned" for x in rows),
+                    "_planned": [("fact" if isinstance(x, Fact) else "relationship", x.id) for x in rows
+                                 if getattr(x, "standing", "canon") == "planned"], **extra})
 
     def when(chapter_id: uuid.UUID | None, t: float | None, approx: bool = False) -> str:
         """A bound in words: a chapter's title, or a time ("year 312")."""
@@ -462,8 +464,17 @@ def checks(db: Session, world: World, planned: bool = False) -> list[dict]:
             effect.time_chapter_id if effect.time_chapter_id in index else None, cause, effect, rows=[r])
 
     out.sort(key=lambda x: (x["_at"], x["rule"], x["message"]))
+    # a finding resting on a planned row that follows a decision names the decision (docs/SPEC.md §16.4)
+    from .followups import follows_of
+
+    rows = [r for x in out for r in x["_planned"]]
+    follows = {**follows_of(db, "fact", [i for t, i in rows if t == "fact"]),
+               **follows_of(db, "relationship", [i for t, i in rows if t == "relationship"])} if rows else {}
     for x in out:
-        del x["_at"]
+        decided = [d for _, i in x["_planned"] for d in follows.get(i, [])]
+        if decided:
+            x["decided"] = {"id": decided[0]["id"], "decided_on": decided[0]["decided_on"], "text": decided[0]["text"]}
+        del x["_at"], x["_planned"]
     return out
 
 

@@ -386,6 +386,11 @@ def planning(slug: str, entity: list[uuid.UUID] = Query(..., max_length=10), use
                  for d in db.scalars(select(Decision).where(Decision.world_id == world.id,
                                                             Decision.id.in_(decision_ids))
                                      .order_by(Decision.decided_on, Decision.created_at))] if decision_ids else []
+    from .followups import counts_for
+
+    counts = counts_for(db, [uuid.UUID(d["id"]) for d in decisions])
+    for d in decisions:
+        d["followups"] = counts.get(uuid.UUID(d["id"]))
     return {"items": items, "decisions": decisions}
 
 

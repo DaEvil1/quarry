@@ -1050,7 +1050,10 @@ def close_experiment(slug: str, item_id: uuid.UUID, body: CloseIn, user: User = 
     review, said = close(db, world, user, item, body)
     db.commit()
     first = drafts_of(db, item.id, ("current",))
-    return {**_review_out(review), "said": said, "first": str(first[0].id) if first else None}
+    decided = next((c.get("decisions") for c in review.changes if c["kind"] == "experiment"), None) or []
+    return {**_review_out(review), "said": said, "first": str(first[0].id) if first else None,
+            # the decision its line logged, for the follow-up step (docs/SPEC.md §16.3)
+            "decision_id": decided[0] if decided else None}
 
 
 # ---- evidence in Salvage (docs/SPEC.md §13.6.3) ---------------------------------------------------------------

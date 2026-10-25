@@ -40,6 +40,11 @@ which is a finding), and the Ninefold Delta, a place that is also a character. O
 Locks are pinned inside the delta (north and south), while Carrow Ferry between them is laid out automatically. The
 world opens under the Writing focus; switch it to Planning on the front page to see the other layout.
 
+For decisions with follow-ups (docs/SPEC.md §16) it has three decisions in the three states: Oskar's death settled, with
+nothing to follow; Hesper's trade done, its planned fact made canon in "The Cartographer"; and Brother Cade's death one
+of two to do, his death still planned from chapter 3 (which is written, so its Loose ends shows the gap and the front
+page lists it under To follow through) and the task about the bells accepted.
+
 For names shared by two entries (docs/SPEC.md §14.10) it has two Linnets, Linnet Dray and Linnet Sorrel the
 lock-keeper, and "The Cartographer" calls one of them just "Linnet" before, between and after choice lines.
 
@@ -222,8 +227,10 @@ BIBLE: list[dict] = [
         "id": "cade", "name": "Brother Cade", "kind": "character", "gender": "male",
         "summary": "A monk of the Ashen Order at Saltreach Abbey; takes Tamsin in.",
         "facts": [{"label": "age", "value": "about sixty", "standing": "planned"},
-                  # planned, not on the page: with Include planned, Ash Season naming him is a finding (§14.6)
-                  {"label": "status", "value": "dead", "standing": "planned", "from": "b1-c3"}],
+                  # planned, not on the page: with Include planned, Ash Season naming him is a finding (§14.6); it
+                  # follows a decision, and chapter 3 is written, so its Loose ends shows the gap (§16.4)
+                  {"label": "status", "value": "dead", "standing": "planned", "from": "b1-c3",
+                   "follows": ["d-2026-10-08"]}],
         "relationships": [
             # he was on the causeway that night
             {"type": "witnessed", "type_kinds": ["character", "event"], "to": "flood"},
@@ -261,7 +268,9 @@ BIBLE: list[dict] = [
                   {"label": "trade", "value": "cartographer", "established_in": "b2-c2",
                    "evidence": "Hesper Quill had been told the ferry at Carrow Ferry was run by a girl who knew the "
                                "channels better than any chart.",
-                   "planned_in": "j-map", "planned_evidence": "Hesper Quill, a mapmaker"},
+                   "planned_in": "j-map", "planned_evidence": "Hesper Quill, a mapmaker",
+                   # the follow-up of a decision, done (docs/SPEC.md §16)
+                   "follows": ["d-2026-10-06"]},
                   {"label": "languages", "value": "Delta speech"},
                   {"label": "languages", "value": "the Greywater chart-cant"}],
         "relationships": [{"type": "lives in", "type_kinds": ["character", "place"], "to": "greywater"}],
@@ -862,6 +871,11 @@ ITEMS: list[dict] = [
      "source": "desk", "created_at": "2026-10-08T21:00:00+00:00", "tags": [],
      "title": "Ash Season, from the water", "replaces": ["b2-c1", "b2-c2"],
      "body": "Both opening chapters of Ash Season from the ferry."},
+    # a task that follows a decision, done (docs/SPEC.md §16): tied to chapter 3 and Brother Cade
+    {"id": "item-bells", "kind": "task", "status": "accepted", "project": "the-ferrymans-daughter", "source": "desk",
+     "created_at": "2026-10-08T21:10:00+00:00", "closed_at": "2026-10-12T09:00:00+00:00", "tags": ["Brother Cade"],
+     "from": {"chapter": "b1-c3"}, "follows": ["d-2026-10-08"],
+     "body": "Let Pell ask about the bells before Cade dies"},
     {"id": "item-prologue", "kind": "experiment", "status": "open", "project": "the-ferrymans-daughter",
      "source": "desk", "created_at": "2026-10-10T21:00:00+00:00", "tags": [],
      "title": "Before the Crossing", "insert": {"before": "b1-c1"},
@@ -879,6 +893,10 @@ DECISIONS = [
     ("2026-10-03", None, "The compass points home, never north; nobody in the delta knows why.", None, ["compass"]),
     ("2026-10-05", "ash-season", "Ash Season is told mostly by Tamsin, with one chapter from Hesper.", None,
      ["tamsin", "hesper"]),
+    # decisions with follow-ups (docs/SPEC.md §16): one done (her trade, canon in "The Cartographer"), one not (his
+    # death still planned, the task about the bells accepted); Oskar's above stays settled, so all three states show
+    ("2026-10-06", "ash-season", "Hesper is a cartographer, and Ash Season shows her at her maps", None, ["hesper"]),
+    ("2026-10-08", "the-ferrymans-daughter", "Brother Cade dies at Saltreach, in What the River Kept", None, ["cade"]),
 ]
 
 JOURNAL = [
@@ -935,7 +953,7 @@ def demo_files() -> dict[str, str]:
                               "established_in": f.get("established_in"), "from": f.get("from"),
                               "until": f.get("until"),
                               **{k: f[k] for k in ("from_time", "from_approx", "until_time", "outside_time",
-                                                   "planned_in", "planned_evidence") if k in f}}
+                                                   "planned_in", "planned_evidence", "follows") if k in f}}
                              for f in e["facts"]]
         if e.get("relationships"):
             meta["relationships"] = [{"type": r["type"], "type_kinds": r["type_kinds"], "to": r["to"],
@@ -983,7 +1001,7 @@ def demo_files() -> dict[str, str]:
             meta["replaces"] = i["replaces"]
         if i.get("insert"):
             meta["insert"] = i["insert"]
-        for k in ("from", "passage"):
+        for k in ("from", "passage", "follows"):
             if i.get(k):
                 meta[k] = i[k]
         files[f"{folder}/Planning/{i['status']}/{i['id']}.md"] = _doc(meta, i["body"])

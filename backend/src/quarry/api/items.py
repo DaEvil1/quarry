@@ -71,6 +71,8 @@ class ItemOut(BaseModel):
     mentions: list[MentionOut] = []
     # the chapter or journal entry it was made from, with the passage (docs/SPEC.md §14.3.1)
     origin: dict | None = None
+    # the decisions it follows, as a task (docs/SPEC.md §16.1): id, decided_on, text
+    follows: list[dict] = []
 
 
 class ItemIn(BaseModel):
@@ -129,13 +131,14 @@ def project_by_slug(world: World, slug: str | None) -> Project | None:
 
 
 def item_out(item: Item, world: World, entities: list[EntityRef] | None = None,
-             mentions: list[MentionOut] | None = None, origin: dict | None = None) -> ItemOut:
+             mentions: list[MentionOut] | None = None, origin: dict | None = None,
+             follows: list[dict] | None = None) -> ItemOut:
     slugs = {p.id: p.slug for p in world.projects}
     return ItemOut(id=item.id, kind=item.kind, title=item.title, body=item.body, status=item.status,
                    project=slugs.get(item.project_id) if item.project_id else None, source=item.source,
                    closed_note=item.closed_note, closed_at=item.closed_at, created_at=item.created_at,
                    updated_at=item.updated_at, version=item.version, entities=entities or [],
-                   mentions=mentions or [], origin=origin)
+                   mentions=mentions or [], origin=origin, follows=follows or [])
 
 
 def items_out(db: Session, world: World, items: list[Item]) -> list[ItemOut]:
@@ -157,7 +160,10 @@ def items_out(db: Session, world: World, items: list[Item]) -> list[ItemOut]:
                                                  start=m.start, end=m.end, matched_text=m.matched_text,
                                                  kind=m.kind))
     origins = item_origins(db, ids)
-    return [item_out(i, world, tags[i.id], found[i.id], origins.get(i.id)) for i in items]
+    from .followups import follows_of
+
+    follows = follows_of(db, "item", ids)
+    return [item_out(i, world, tags[i.id], found[i.id], origins.get(i.id), follows.get(i.id)) for i in items]
 
 
 def item_origins(db: Session, ids: list[uuid.UUID]) -> dict[uuid.UUID, dict]:
@@ -322,6 +328,9 @@ def update_item(slug: str, item_id: uuid.UUID, body: ItemUpdate, user: User = De
     db.flush()
     if body.body is not None:
         refresh_source(db, world.id, "item", item.id, item.body)
+    from .followups import refresh_what
+
+    refresh_what(db, world, "item", item)
     db.commit()
     return one_out(db, world, item)
 
@@ -391,6 +400,9 @@ def delete_item(slug: str, item_id: uuid.UUID, user: User = Depends(current_user
             select(func.count()).select_from(Decision).where(Decision.item_id == item.id)):
         raise HTTPException(409, "Only an open item can be removed; close it instead.")
     db.execute(delete(Mention).where(Mention.source_table == "item", Mention.source_id == item.id))
+    from .followups import drop_for_deleted
+
+    drop_for_deleted(db, world, "item", item)
     db.delete(item)
     db.commit()
 

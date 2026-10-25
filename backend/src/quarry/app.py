@@ -20,6 +20,7 @@ from .api import (
     chart,
     companion,
     decisions,
+    followups,
     front,
     demo,
     guide,
@@ -183,6 +184,7 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.include_router(worlds.router)
     app.include_router(items.router)
     app.include_router(decisions.router)
+    app.include_router(followups.router)
     app.include_router(bible.router)
     app.include_router(journal.router)
     app.include_router(front.router)
