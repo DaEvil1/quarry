@@ -19,9 +19,10 @@ marked one at a time, with one clash planted; and an ancestor of the family, cen
 
 For time and restructuring (docs/SPEC.md §13.1, §13.6) its chapters are set in years: the first book in year 412, Ash
 Season a year on, with a short tale set forty years before, in which Oskar (recorded dead in the present) appears
-without a finding. Some of the family have births, so ages show (and Pell's age disagrees with his, planted). Two
-chapters of Ash Season have an experiment across them, and the retired prologue still has a fact tied to it, with its
-evidence passage in it.
+without a finding, and a last chapter outside time, where the drowned speak and Agathe (dead for twenty years) is named
+without a finding either. Some of the family have births, so ages show (and Pell's age disagrees with his, planted).
+Two chapters of Ash Season have an experiment across them; the first book has an experiment that only adds, a new
+prologue before "The Crossing"; and the retired prologue still has a fact tied to it, with its evidence passage in it.
 
 For history and the Timeline (docs/SPEC.md §13.2) it has a few events of history (the raising of the locks, recorded
 from a passage of chapter 3 with its telling; the spring flood Agathe drowned in), two eras in their colours (the Lock
@@ -35,7 +36,9 @@ in "The Cartographer"; a question made from a passage of chapter 3; and a spark 
 For getting back in and checking (docs/SPEC.md §14.4–§14.9) it has a premise, a note for next time left in a journal
 entry, an old entry with decisions and changes since, Brother Cade's death planned (a finding once "Include planned" is on),
 four events joined by "caused" and "followed from" (the Mountain Fires placed after the Flood of Lanterns they caused,
-which is a finding), and the Ninefold Delta, a place that is also a character.
+which is a finding), and the Ninefold Delta, a place that is also a character. On the chart, Greywater and Marrow
+Locks are pinned inside the delta (north and south), while Carrow Ferry between them is laid out automatically. The
+world opens under the Writing focus; switch it to Planning on the front page to see the other layout.
 
 For names shared by two entries (docs/SPEC.md §14.10) it has two Linnets, Linnet Dray and Linnet Sorrel the
 lock-keeper, and "The Cartographer" calls one of them just "Linnet" before, between and after choice lines.
@@ -633,6 +636,24 @@ CHAPTERS: list[dict] = [
             "of the bell, and came back by the sound of his mother calling, and never told anyone he had been afraid.",
         ),
     },
+    # outside time (docs/SPEC.md §13.1.8): Agathe is recorded dead from year 390, and naming her here is no finding
+    {
+        "id": "b2-c4", "time": "outside", "summary": "The drowned under the Outer Sound speak to no one in particular.",
+        "status": "sketch", "project": BOOK_TWO, "title": "What the Drowned Say", "position": 3, "pov": None,
+        "body": _p(
+            "Under the water there is no year. The drowned keep their lanterns lit and their names short.",
+            "Agathe Vey says the river was never theirs to lock. The others agree, the way water agrees: by "
+            "closing over the question.",
+        ),
+    },
+    # an experiment that only adds (docs/SPEC.md §13.6): a new prologue before "The Crossing", replacing nothing
+    {
+        "id": "b1-x2", "summary": "A new opening: the compass, before anyone owns it.", "status": "raw",
+        "project": BOOK_ONE, "title": "Before the Crossing", "state": "experiment", "position": 5, "pov": None,
+        "item": "item-prologue",
+        "body": _p("The compass lay in a drawer at Saltreach Abbey for thirty years, pointing at nothing anyone could "
+                   "see, until the night Oskar Vey asked the brothers for something that would always find home."),
+    },
     # an experiment across two chapters of Ash Season, from copies
     {
         "id": "b2-x1", "summary": "Ash Season told from the water.", "status": "sketch", "project": BOOK_TWO,
@@ -714,6 +735,16 @@ ITEMS: list[dict] = [
      "source": "desk", "created_at": "2026-10-08T21:00:00+00:00", "tags": [],
      "title": "Ash Season, from the water", "replaces": ["b2-c1", "b2-c2"],
      "body": "Both opening chapters of Ash Season from the ferry."},
+    {"id": "item-prologue", "kind": "experiment", "status": "open", "project": "the-ferrymans-daughter",
+     "source": "desk", "created_at": "2026-10-10T21:00:00+00:00", "tags": [],
+     "title": "Before the Crossing", "insert": {"before": "b1-c1"},
+     "body": "Open with the compass instead of the toll? Nothing would be replaced."},
+]
+
+# the chart (docs/SPEC.md §13.7.3): two places pinned inside the delta, relative to its centre; the rest lay out
+CHART_PINS = [
+    {"place": "greywater", "container": "delta", "x": -20, "y": -90},
+    {"place": "marrow-locks", "container": "delta", "x": 20, "y": 90},
 ]
 
 DECISIONS = [
@@ -760,6 +791,7 @@ def demo_files() -> dict[str, str]:
         "fact_labels": FACT_LABELS,
         "roles": ROLES,
         "premise": PREMISE,
+        "chart": {"settings": {"shapes": {}}, "pins": CHART_PINS},
     }, "")
     names = {e["id"]: e["name"] for e in BIBLE}
     for e in BIBLE:
@@ -822,6 +854,8 @@ def demo_files() -> dict[str, str]:
                                       "closed_note", "tags")}
         if i.get("replaces"):
             meta["replaces"] = i["replaces"]
+        if i.get("insert"):
+            meta["insert"] = i["insert"]
         for k in ("from", "passage"):
             if i.get(k):
                 meta[k] = i[k]

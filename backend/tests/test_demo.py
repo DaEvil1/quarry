@@ -23,7 +23,11 @@ def test_demo_world(signed_in: Client):
 
     book = signed_in.get(f"{W}/projects/the-ferrymans-daughter/chapters").json()
     assert [c["title"] for c in book["chapters"]] == ["The Crossing", "Lanterns on the Water", "What the River Kept", "The Locks"]
-    assert [c["title"] for c in book["experiments"]] == ["Lanterns on the Water (from the water)"]
+    assert sorted(c["title"] for c in book["experiments"]) == ["Before the Crossing", "Lanterns on the Water (from the water)"]
+    # an experiment that only adds: a prologue placed before "The Crossing", replacing nothing (docs/SPEC.md §13.6)
+    prologue = next(x for x in book["experiments"] if x["title"] == "Before the Crossing")
+    assert prologue["range"] == [] and [d["title"] for d in prologue["drafts"]] == ["Before the Crossing"]
+    assert (prologue["insert"]["title"], prologue["insert"]["side"]) == ("The Crossing", "before")
     assert book["retired"] == 1
     assert {x["name"] for x in book["cast"][book["chapters"][0]["id"]]} >= {"Tamsin Vey", "Oskar Vey", "Ilse Marrow"}
 
@@ -43,7 +47,7 @@ def test_demo_world(signed_in: Client):
     assert signed_in.get(f"{W}/graph?co=true").json()["cooccurrence"]
 
     # planning, and what an export doesn't carry
-    assert len(signed_in.get(f"{W}/items?status=all").json()) == 10
+    assert len(signed_in.get(f"{W}/items?status=all").json()) == 11
     tagged = {e["name"] for d in signed_in.get(f"{W}/decisions").json() for e in d["entities"]}
     assert tagged == {"Oskar Vey", "The Brass Compass", "Tamsin Vey", "Hesper Quill"}
     journal = {j["title"]: j for j in signed_in.get(f"{W}/journal").json()}
@@ -88,6 +92,17 @@ def test_demo_world(signed_in: Client):
                        ("alias", "Linnet Dray"), ("ambiguous", "Linnet Dray"), ("ambiguous", "Linnet Sorrel")]
     delta = next(e for e in signed_in.get(f"{W}/entities", params={"kind": "character"}).json() if e["name"] == "The Ninefold Delta")
     assert (delta["kind"], delta["also_kinds"]) == ("place", ["character"])
+    # a chapter outside time (docs/SPEC.md §13.1.8): it names Agathe, dead since 390, and that is no finding
+    drowned = next(c for c in two_book if c["title"] == "What the Drowned Say")
+    assert drowned["outside_time"] is True
+    assert not any(c["rule"] == "dead_mentioned" and (c["chapter"] or {}).get("title") == "What the Drowned Say"
+                   for c in signed_in.get(f"{W}/checks", params={"planned": 1}).json())
+    assert "Agathe Vey" in [m["entity_name"] for m in signed_in.get(f"{W}/chapters/{drowned['id']}").json()["mentions"]]
+    # the chart: two places pinned inside the delta, the rest laid out (docs/SPEC.md §13.7.3)
+    pins = signed_in.get(f"{W}/chart").json()["pins"]
+    pinned = {entities[n]["id"] for n in ("Greywater", "Marrow Locks")}
+    assert {p["place_id"] for p in pins} == pinned
+    assert all(p["container_id"] == delta["id"] for p in pins)
 
     # revising: summaries and statuses, a cut, and a few days of word history (and nothing for the day it loaded)
     assert all(c["summary"] and c["status"] for c in book["chapters"])
