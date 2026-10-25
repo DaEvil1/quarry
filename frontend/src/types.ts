@@ -23,6 +23,9 @@ export interface World {
   slug: string;
   role: string;
   projects: Project[];
+  /** what in-world time is counted in, one and several (docs/SPEC.md §13.1.1) */
+  time_unit?: string;
+  time_units?: string;
 }
 
 export interface User {
@@ -70,13 +73,14 @@ export const STATUS_LABELS: Record<ItemStatus, string> = {
   deferred: "Deferred",
 };
 
-export type EntityKind = "character" | "place" | "faction" | "culture" | "event" | "object" | "term" | "other";
+export type EntityKind = "character" | "place" | "faction" | "culture" | "species" | "event" | "object" | "term" | "other";
 
 export const ENTITY_KINDS: { value: EntityKind; label: string; plural: string }[] = [
   { value: "character", label: "Character", plural: "Characters" },
   { value: "place", label: "Place", plural: "Places" },
   { value: "faction", label: "Faction", plural: "Factions" },
   { value: "culture", label: "Culture", plural: "Cultures" },
+  { value: "species", label: "Species", plural: "Species" },
   { value: "event", label: "Event", plural: "Events" },
   { value: "object", label: "Object", plural: "Objects" },
   { value: "term", label: "Term", plural: "Terms" },
@@ -116,6 +120,10 @@ export interface Entity extends EntityRef {
   gender: Gender | null;
   /** in the bible's list: the projects whose current chapters name it */
   named_in: string[];
+  /** an event's when (docs/SPEC.md §13.2.1): a chapter it happens in, a time, or outside time; null: not placed yet */
+  when?: { chapter: string | null; at: number | null; end: number | null; label: string | null; approx: boolean; outside: boolean } | null;
+  /** an era's colour */
+  era_colour?: string | null;
 }
 
 export type Standing = "canon" | "planned" | "rumour";
@@ -132,6 +140,11 @@ export interface Fact {
   established_in_chapter_id: string | null;
   from_chapter_id: string | null;
   until_chapter_id: string | null;
+  from_time?: number | null;
+  from_approx?: boolean;
+  until_time?: number | null;
+  until_approx?: boolean;
+  outside_time?: boolean;
   version: number;
   /** after adding: the one-time "expect it on every …?" question (docs/SPEC.md §12.6.5) */
   prompt?: { kind: EntityKind; label: string; count: number } | null;
@@ -144,6 +157,8 @@ export interface RelationType {
   label: string;
   reverse_label: string | null;
   position: number;
+  /** its relationships carry a role in the group on the B side (docs/SPEC.md §13.4) */
+  has_role: boolean;
   used: number;
 }
 
@@ -160,6 +175,14 @@ export interface Relationship {
   established_in_chapter_id: string | null;
   from_chapter_id: string | null;
   until_chapter_id: string | null;
+  from_time?: number | null;
+  from_approx?: boolean;
+  until_time?: number | null;
+  until_approx?: boolean;
+  outside_time?: boolean;
+  /** the A side's role in the B side's group, and whether the type offers one */
+  role?: string | null;
+  has_role?: boolean;
   version: number;
   /** on an entry's page: how it reads from this entry, the entry on the other side, and which side this is */
   reads?: string;
@@ -204,6 +227,8 @@ export interface EntityDetail {
   facts: Fact[];
   relationships: Relationship[];
   chapter_titles: Record<string, string>;
+  /** an event's tellings (Told in) */
+  tellings?: import("./history").Telling[];
 }
 
 export interface NearMissGroup {
@@ -271,23 +296,52 @@ export function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** A chapter in story order: projects in their order, then chapters in theirs (docs/WORLD-MODEL.md §4). */
-export interface StoryChapter {
+/** When a chapter (or an event) is set (docs/SPEC.md §13.1.1): a number with an optional end, a free label and
+ * "about"; or outside time; or neither (not set). */
+export interface TimeValue {
+  time_at: number | null;
+  time_end?: number | null;
+  time_label?: string | null;
+  time_approx?: boolean;
+  outside_time?: boolean;
+}
+
+/** A chapter in story order: projects in their order, then chapters in theirs (docs/WORLD-MODEL.md §4), with when it
+ * is set and its place on the clock (docs/SPEC.md §13.1.3). */
+export interface StoryChapter extends Partial<TimeValue> {
   id: string;
   title: string;
   project: string;
   project_name: string;
+  /** its place in book order (told order), from 0 */
   index: number;
   /** the chapter's point-of-view entry */
   pov?: string | null;
   /** its project's gap length */
   gap_chapters?: number;
+  told_as?: "flashback" | "tale" | null;
+  /** its own time, or the one it carries on from */
+  set_time?: number | null;
+  set_approx?: boolean;
+  /** a tale or flashback with no time: set before the story */
+  early?: boolean;
+  /** the chapter's one line and status, for its card on the Timeline */
+  summary?: string;
+  status?: string | null;
+  /** its place in happened order; null outside time (absent from an older copy: book order) */
+  clock?: number | null;
 }
 
-/** When a fact or relationship holds: from and/or until a chapter; neither means throughout. */
+/** When a fact or relationship holds: from and/or until a chapter or a time; neither means throughout; outside time
+ * means never on the clock (docs/SPEC.md §13.1.5, §13.1.8). */
 export interface Span {
   from_chapter_id: string | null;
   until_chapter_id: string | null;
+  from_time?: number | null;
+  from_approx?: boolean;
+  until_time?: number | null;
+  until_approx?: boolean;
+  outside_time?: boolean;
 }
 
 export interface Presence {
@@ -315,7 +369,7 @@ export interface WhereRow {
 }
 
 export interface WhereGrid {
-  chapters: { id: string; title: string; project: string; project_name: string; pov: EntityRef | null }[];
+  chapters: ({ id: string; title: string; project: string; project_name: string; pov: EntityRef | null; told_as?: "flashback" | "tale" | null; set_time?: number | null; set_approx?: boolean; early?: boolean; clock?: number | null; set_text?: string } & Partial<TimeValue>)[];
   rows: WhereRow[];
   events: Record<string, EntityRef[]>;
 }

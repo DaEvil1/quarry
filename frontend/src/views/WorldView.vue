@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { del, get, patch, post, put } from "../api";
+import InlineText from "../components/InlineText.vue";
 import { exportUrl } from "../manuscript";
 import { useSession } from "../stores/session";
 import { PROJECT_KINDS, kindLabel, type Project, type ProjectKind, type World } from "../types";
@@ -55,6 +56,17 @@ async function saveEdit() {
     session.putWorld(w, old);
     editing.value = false;
     if (w.slug !== old) await router.replace({ name: "world", params: { world: w.slug } });
+  } catch (e) {
+    editError.value = (e as Error).message;
+  }
+}
+
+// what in-world time is counted in (docs/SPEC.md §13.1.1): the words only, numbers are left as they are
+async function setUnit(field: "time_unit" | "time_units", value: string) {
+  const w = world.value;
+  if (!w || !value.trim()) return;
+  try {
+    session.putWorld(await patch<World>(`/api/worlds/${w.slug}`, { [field]: value.trim() }));
   } catch (e) {
     editError.value = (e as Error).message;
   }
@@ -126,6 +138,16 @@ async function move(index: number, by: -1 | 1) {
         <button class="btn" type="button" @click="editing = false">Cancel</button>
       </div>
     </form>
+
+    <section class="card time-unit" data-testid="time-unit">
+      <p class="small">
+        Time is counted in
+        <InlineText :value="world.time_unit ?? 'year'" label="One unit of time" :maxlength="40" @save="(v) => setUnit('time_unit', v)" />
+        /
+        <InlineText :value="world.time_units ?? 'years'" label="Several units of time" :maxlength="40" @save="(v) => setUnit('time_units', v)" />
+        <span class="muted"> · chapters and history are set in numbers of these (year 312, year −800); nothing is converted.</span>
+      </p>
+    </section>
 
     <section class="card">
       <div class="card-head"><h2>Projects</h2></div>

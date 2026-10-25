@@ -31,7 +31,7 @@ import type { Card } from "../world/cards";
 import type { Hit, Matcher } from "../world/matcher";
 import { changeAt, changesField, setChanges, type Change } from "./changes";
 import { buildMarks, companionExtensions, marksChanged, markedAt, openKbd, Since, type CompanionHooks } from "./companion";
-import { cardDom, cutStripDom, findingStripDom, selectionStripDom, nearMissStripDom, wasDom, type IsAtActions, type LinkActions } from "./strips";
+import { cardDom, cutStripDom, findingStripDom, passageStripDom, selectionStripDom, nearMissStripDom, wasDom, type HistoryActions, type IsAtActions, type LinkActions } from "./strips";
 
 export { countWords } from "../words";
 
@@ -59,6 +59,8 @@ export interface WorldHooks {
   cut?(from: number, to: number): void;
   /** does a label hold several values at once for a kind (its values show as chips on the card)? */
   several?(kind: string, label: string): boolean;
+  /** recording a selected passage as an event, or a birth or death in it (docs/SPEC.md §13.2.3) */
+  history?(from: number, to: number, text: string): HistoryActions;
 }
 
 /** A phone or tablet: long selections get a strip with "Cut to bin" (there is no Ctrl+Shift+X there). */
@@ -191,10 +193,15 @@ function full(hooks: WorldHooks): CompanionHooks | null {
       if (sel.empty) return null;
       const text = view.state.sliceDoc(sel.from, sel.to).trim();
       const cut = hooks.cut ? () => hooks.cut!(sel.from, sel.to) : undefined;
-      if (text.length < 2 || text.length > 80 || text.includes("\n")) return cut ? { from: sel.from, dom: cutStripDom(cut) } : null;
+      const history = hooks.history && text.length >= 2 ? hooks.history(sel.from, sel.to, view.state.sliceDoc(sel.from, sel.to)) : undefined;
+      if (text.length < 2 || text.length > 80 || text.includes("\n")) {
+        if (history) return { from: sel.from, dom: passageStripDom({ cut, history, done: () => view.focus() }) };
+        return cut ? { from: sel.from, dom: cutStripDom(cut) } : null;
+      }
       return {
         from: sel.from,
         dom: selectionStripDom(text, hooks.names(), {
+          history,
           create: async (kind) => {
             await hooks.create(text, kind);
             view.dispatch({ selection: { anchor: sel.to } });
@@ -263,8 +270,12 @@ function intent(hooks: WorldHooks): Extension[] {
         hooks.cut!(sel.from, sel.to);
         view.focus();
       } : null;
+      const history = hooks.history && text.length >= 2 ? hooks.history(sel.from, sel.to, tr.state.sliceDoc(sel.from, sel.to)) : undefined;
       if (text.length < 2 || text.length > 80 || text.includes("\n")) {
-        // a passage selected on a phone: the strip offers to cut it to the bin
+        // a passage selected: record it as an event (desk and phone), or on a phone cut it to the bin
+        if (history) {
+          return [{ pos: sel.to, above: false, strictSide: false, create: (view) => ({ dom: wrap(passageStripDom({ cut: cut && coarse() ? cut(view) : undefined, history, done: () => view.focus() })) }) }];
+        }
         if (!cut || !text || !coarse()) return [];
         return [{ pos: sel.to, above: false, strictSide: false, create: (view) => ({ dom: wrap(cutStripDom(cut(view))) }) }];
       }
@@ -281,6 +292,7 @@ function intent(hooks: WorldHooks): Extension[] {
           create: (view) => ({
             // wrapped: CodeMirror makes the returned element its (transparent) tooltip box
             dom: wrap(selectionStripDom(text, hooks.names(), {
+              history,
               create: async (kind) => {
                 await hooks.create(text, kind);
                 view.dispatch({ selection: { anchor: sel.to } });

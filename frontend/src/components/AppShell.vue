@@ -128,6 +128,12 @@ async function signOut() {
           <RouterLink :to="to('graph')" data-testid="nav-graph">
             <Icon name="graph" /><span>Graph</span>
           </RouterLink>
+          <RouterLink :to="to('chart')" data-testid="nav-chart">
+            <Icon name="chart" /><span>Chart</span>
+          </RouterLink>
+          <RouterLink :to="to('timeline')" data-testid="nav-timeline">
+            <Icon name="timeline" /><span>Timeline</span>
+          </RouterLink>
           <RouterLink :to="to('where')" data-testid="nav-where">
             <Icon name="where" /><span>Where everyone is</span>
           </RouterLink>

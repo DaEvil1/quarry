@@ -11,7 +11,7 @@ import {
   type PendingRevision,
 } from "./localdb";
 import { countWords } from "./words";
-import type { Chapter, ChapterInfo, Manuscript, RevisionInfo } from "./manuscript";
+import type { Chapter, ChapterInfo, Experiment, Manuscript, RevisionInfo } from "./manuscript";
 
 export const LOCAL_REVISIONS = 30;
 
@@ -101,10 +101,24 @@ export async function clearOfflineCopy(): Promise<void> {
   });
 }
 
+/** The open experiments among a project's chapters kept on the device: each draft carries its experiment. */
+function localExperiments(all: LocalChapter[], strip: (c: LocalChapter) => ChapterInfo): Experiment[] {
+  const out = new Map<string, Experiment>();
+  for (const c of all.filter((x) => x.state === "experiment").sort((a, b) => a.position - b.position)) {
+    const e = c.experiment;
+    if (!e) continue;
+    const x = out.get(e.id) ?? { id: e.id, title: e.title, status: e.status, range: e.range, range_words: e.range.reduce((n, r) => n + r.words, 0), insert: e.insert, drafts: [], words: 0, lost: e.lost, replaced_by: e.replaced_by };
+    x.drafts.push(strip(c));
+    x.words += countWords(c.body);
+    out.set(e.id, x);
+  }
+  return [...out.values()];
+}
+
 /** A project's manuscript from the copy on this device (when the server can't be reached). */
 export async function localManuscript(world: string, project: string): Promise<Manuscript> {
   const all = (await localDb.chapters.where("world").equals(world).toArray()).filter((c) => c.project === project);
-  const strip = ({ body, mentions, harvest_notes, replaces_title, experiment_status, world: _w, ...info }: LocalChapter) =>
+  const strip = ({ body, mentions, harvest_notes, experiment, experiment_status, world: _w, ...info }: LocalChapter) =>
     ({ ...info, words: countWords(body) }) as ChapterInfo;
   const current = all.filter((c) => c.state === "current").sort((a, b) => a.position - b.position).map(strip);
   const tally = new Map<string, number>();
@@ -116,7 +130,7 @@ export async function localManuscript(world: string, project: string): Promise<M
   const group = (id: string | null) => current.filter((c) => (c.status?.id ?? null) === id);
   return {
     chapters: current,
-    experiments: all.filter((c) => c.state === "experiment").map(strip),
+    experiments: localExperiments(all, strip),
     pov_tally: [...tally.entries()].sort((a, b) => b[1] - a[1]).map(([name, chapters]) => ({ name, chapters })),
     words: current.reduce((n, c) => n + c.words, 0),
     retired: all.filter((c) => c.state === "retired").length,

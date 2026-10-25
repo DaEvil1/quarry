@@ -73,6 +73,9 @@ class WorldOut(BaseModel):
     slug: str
     role: str
     projects: list[ProjectOut]
+    # what in-world time is counted in (docs/SPEC.md §13.1.1)
+    time_unit: str = "year"
+    time_units: str = "years"
 
 
 class UserOut(BaseModel):
@@ -96,6 +99,8 @@ class WorldIn(BaseModel):
 class WorldUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     slug: str | None = Field(default=None, max_length=SLUG_MAX)
+    time_unit: str | None = Field(default=None, min_length=1, max_length=40)
+    time_units: str | None = Field(default=None, min_length=1, max_length=40)
 
 
 class ProjectIn(BaseModel):
@@ -121,7 +126,8 @@ def _project_out(p: Project) -> ProjectOut:
 
 
 def _world_out(w: World, role: str) -> WorldOut:
-    return WorldOut(id=w.id, name=w.name, slug=w.slug, role=role, projects=[_project_out(p) for p in w.projects])
+    return WorldOut(id=w.id, name=w.name, slug=w.slug, role=role, projects=[_project_out(p) for p in w.projects],
+                    time_unit=w.time_unit or "year", time_units=w.time_units or "years")
 
 
 def _my_worlds(db: Session, user: User) -> list[WorldOut]:
@@ -210,6 +216,14 @@ def update_world(slug: str, body: WorldUpdate, user: User = Depends(current_user
         if new != w.slug and db.scalar(select(World.id).where(World.slug == new)) is not None:
             raise HTTPException(409, "Another world already uses that address.")
         w.slug = new
+    # the unit's words only: numbers are left as they are
+    for field in ("time_unit", "time_units"):
+        value = getattr(body, field)
+        if value is not None:
+            value = " ".join(value.split())
+            if not value:
+                raise HTTPException(422, "Give the unit a name.")
+            setattr(w, field, value)
     w.updated_by = user.id
     db.commit()
     return _world_out(w, role)

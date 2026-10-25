@@ -3,6 +3,7 @@
 // entry is missing. Labels and values match whatever the capitals; a value is shown in its most-used spelling.
 
 import type { Card } from "./cards";
+import { SPECIES_COLUMN, speciesAtEnd } from "./species";
 import { factsAsOf, norm, type IndexOf } from "./time";
 
 export { norm };
@@ -10,6 +11,8 @@ export { norm };
 /** An entry's values for a label at the end of the story (the latest that holds, or all that hold for a label with
  * several values), in their own spelling. */
 export function valuesAtEnd(card: Card, label: string, several: boolean, last: number | null, indexOf: IndexOf): string[] {
+  // the characters table's Species column reads "is a", not a fact (docs/SPEC.md §13.3)
+  if (label === SPECIES_COLUMN) return speciesAtEnd(card, last, indexOf);
   const key = norm(label);
   const facts = card.facts.filter((f) => norm(f.label) === key).map((f) => ({ ...f, from_chapter_id: f.from, until_chapter_id: f.until }));
   const held = last === null ? facts : factsAsOf(facts, last, indexOf, () => several);
@@ -41,7 +44,7 @@ export interface LabelReader {
 
 /** Entries that have every filter's value (a label with several values matches any of them). */
 export function matches(card: Card, filters: ValueFilter[], r: LabelReader): boolean {
-  return filters.every((f) => valuesAtEnd(card, f.label, r.several(card.kind, f.label), r.last, r.indexOf).some((v) => norm(v) === norm(f.value)));
+  return filters.every((f) => valuesAtEnd(card, f.label, f.label === SPECIES_COLUMN || r.several(card.kind, f.label), r.last, r.indexOf).some((v) => norm(v) === norm(f.value)));
 }
 
 export interface Group<T> {
@@ -57,7 +60,7 @@ export function groupBy<T>(items: T[], card: (item: T) => Card | undefined, labe
   const none: T[] = [];
   for (const item of items) {
     const c = card(item);
-    const values = c ? valuesAtEnd(c, label, r.several(c.kind, label), r.last, r.indexOf) : [];
+    const values = c ? valuesAtEnd(c, label, label === SPECIES_COLUMN || r.several(c.kind, label), r.last, r.indexOf) : [];
     if (!values.length) none.push(item);
     for (const v of values) {
       const g = groups.get(norm(v)) ?? { spellings: new Map<string, number>(), items: [] as T[] };

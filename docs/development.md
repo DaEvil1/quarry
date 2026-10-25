@@ -87,7 +87,12 @@ cd frontend
 npx playwright test -c playwright.perf.config.ts
 ```
 
-Options: `PERF_ENTRIES` and `PERF_WORDS` (the size), `PERF_PROFILE=1` (the functions that took the time while
+`perf/timeline.perf.ts` does the same for the Timeline (docs/SPEC.md §13.2.6): a made-up world of 3,000 events, eight
+eras and a book, then the first drawing, zooming from the whole world to a year and back, and panning, at desk speed
+and with the CPU slowed 4×, writing `perf-timeline.json`. Each file sets up its own Quarry, so run one at a time
+(`npx playwright test -c playwright.perf.config.ts timeline`) and empty the database before each.
+
+Options: `PERF_ENTRIES` and `PERF_WORDS` (the size), `PERF_EVENTS` (the Timeline's events), `PERF_PROFILE=1` (the functions that took the time while
 typing; build with `npx vite build --minify false` first for readable names), `PERF_SHOTS=<folder>` (screenshots
 of the main pages at desk and phone width). Empty the database before each run.
 

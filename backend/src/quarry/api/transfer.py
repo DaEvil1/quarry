@@ -5,16 +5,22 @@ entry, journal entry and item, plus Decisions.md and a compiled manuscript.md pe
 that layout back (the compiled manuscript is ignored). Revision history stays in the database: an export carries
 the texts as they are now.
 
-    <world>/world.md                                  name, slug, words marked "not a typo", relationship types,
-                                                      the per-label switches (fact_labels)
+    <world>/world.md                                  name, slug, words marked "not a typo", relationship types
+                                                      (with has_role), the per-label switches (fact_labels), the
+                                                      one-at-a-time roles (roles), the unit of time (time_unit,
+                                                      time_units), the chart (chart: its settings, and each pin
+                                                      with its place and container ids)
     <world>/Bible/<Kind>/<Name>.md                    id, name, kind, aliases, project (its level; null for the
-                                                      world), gender (when set); the notes
+                                                      world), gender (when set), an event's when (a chapter id, a
+                                                      time, or "outside"), an era's colour, an event's tellings
+                                                      (chapter and passage); the notes
     <world>/Journal/<date> <title> (<id>).md          id, date, title, project
     <world>/Decisions.md                              one line per decision
     <world>/Planning/<status>/<date> <text> (<id>).md items for the whole world
     <world>/Projects/<Name>/project.md                name, slug, kind, position, statuses (in order), gap_chapters
-    <world>/Projects/<Name>/Manuscript/<NN> <Title>.md id, title, state, position, pov, summary, status
-    <world>/Projects/<Name>/Experiments/<Title> (<id>).md
+    <world>/Projects/<Name>/Manuscript/<NN> <Title>.md id, title, state, position, pov, summary, status, time (at,
+                                                      end, label, approx, or "outside"), told_as
+    <world>/Projects/<Name>/Experiments/<Title> (<id>).md  drafts: item and position among the item's drafts
     <world>/Projects/<Name>/Salvage/<Title> (<id>).md retired chapters, with their harvest notes
     <world>/Projects/<Name>/Cuts/<date> <source title> (<id>).md   the cuts bin: id, chapter, chapter_title, cut_at,
                                                       put_back_at, put_back_to, before, after; the cut text
@@ -25,6 +31,7 @@ the texts as they are now.
 from __future__ import annotations
 
 import io
+import math
 import re
 import uuid
 import zipfile
@@ -44,10 +51,12 @@ from ..models import (
     STARTING_STATUSES,
     Chapter,
     ChapterStatus,
+    ChartPin,
     Cut,
     Decision,
     DecisionLink,
     Entity,
+    ExperimentRange,
     Fact,
     FactLabel,
     HarvestNote,
@@ -59,13 +68,17 @@ from ..models import (
     Project,
     RelationType,
     Relationship,
+    Role,
+    Telling,
     User,
     World,
     WorldMember,
 )
 from ..margin import without_margin_notes
 from .manuscript import snapshot
-from .world import seed_relation_types
+from ..vocabulary import STARTING_TYPES, place_new_types
+from .chart import SHAPES as CHART_SHAPES
+from .world import clean_role, has_role_label, seed_relation_types
 from .deps import current_user
 from .worlds import WorldOut, _unique, _world_out, member_world, slugify
 
@@ -73,7 +86,7 @@ router = APIRouter(prefix="/api/worlds")
 
 FORMAT = 1
 KIND_FOLDERS = {"character": "Characters", "place": "Places", "faction": "Factions", "culture": "Cultures",
-                "event": "Events", "object": "Objects", "term": "Terms", "other": "Other"}
+                "species": "Species", "event": "Events", "object": "Objects", "term": "Terms", "other": "Other"}
 MAX_UPLOAD = 50 * 1024 * 1024
 MAX_UNPACKED = 200 * 1024 * 1024
 DECISION_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(?: · \[([^\]]*)\])? (.*?)\s*<!-- (.*?) -->\s*$")
@@ -110,6 +123,60 @@ def _gap(v) -> int:  # type: ignore[no-untyped-def]
     except (TypeError, ValueError):
         return 5
     return n if 1 <= n <= 999 else 5
+
+
+def _bound_meta(x) -> dict:  # type: ignore[no-untyped-def]
+    """A fact's or relationship's time bounds and outside time in its frontmatter (only those set)."""
+    out: dict = {}
+    if x.outside_time:
+        out["outside_time"] = True
+    for side in ("from", "until"):
+        t = getattr(x, f"{side}_time")
+        if t is not None:
+            out[f"{side}_time"] = float(t)
+            if getattr(x, f"{side}_approx"):
+                out[f"{side}_approx"] = True
+    return out
+
+
+def _num(v) -> float | None:  # type: ignore[no-untyped-def]
+    try:
+        return None if v is None or v == "" else float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bounds_in(d: dict) -> dict:
+    """Time bounds and outside time read back from a fact's or relationship's frontmatter."""
+    if d.get("outside_time") is True:
+        return {"outside_time": True}
+    return {"outside_time": False, "from_time": _num(d.get("from_time")), "from_approx": d.get("from_approx") is True,
+            "until_time": _num(d.get("until_time")), "until_approx": d.get("until_approx") is True}
+
+
+def _time_in(meta: dict) -> dict:
+    """A chapter's time and mark read back from its frontmatter."""
+    t = meta.get("time")
+    out: dict = {"told_as": meta.get("told_as") if meta.get("told_as") in ("flashback", "tale") else None}
+    if t == "outside":
+        out["outside_time"] = True
+    elif isinstance(t, dict) and _num(t.get("at")) is not None:
+        out |= {"time_at": _num(t.get("at")), "time_end": _num(t.get("end")),
+                "time_label": (" ".join(str(t.get("label") or "").split()) or None),
+                "time_approx": t.get("approx") is True}
+    return out
+
+
+def _spans_in(d: dict, chapter) -> dict:  # type: ignore[no-untyped-def]
+    """A span read back: each side a chapter (relinked by id) or a time; outside time has none."""
+    b = _bounds_in(d)
+    if b["outside_time"]:
+        return {"outside_time": True, "from_approx": False, "until_approx": False}
+    out = {**b}
+    for side in ("from", "until"):
+        ch = chapter(d.get(side))
+        out[f"{side}_chapter_id"] = ch if out[f"{side}_time"] is None else None
+    return out
 
 
 def _iso(v: datetime | date | None) -> str | None:
@@ -155,13 +222,20 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
     type_by_id = {t.id: t for t in types}
     switches = list(db.scalars(select(FactLabel).where(FactLabel.world_id == world.id)
                                .order_by(FactLabel.kind, FactLabel.label)))
+    roles = list(db.scalars(select(Role).where(Role.world_id == world.id).order_by(Role.role)))
+    pins = list(db.scalars(select(ChartPin).where(ChartPin.world_id == world.id).order_by(ChartPin.updated_at)))
     files[f"{root}/world.md"] = _doc({
         "quarry_export": FORMAT, "name": world.name, "slug": world.slug,
         "exported_at": datetime.now(UTC).isoformat(), "ignored_words": ignored,
-        "relation_types": [{"a": t.a_kind, "b": t.b_kind, "label": t.label, "reverse": t.reverse_label}
-                           for t in types],
+        "relation_types": [{"a": t.a_kind, "b": t.b_kind, "label": t.label, "reverse": t.reverse_label,
+                            "has_role": t.has_role} for t in types],
         "fact_labels": [{"kind": r.kind, "label": r.label, "several": r.several, "expected": r.expected,
-                         "asked": r.asked} for r in switches]}, "")
+                         "asked": r.asked} for r in switches],
+        "roles": [{"role": r.role, "one_at_a_time": r.one_at_a_time} for r in roles],
+        "time_unit": world.time_unit, "time_units": world.time_units,
+        "chart": {"settings": {"shapes": dict((world.chart or {}).get("shapes") or {})},
+                  "pins": [{"place": str(p.place_id), "container": str(p.container_id) if p.container_id else None,
+                            "x": p.x, "y": p.y} for p in pins]}}, "")
 
     facts: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for f in db.scalars(select(Fact).where(Fact.world_id == world.id).order_by(Fact.entity_id, Fact.position)):
@@ -169,7 +243,8 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                                    "evidence": f.evidence, "note": f.note,
                                    "established_in": str(f.established_in_chapter_id) if f.established_in_chapter_id else None,
                                    "from": str(f.from_chapter_id) if f.from_chapter_id else None,
-                                   "until": str(f.until_chapter_id) if f.until_chapter_id else None})
+                                   "until": str(f.until_chapter_id) if f.until_chapter_id else None,
+                                   **_bound_meta(f)})
     rels: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for r in db.scalars(select(Relationship).where(Relationship.world_id == world.id).order_by(Relationship.created_at)):
         t = type_by_id[r.type_id]
@@ -179,7 +254,13 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                              "established_in": str(r.established_in_chapter_id) if r.established_in_chapter_id else None,
                              "from": str(r.from_chapter_id) if r.from_chapter_id else None,
                              "until": str(r.until_chapter_id) if r.until_chapter_id else None})
+        if r.role:
+            rels[r.a_id][-1]["role"] = r.role
+        rels[r.a_id][-1].update(_bound_meta(r))
 
+    tellings: dict[uuid.UUID, list[dict]] = defaultdict(list)
+    for t in db.scalars(select(Telling).where(Telling.world_id == world.id).order_by(Telling.created_at)):
+        tellings[t.event_id].append({"chapter": str(t.chapter_id) if t.chapter_id else None, "passage": t.passage})
     presence: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for p in db.scalars(select(Presence).where(Presence.world_id == world.id).order_by(Presence.created_at)):
         presence[p.entity_id].append({"chapter": str(p.chapter_id), "place": str(p.place_id),
@@ -197,6 +278,18 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             meta["relationships"] = rels[e.id]
         if presence.get(e.id):
             meta["is_at"] = presence[e.id]
+        # an event's when (docs/SPEC.md §13.2.1), kept whatever the kind is now, an era's colour and the tellings
+        if e.outside_time:
+            meta["when"] = "outside"
+        elif e.time_chapter_id:
+            meta["when"] = str(e.time_chapter_id)
+        elif e.time_at is not None:
+            meta["when"] = {"at": float(e.time_at), "end": float(e.time_end) if e.time_end is not None else None,
+                            "label": e.time_label, "approx": e.time_approx}
+        if e.era_colour:
+            meta["colour"] = e.era_colour
+        if tellings.get(e.id):
+            meta["tellings"] = tellings[e.id]
         files[f"{root}/Bible/{KIND_FOLDERS[e.kind]}/{_safe(e.name)}.md"] = _doc(meta, e.body)
 
     for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id).order_by(JournalEntry.entry_date)):
@@ -224,14 +317,24 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                                       .where(Item.world_id == world.id, ItemLink.target_table == "entity")).all():
         if target in names:
             tags[item_id].append(names[target])
+    ranges: dict[uuid.UUID, list[str]] = defaultdict(list)
+    for r in db.scalars(select(ExperimentRange).join(Item, Item.id == ExperimentRange.item_id)
+                        .where(Item.world_id == world.id).order_by(ExperimentRange.position)):
+        ranges[r.item_id].append(str(r.chapter_id))
     for i in db.scalars(select(Item).where(Item.world_id == world.id).order_by(Item.created_at)):
         folder = project_dir[i.project_id] if i.project_id else root
         short = _safe(i.title or i.body.split("\n", 1)[0], 50)
-        files[f"{folder}/Planning/{i.status}/{i.created_at:%Y-%m-%d} {short} ({str(i.id)[:8]}).md"] = _doc(
-            {"id": str(i.id), "kind": i.kind, "status": i.status, "title": i.title,
-             "project": projects[i.project_id].slug if i.project_id else None, "source": i.source,
-             "created_at": _iso(i.created_at), "closed_at": _iso(i.closed_at), "closed_note": i.closed_note,
-             "tags": sorted(tags.get(i.id, []))}, i.body)
+        meta = {"id": str(i.id), "kind": i.kind, "status": i.status, "title": i.title,
+                "project": projects[i.project_id].slug if i.project_id else None, "source": i.source,
+                "created_at": _iso(i.created_at), "closed_at": _iso(i.closed_at), "closed_note": i.closed_note,
+                "tags": sorted(tags.get(i.id, []))}
+        # an experiment: the chapters it would replace, or where it adds (docs/SPEC.md §13.6.1)
+        if i.kind == "experiment":
+            if ranges.get(i.id):
+                meta["replaces"] = ranges[i.id]
+            if i.insert_at_chapter_id and i.insert_side:
+                meta["insert"] = {i.insert_side: str(i.insert_at_chapter_id)}
+        files[f"{folder}/Planning/{i.status}/{i.created_at:%Y-%m-%d} {short} ({str(i.id)[:8]}).md"] = _doc(meta, i.body)
 
     notes: dict[uuid.UUID, list[str]] = defaultdict(list)
     for n in db.scalars(select(HarvestNote).where(HarvestNote.world_id == world.id).order_by(HarvestNote.created_at)):
@@ -251,13 +354,19 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             meta = {"id": str(ch.id), "title": ch.title, "state": ch.state, "position": ch.position,
                     "pov": names.get(ch.pov_entity_id) if ch.pov_entity_id else None,
                     "summary": ch.summary, "status": status_label.get(ch.status_id) if ch.status_id else None}
+            if ch.outside_time:
+                meta["time"] = "outside"
+            elif ch.time_at is not None:
+                meta["time"] = {"at": float(ch.time_at), "end": float(ch.time_end) if ch.time_end is not None else None,
+                                "label": ch.time_label, "approx": ch.time_approx}
+            if ch.told_as:
+                meta["told_as"] = ch.told_as
             if ch.state == "current":
                 n += 1
                 path = f"{d}/Manuscript/{n:02d} {_safe(ch.title, 60)}.md"
                 compiled += [f"## {ch.title}", "", without_margin_notes(ch.body).rstrip(), ""]
             elif ch.state == "experiment":
-                meta |= {"replaces": str(ch.replaces_id) if ch.replaces_id else None,
-                         "item": str(ch.experiment_item_id) if ch.experiment_item_id else None}
+                meta |= {"item": str(ch.experiment_item_id) if ch.experiment_item_id else None}
                 path = f"{d}/Experiments/{_safe(ch.title, 60)} ({str(ch.id)[:8]}).md"
             else:
                 meta |= {"retired_at": _iso(ch.retired_at), "harvest_notes": notes.get(ch.id, [])}
@@ -334,6 +443,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     name = " ".join(str(wmeta.get("name") or "Restored world").split())
     taken = set(db.scalars(select(World.slug)))
     world = World(name=name, slug=_unique(slugify(str(wmeta.get("slug") or name), "world"), taken),
+                  time_unit=" ".join(str(wmeta.get("time_unit") or "year").split())[:40] or "year",
+                  time_units=" ".join(str(wmeta.get("time_units") or "years").split())[:40] or "years",
                   created_by=user.id, updated_by=user.id)
     db.add(world)
     db.flush()
@@ -344,11 +455,31 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     exported_types = wmeta.get("relation_types") or []
     type_by_key: dict[tuple[str, str, str], uuid.UUID] = {}
     if exported_types:
+        # "has a role": the export's, or by label for an export from before phase 12 (as the migration did)
+        with_roles = any(isinstance(t, dict) and "has_role" in t for t in exported_types)
+        rows = []
         for i, t in enumerate(exported_types):
+            label = str(t.get("label") or "linked to")
             rt = RelationType(world_id=world.id, a_kind=str(t.get("a") or "*"), b_kind=str(t.get("b") or "*"),
-                              label=str(t.get("label") or "linked to"), reverse_label=t.get("reverse"), position=i)
+                              label=label, reverse_label=t.get("reverse"), position=i,
+                              has_role=t.get("has_role") is True if with_roles else has_role_label(label))
             db.add(rt)
-            db.flush()
+            rows.append(rt)
+        # an export with no type touching species was made before the kind existed: it gets the species starting
+        # types, each at the end of its pair (docs/SPEC.md §13.3)
+        if not any("species" in (rt.a_kind, rt.b_kind) for rt in rows):
+            wanted = [t for t in STARTING_TYPES if "species" in (t[0], t[1])]
+            for (a, b, label, reverse), position in place_new_types(
+                    [(rt.a_kind, rt.b_kind, rt.label, rt.reverse_label, rt.position) for rt in rows], wanted):
+                for rt in rows:
+                    if rt.position >= position:
+                        rt.position += 1
+                rt = RelationType(world_id=world.id, a_kind=a, b_kind=b, label=label, reverse_label=reverse,
+                                  position=position, has_role=False)
+                db.add(rt)
+                rows.append(rt)
+        db.flush()
+        for rt in sorted(rows, key=lambda r: r.position):
             type_by_key.setdefault((rt.a_kind, rt.b_kind, rt.label), rt.id)
     else:
         seed_relation_types(db, world.id)
@@ -427,6 +558,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
 
     # items: the world's own Planning/ and each project's
     item_by_old: dict[str, uuid.UUID] = {}
+    # experiments' ranges and places, relinked once the chapters exist
+    item_ranges: list[tuple[Item, dict]] = []
     planning = [(None, rel, meta, body) for rel, meta, body in under(f"{root}/Planning/")]
     for folder, pslug in project_dirs.items():
         planning += [(pslug, rel, meta, body) for rel, meta, body in under(f"{root}/Projects/{folder}/Planning/")]
@@ -444,6 +577,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
         db.flush()
         if meta.get("id"):
             item_by_old[str(meta["id"])] = i.id
+        if kind == "experiment":
+            item_ranges.append((i, meta))
         for tag in meta.get("tags") or []:
             if str(tag) in entity_by_name:
                 db.add(ItemLink(item_id=i.id, target_table="entity", target_id=entity_by_name[str(tag)]))
@@ -462,7 +597,7 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                              experiment_item_id=item_by_old.get(str(meta.get("item"))) if meta.get("item") else None,
                              retired_at=_when(meta.get("retired_at")) if state == "retired" else None,
                              summary=" ".join(str(meta.get("summary") or "").split())[:300],
-                             status_id=status_of(pid, meta.get("status")),
+                             status_id=status_of(pid, meta.get("status")), **_time_in(meta),
                              created_by=user.id, updated_by=user.id)
                 if state == "retired" and ch.retired_at is None:
                     ch.retired_at = datetime.now(UTC)
@@ -480,8 +615,25 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     def chapter(old) -> uuid.UUID | None:  # type: ignore[no-untyped-def]
         return chapter_by_old.get(str(old)) if old else None
 
+    # each experiment's range (or where it adds); a draft from an older export with `replaces: <id>` gives its
+    # experiment a range of that one chapter
+    ranged: set[uuid.UUID] = set()
+    for it, meta in item_ranges:
+        olds = meta.get("replaces")
+        olds = olds if isinstance(olds, list) else ([olds] if olds else [])
+        for n, old in enumerate(x for x in (chapter_by_old.get(str(o)) for o in olds) if x):
+            db.add(ExperimentRange(item_id=it.id, chapter_id=old, position=n))
+            ranged.add(it.id)
+        ins = meta.get("insert")
+        if isinstance(ins, dict):
+            for side in ("before", "after"):
+                if chapter(ins.get(side)):
+                    it.insert_at_chapter_id, it.insert_side = chapter(ins.get(side)), side
     for ch, old in pending_replaces:
-        ch.replaces_id = chapter_by_old.get(old)
+        target = chapter_by_old.get(old)
+        if ch.experiment_item_id and target and ch.experiment_item_id not in ranged:
+            db.add(ExperimentRange(item_id=ch.experiment_item_id, chapter_id=target, position=0))
+            ranged.add(ch.experiment_item_id)
 
     # the cuts bin, each relinked to its source chapter (and the one it was put back into) by id
     for folder, pslug in project_dirs.items():
@@ -502,8 +654,7 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                         standing=f.get("standing") if f.get("standing") in standings else "canon",
                         evidence=f.get("evidence"), note=f.get("note"),
                         established_in_chapter_id=chapter(f.get("established_in")),
-                        from_chapter_id=chapter(f.get("from")), until_chapter_id=chapter(f.get("until")),
-                        created_by=user.id, updated_by=user.id))
+                        **_spans_in(f, chapter), created_by=user.id, updated_by=user.id))
         for r in meta.get("relationships") or []:
             other = entity_by_old.get(str(r.get("to"))) or entity_by_name.get(str(r.get("to_name")))
             kinds = r.get("type_kinds") or ["*", "*"]
@@ -512,10 +663,28 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                 continue
             db.add(Relationship(world_id=world.id, type_id=type_id, a_id=e.id, b_id=other,
                                 standing=r.get("standing") if r.get("standing") in standings else "canon",
-                                evidence=r.get("evidence"), note=r.get("note"),
+                                evidence=r.get("evidence"), note=r.get("note"), role=clean_role(r.get("role")),
                                 established_in_chapter_id=chapter(r.get("established_in")),
-                                from_chapter_id=chapter(r.get("from")), until_chapter_id=chapter(r.get("until")),
-                                created_by=user.id, updated_by=user.id))
+                                **_spans_in(r, chapter), created_by=user.id, updated_by=user.id))
+
+    # events' when, eras' colours and tellings, relinked to the chapters by id
+    colours = ("amber", "moss", "teal", "sky", "indigo", "plum", "rose", "rust")
+    for e, meta in world_model:
+        when = meta.get("when")
+        if when == "outside":
+            e.outside_time = True
+        elif isinstance(when, dict) and _num(when.get("at")) is not None:
+            e.time_at, e.time_end = _num(when.get("at")), _num(when.get("end"))
+            e.time_label = " ".join(str(when.get("label") or "").split()) or None
+            e.time_approx = when.get("approx") is True
+        elif isinstance(when, str) and chapter(when):
+            e.time_chapter_id = chapter(when)
+        if meta.get("colour") in colours:
+            e.era_colour = meta["colour"]
+        for t in meta.get("tellings") or []:
+            if isinstance(t, dict) and str(t.get("passage") or "").strip():
+                db.add(Telling(world_id=world.id, event_id=e.id, chapter_id=chapter(t.get("chapter")),
+                               passage=str(t["passage"]), created_by=user.id))
 
     for e, meta in world_model:
         for p in meta.get("is_at") or []:
@@ -524,6 +693,24 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
             if place is not None and ch is not None:
                 db.add(Presence(world_id=world.id, entity_id=e.id, place_id=place, chapter_id=ch,
                                 note=p.get("note"), created_by=user.id))
+
+    # the chart (none in an export from before phase 12d: it starts laid out automatically), relinked by id
+    chart = wmeta.get("chart") if isinstance(wmeta.get("chart"), dict) else {}
+    settings = chart.get("settings") if isinstance(chart.get("settings"), dict) else {}
+    shapes = settings.get("shapes") if isinstance(settings.get("shapes"), dict) else {}
+    world.chart = {"shapes": {" ".join(str(k).split()).lower()[:100]: str(v) for k, v in shapes.items()
+                              if str(k).strip() and str(v) in CHART_SHAPES}}
+    pinned: set[tuple[uuid.UUID, uuid.UUID | None]] = set()
+    for p in chart.get("pins") or []:
+        if not isinstance(p, dict) or not all(math.isfinite(_num(p.get(k)) or math.nan) for k in ("x", "y")):
+            continue
+        place = entity_by_old.get(str(p.get("place")))
+        container = entity_by_old.get(str(p.get("container"))) if p.get("container") else None
+        if place is None or (p.get("container") and container is None) or (place, container) in pinned:
+            continue
+        pinned.add((place, container))
+        db.add(ChartPin(world_id=world.id, place_id=place, container_id=container, x=float(_num(p["x"])),
+                        y=float(_num(p["y"])), updated_by=user.id))
 
     for _rel, meta, body in under(f"{root}/Journal/"):
         db.add(JournalEntry(world_id=world.id, project_id=project_of(meta.get("project")),
@@ -559,6 +746,15 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
         switched.add((kind, label.lower()))
         db.add(FactLabel(world_id=world.id, kind=kind, label=label, several=r.get("several") is True,
                          expected=r.get("expected") is True, asked=r.get("asked") is True))
+
+    # the one-at-a-time roles (none in an export from before phase 12)
+    roles_seen: set[str] = set()
+    for r in wmeta.get("roles") or []:
+        role = clean_role(str(r.get("role") or "")) if isinstance(r, dict) else None
+        if not role or role.lower() in roles_seen:
+            continue
+        roles_seen.add(role.lower())
+        db.add(Role(world_id=world.id, role=role, one_at_a_time=r.get("one_at_a_time") is True))
 
     db.flush()
     refresh_world(db, world.id)

@@ -14,7 +14,7 @@ def test_demo_world(signed_in: Client):
     assert [p["name"] for p in world["projects"]] == ["The Ferryman's Daughter", "Ash Season"]
 
     entities = {e["name"]: e for e in signed_in.get(f"{W}/entities").json()}
-    assert {e["kind"] for e in entities.values()} == {"character", "place", "faction", "culture", "event", "object", "term"}
+    assert {e["kind"] for e in entities.values()} == {"character", "place", "faction", "culture", "species", "event", "object", "term"}
     # names are found in the text: the first name, an alias, a term in any case, and not "moss" the plant
     assert entities["Tamsin Vey"]["mention_count"] > 5
     assert entities["Tidecall"]["mention_count"] >= 2
@@ -43,7 +43,7 @@ def test_demo_world(signed_in: Client):
     assert signed_in.get(f"{W}/graph?co=true").json()["cooccurrence"]
 
     # planning, and what an export doesn't carry
-    assert len(signed_in.get(f"{W}/items?status=all").json()) == 7
+    assert len(signed_in.get(f"{W}/items?status=all").json()) == 8
     tagged = {e["name"] for d in signed_in.get(f"{W}/decisions").json() for e in d["entities"]}
     assert tagged == {"Oskar Vey", "The Brass Compass", "Tamsin Vey", "Hesper Quill"}
     assert len(signed_in.get(f"{W}/journal").json()) == 2

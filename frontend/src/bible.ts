@@ -14,6 +14,7 @@ import type {
   RelationType,
   Relationship,
   SourceTable,
+  Span,
   Standing,
 } from "./types";
 
@@ -35,6 +36,14 @@ export const createEntity = (world: string, body: { name: string; kind: EntityKi
 export type EntityChanges = Partial<Pick<Entity, "name" | "kind" | "aliases" | "body" | "summary" | "match_case" | "first_name_alias" | "exclusions">> & {
   project?: string | null;
   gender?: Gender | null;
+  /** an event's when: a chapter, a time (number, end, label, about), outside time, or none of them */
+  time_chapter_id?: string | null;
+  time_at?: number | null;
+  time_end?: number | null;
+  time_label?: string | null;
+  time_approx?: boolean;
+  outside_time?: boolean;
+  era_colour?: string | null;
 };
 
 /** The entry changed on another device since it was loaded here; `current` is the server's copy. */
@@ -141,23 +150,55 @@ export const updateFact = (world: string, fact: Pick<Fact, "id" | "version">, ch
 export const deleteFact = (world: string, id: string) => del(`${base(world)}/facts/${id}`);
 
 export const relationTypes = (world: string) => get<RelationType[]>(`${base(world)}/relation-types`);
-export const addRelationType = (world: string, body: { a_kind: string; b_kind: string; label: string; reverse_label: string | null }) =>
+export const addRelationType = (world: string, body: { a_kind: string; b_kind: string; label: string; reverse_label: string | null; has_role?: boolean }) =>
   post<RelationType>(`${base(world)}/relation-types`, body);
-export const updateRelationType = (world: string, id: string, changes: { label?: string; reverse_label?: string | null }) =>
+export const updateRelationType = (world: string, id: string, changes: { label?: string; reverse_label?: string | null; has_role?: boolean }) =>
   patch<RelationType>(`${base(world)}/relation-types/${id}`, changes);
 export const deleteRelationType = (world: string, id: string) => del(`${base(world)}/relation-types/${id}`);
 
 export const addRelationship = (
   world: string,
-  body: { type_id: string; a_id: string; b_id: string; standing?: Standing; note?: string | null; established_in_chapter_id?: string | null; evidence?: string | null },
+  body: { type_id: string; a_id: string; b_id: string; standing?: Standing; note?: string | null; established_in_chapter_id?: string | null; evidence?: string | null; role?: string | null },
 ) => post<Relationship>(`${base(world)}/relationships`, body);
 export const updateRelationship = (
   world: string,
   r: Pick<Relationship, "id" | "version">,
-  changes: { standing?: Standing; note?: string | null; type_id?: string; from_chapter_id?: string | null; until_chapter_id?: string | null },
+  changes: { standing?: Standing; note?: string | null; type_id?: string; role?: string | null } & Partial<Span>,
 ) =>
   patch<Relationship>(`${base(world)}/relationships/${r.id}`, { base_version: r.version, ...changes });
 export const deleteRelationship = (world: string, id: string) => del(`${base(world)}/relationships/${id}`);
+
+// ---- roles in groups (docs/SPEC.md §13.4) ----
+
+/** Per relationship type: the roles used on it across the world, most used first, and the groups they're used in. */
+export type RoleSuggestions = Record<string, { role: string; count: number; groups: string[] }[]>;
+export const roleSuggestions = (world: string) => get<RoleSuggestions>(`${base(world)}/role-suggestions`);
+/** A promotion: the relationship ends just before a chapter (or at a time), and a copy with the new role starts there. */
+export const changeRole = (world: string, r: Pick<Relationship, "id" | "version">, role: string | null, from: { chapter: string } | { time: number }) =>
+  post<{ ended: Relationship; started: Relationship }>(`${base(world)}/relationships/${r.id}/change-role`, {
+    base_version: r.version,
+    role,
+    ...("chapter" in from ? { from_chapter_id: from.chapter } : { from_time: from.time }),
+  });
+/** Two holders of a one-at-a-time role: the earlier one ends where the other starts. */
+export const endBefore = (world: string, earlier: string, later: string) => post<Relationship>(`${base(world)}/relationships/${earlier}/end-before/${later}`, {});
+export const setRoleSwitch = (world: string, role: string, oneAtATime: boolean) =>
+  put(`${base(world)}/labels/roles/${encodeURIComponent(role)}`, { one_at_a_time: oneAtATime });
+export interface RoleRenamed {
+  changes: { id: string; before: string; after: string; version: number }[];
+  row_before: string | null;
+  row_after: string | null;
+  message: string;
+}
+export const renameRole = (world: string, old: string, to: string) => post<RoleRenamed>(`${base(world)}/labels/roles/rename`, { old, new: to });
+export const undoRoleRename = (world: string, done: RoleRenamed) =>
+  post<{ restored: number; skipped: number }>(`${base(world)}/labels/roles/undo`, { changes: done.changes, row_before: done.row_before, row_after: done.row_after });
+
+/** The roles to offer on a relationship of a type: those already used in the same group first, then by use. */
+export function rolesFor(sug: RoleSuggestions, typeId: string, groupId: string): { role: string; count: number }[] {
+  const list = sug[typeId] ?? [];
+  return [...list].sort((a, b) => Number(b.groups.includes(groupId)) - Number(a.groups.includes(groupId)) || b.count - a.count || a.role.localeCompare(b.role));
+}
 
 /** The ways two kinds can be related, read from the first one's side: types that fit forward (it is A) or
  * backward (it is B, read with the reverse label). Symmetric types appear once. */

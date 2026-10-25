@@ -3,7 +3,7 @@
 // place tree. Pure functions; GraphView draws the result.
 
 import type { EntityKind, Gender, Standing } from "../types";
-import { holds, type IndexOf } from "./time";
+import { atOrBefore, holds, type At, type IndexOf } from "./time";
 
 export interface GraphData {
   /** with each entry's level (a project's slug, or null for the world) and a character's gender */
@@ -18,6 +18,13 @@ export interface GraphData {
     standing: Standing;
     from_chapter_id: string | null;
     until_chapter_id: string | null;
+    from_time?: number | null;
+    from_approx?: boolean;
+    until_time?: number | null;
+    until_approx?: boolean;
+    outside_time?: boolean;
+    /** the A side's role in the B side's group (docs/SPEC.md §13.4) */
+    role?: string | null;
   }[];
   types: { id: string; a_kind: string; b_kind: string; label: string; reverse_label: string | null }[];
   presence: { entity_id: string; place_id: string; chapter_id: string }[];
@@ -35,8 +42,8 @@ export interface Link {
 }
 
 export interface Filters {
-  /** a chapter's place in the story, or null for the whole story */
-  asOf: number | null;
+  /** a point on the clock (a chapter's place, or a time), or null for the whole story */
+  asOf: At | null;
   indexOf: IndexOf;
   kinds: Set<string>;
   standings: Set<string>;
@@ -63,8 +70,7 @@ export function visibleLinks(data: GraphData, f: Filters): Link[] {
       if (!shown(c.a) || !shown(c.b) || recorded.has([c.a, c.b].sort().join("|"))) continue;
       let n = 0;
       for (const [ch, k] of Object.entries(c.by_chapter)) {
-        const at = f.indexOf(ch);
-        if (f.asOf === null || (at !== undefined && at <= f.asOf)) n += k;
+        if (f.asOf === null || (f.indexOf(ch) !== undefined && atOrBefore(ch, f.asOf, f.indexOf))) n += k;
       }
       if (n >= f.coMin) out.push({ a: c.a, b: c.b, kind: "co", label: `named together in ${n} paragraph${n === 1 ? "" : "s"}`, weight: Math.min(2, n / f.coMin) });
     }
@@ -177,7 +183,7 @@ export interface PlaceNode {
 const isInside = (label: string, reverse: string | null) => /^(inside|in|part of|within)$/i.test(label) || /^contains$/i.test(reverse ?? "");
 
 /** Places nested by inside/contains, each with who lives or works there and who is there as of a chapter. */
-export function placeTree(data: GraphData, asOf: number | null, indexOf: IndexOf, chapterAt: string | null): PlaceNode[] {
+export function placeTree(data: GraphData, asOf: At | null, indexOf: IndexOf, chapterAt: string | null): PlaceNode[] {
   const node = new Map(data.nodes.map((n) => [n.id, n]));
   const places = data.nodes.filter((n) => n.kind === "place");
   const tree = new Map<string, PlaceNode>(places.map((p) => [p.id, { id: p.id, name: p.name, children: [], people: [], here: [] }]));

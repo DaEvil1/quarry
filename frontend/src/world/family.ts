@@ -1,15 +1,17 @@
 // The family tree (docs/SPEC.md §12.2): parenthood, marriage and recorded siblings read from the relationships the
 // graph already loads, the way the place tree reads "inside" (so renamed or added types still count), kin worked out
 // from them (siblings, grandparents, cousins, in-laws, step-relations), the words for each by the relative's gender
-// field, and a layout in generations. Everything here is worked out when shown, never stored.
+// field, and a layout in generations. "Ancestor of" (docs/SPEC.md §13.5) is a lineage whose generations between aren't
+// recorded: drawn as a long dashed link, with only ancestors and descendants worked out across it. Everything here is
+// worked out when shown, never stored.
 
 import type { Gender } from "../types";
 import type { GraphData } from "./graph";
-import { holds, type IndexOf } from "./time";
+import { holds, type At, type IndexOf } from "./time";
 
-export type LinkKind = "parent" | "married" | "sibling";
+export type LinkKind = "parent" | "married" | "sibling" | "ancestor";
 
-/** One recorded family link: for "parent", `a` is the parent of `b`. */
+/** One recorded family link: for "parent", `a` is the parent of `b`; for "ancestor", `a` is the ancestor of `b`. */
 export interface FamilyLink {
   a: string;
   b: string;
@@ -28,6 +30,8 @@ const CHILD = /(^|\s)(child|son|daughter) of$/i;
 const PLAIN_PARENT = /^(parent|father|mother) of$/i;
 const MARRIED = /^(married to|spouse of|husband of|wife of|wed to)$/i;
 const SIBLING = /^(sibling|brother|sister) of$/i;
+const ANCESTOR = /(^|\s)ancestor of$/i;
+const DESCENDANT = /(^|\s)descendant of$/i;
 
 const clean = (s: string | null | undefined) => (s ?? "").trim().replace(/\s+/g, " ");
 
@@ -38,13 +42,15 @@ export function readType(label: string, reverse: string | null): { kind: LinkKin
   const r = clean(reverse);
   if (PARENT.test(l) || CHILD.test(r)) return { kind: "parent", dir: 1 };
   if (CHILD.test(l) || PARENT.test(r)) return { kind: "parent", dir: -1 };
+  if (ANCESTOR.test(l) || DESCENDANT.test(r)) return { kind: "ancestor", dir: 1 };
+  if (DESCENDANT.test(l) || ANCESTOR.test(r)) return { kind: "ancestor", dir: -1 };
   if (MARRIED.test(l) || MARRIED.test(r)) return { kind: "married", dir: 1 };
   if (SIBLING.test(l) || SIBLING.test(r)) return { kind: "sibling", dir: 1 };
   return null;
 }
 
 export interface FamilyFilter {
-  asOf: number | null;
+  asOf: At | null;
   indexOf: IndexOf;
   standings: Set<string>;
 }
@@ -60,7 +66,11 @@ export function familyLinks(data: GraphData, f: FamilyFilter): FamilyLink[] {
     const t = readType(e.label, e.reverse_label);
     if (!t) continue;
     const reverse = clean(e.reverse_label) || clean(e.label);
-    if (t.kind === "parent" && t.dir === -1) {
+    if (t.kind === "ancestor") {
+      // "descendant of" (or a reverse "ancestor of"): B is the ancestor
+      const [a, b] = t.dir === 1 ? [e.a, e.b] : [e.b, e.a];
+      out.push({ a, b, kind: "ancestor", label: t.dir === 1 ? clean(e.label) : reverse, reverse: t.dir === 1 ? reverse : clean(e.label), standing: e.standing, plain: true });
+    } else if (t.kind === "parent" && t.dir === -1) {
       // "son of" / "father of": B is the parent
       out.push({ a: e.b, b: e.a, kind: "parent", label: reverse, reverse: clean(e.label), standing: e.standing, plain: PLAIN_PARENT.test(reverse) });
     } else {
@@ -75,6 +85,9 @@ export class Family {
   children = new Map<string, Set<string>>();
   spouses = new Map<string, Set<string>>();
   siblings = new Map<string, Set<string>>();
+  /** recorded lineages: descendant -> ancestors, and ancestor -> descendants */
+  ancestors = new Map<string, Set<string>>();
+  descendants = new Map<string, Set<string>>();
   people = new Set<string>();
 
   constructor(public links: FamilyLink[]) {
@@ -85,6 +98,7 @@ export class Family {
     for (const l of links) {
       this.people.add(l.a).add(l.b);
       if (l.kind === "parent") (add(this.parents, l.b, l.a), add(this.children, l.a, l.b));
+      else if (l.kind === "ancestor") (add(this.ancestors, l.b, l.a), add(this.descendants, l.a, l.b));
       else if (l.kind === "married") (add(this.spouses, l.a, l.b), add(this.spouses, l.b, l.a));
       else (add(this.siblings, l.a, l.b), add(this.siblings, l.b, l.a));
     }
@@ -98,11 +112,37 @@ export class Family {
     const todo = [id];
     while (todo.length) {
       const x = todo.pop()!;
-      for (const m of [this.parents, this.children, this.spouses, this.siblings]) {
+      for (const m of [this.parents, this.children, this.spouses, this.siblings, this.ancestors, this.descendants]) {
         for (const y of this.get(m, x)) if (!seen.has(y)) (seen.add(y), todo.push(y));
       }
     }
     return seen;
+  }
+
+  /** Ancestors (up) or descendants (down) reached only by crossing a recorded "ancestor of": through parent links and
+   * lineages, past at least one lineage. Those are ancestors and descendants, with no generations counted. */
+  lineage(id: string, up: boolean): Set<string> {
+    const step = up ? this.parents : this.children;
+    const far = up ? this.ancestors : this.descendants;
+    // each person reached, and whether the way there crossed a lineage
+    const crossed = new Map<string, boolean>([[id, false]]);
+    const todo = [id];
+    while (todo.length) {
+      const x = todo.shift()!;
+      const was = crossed.get(x)!;
+      for (const [m, via] of [[step, was], [far, true]] as const) {
+        for (const y of this.get(m, x)) {
+          if (y === id) continue;
+          const prev = crossed.get(y);
+          // a way that doesn't cross a lineage wins (they are then counted in generations)
+          if (prev === undefined || (prev && !via)) {
+            crossed.set(y, via);
+            todo.push(y);
+          }
+        }
+      }
+    }
+    return new Set([...crossed].filter(([y, c]) => c && y !== id).map(([y]) => y));
   }
 
   /** Siblings: recorded, or sharing any parent. */
@@ -135,7 +175,7 @@ export class Family {
       const visited = new Set<string>();
       while (stack.length) {
         const [node, path] = stack.pop()!;
-        for (const up of this.get(this.parents, node)) {
+        for (const up of [...this.get(this.parents, node), ...this.get(this.ancestors, node)]) {
           if (up === start) {
             const key = [...path].sort().join("|");
             if (!seen.has(key)) (seen.add(key), out.push([start, ...path.slice(1).reverse(), start]));
@@ -247,6 +287,8 @@ export function kinOf(fam: Family, centre: string): Kin[] {
     if (l.kind === "sibling" && (l.a === centre || l.b === centre)) {
       put({ id: l.a === centre ? l.b : l.a, relation: "sibling", greats: 0, recorded: true, label: l.a === centre ? l.reverse : l.label, plain: true, via: [] });
     }
+    if (l.kind === "ancestor" && l.b === centre) put({ id: l.a, relation: "ancestor", greats: 0, recorded: true, label: l.label, plain: true, via: [] });
+    if (l.kind === "ancestor" && l.a === centre) put({ id: l.b, relation: "descendant", greats: 0, recorded: true, label: l.reverse, plain: true, via: [] });
   }
 
   // worked out: siblings by a shared parent (half when each has a parent the other doesn't)
@@ -265,6 +307,9 @@ export function kinOf(fam: Family, centre: string): Kin[] {
       put(greats <= MAX_GREATS ? { id, relation, greats, recorded: false, via: via(id) } : { id, relation: far, greats: 0, recorded: false, via: via(id) });
     }
   }
+  // across a recorded lineage: ancestors and descendants only (no cousins, siblings or in-laws through it)
+  for (const id of fam.lineage(centre, true)) put({ id, relation: "ancestor", greats: 0, recorded: false, via: via(id) });
+  for (const id of fam.lineage(centre, false)) put({ id, relation: "descendant", greats: 0, recorded: false, via: via(id) });
   // parents' siblings, siblings' children, cousins
   for (const p of P) {
     for (const ps of fam.siblingsOf(p)) {
@@ -300,7 +345,7 @@ export function pathBetween(fam: Family, from: string, to: string): string[] {
   while (queue.length) {
     const x = queue.shift()!;
     if (x === to) break;
-    for (const m of [fam.parents, fam.children, fam.spouses, fam.siblings]) {
+    for (const m of [fam.parents, fam.children, fam.spouses, fam.siblings, fam.ancestors, fam.descendants]) {
       for (const y of [...fam.get(m, x)].sort()) if (!prev.has(y)) (prev.set(y, x), queue.push(y));
     }
   }
@@ -327,8 +372,8 @@ export interface TreePerson {
 
 export interface TreeLine {
   /** a couple: married (double) or both parents of a child (single); a child's line down from its parents; the
-   * small "?" over siblings with no recorded parent */
-  kind: "married" | "coparents" | "child" | "unknown";
+   * small "?" over siblings with no recorded parent; a long dashed line down from a recorded ancestor */
+  kind: "married" | "coparents" | "child" | "unknown" | "ancestor";
   points: [number, number][];
   dashed: boolean;
   /** the parent type's label, for one other than the plain one */
@@ -352,7 +397,7 @@ const TOP = 80;
  * Lay out everyone connected to `centre`: generations top to bottom (parents above children, a couple and siblings
  * on one row), then a few sweeps that keep couples side by side and children under their parents. Laid out once.
  */
-export function layoutTree(fam: Family, centre: string, order: (id: string) => string = (id) => id): Tree {
+export function layoutTree(fam: Family, centre: string, order: (id: string) => string = (id) => id, gap: (ancestor: string, descendant: string) => string = () => "generations not recorded"): Tree {
   const people = fam.connected(centre);
   // generations, from the centre outward
   const gen = new Map<string, number>([[centre, 0]]);
@@ -367,6 +412,9 @@ export function layoutTree(fam: Family, centre: string, order: (id: string) => s
     step(fam.children, 1);
     step(fam.spouses, 0);
     step(fam.siblings, 0);
+    // a recorded ancestor at least two rows above
+    step(fam.ancestors, -2);
+    step(fam.descendants, 2);
   }
   const top = Math.min(...gen.values());
   const rows = new Map<number, string[]>();
@@ -480,6 +528,15 @@ export function layoutTree(fam: Family, centre: string, order: (id: string) => s
     byParents.set(k, [...(byParents.get(k) ?? []), id]);
   }
   const unknown: { x: number; y: number }[] = [];
+  // a lineage: a long dashed line from the ancestor down to the descendant, labelled with the gap
+  for (const l of fam.links) {
+    if (l.kind !== "ancestor") continue;
+    const a = pos.get(l.a);
+    const d = pos.get(l.b);
+    if (!a || !d) continue;
+    const mid = (a.y + d.y) / 2;
+    lines.push({ kind: "ancestor", points: [[a.x, a.y + 26], [a.x, mid], [d.x, mid], [d.x, d.y - 26]], dashed: true, label: gap(l.a, l.b) });
+  }
   for (const [k, kids] of byParents) {
     const ps = k.split("|");
     if (ps.length >= 2) {

@@ -37,3 +37,4 @@ Thumbs.db
 /frontend/test-results/
 /frontend/playwright-report/
 /frontend/perf-results.json
+/frontend/perf-timeline.json

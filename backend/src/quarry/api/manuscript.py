@@ -74,8 +74,14 @@ class ChapterOut(BaseModel):
     summary: str = ""
     status: StatusRef | None = None
     experiment_item_id: uuid.UUID | None
-    replaces_id: uuid.UUID | None
     words: int
+    # when it is set and how it is told (docs/SPEC.md §13.1.2)
+    time_at: float | None = None
+    time_end: float | None = None
+    time_label: str | None = None
+    time_approx: bool = False
+    outside_time: bool = False
+    told_as: str | None = None
     version: int
     updated_at: datetime
     retired_at: datetime | None
@@ -91,8 +97,8 @@ class ChapterDetail(ChapterOut):
     body: str
     mentions: list[dict]
     harvest_notes: list[NoteOut]
-    # for an experiment: the chapter it would replace, and the item that tracks it
-    replaces_title: str | None = None
+    # for a draft: its experiment (the range it would replace or where it adds, its drafts) and the item's status
+    experiment: dict | None = None
     experiment_status: str | None = None
 
 
@@ -116,6 +122,13 @@ class OrderIn(BaseModel):
 class AboutIn(BaseModel):
     summary: str | None = Field(default=None, max_length=300)
     status_id: uuid.UUID | None = None
+    # when it is set: a time (number, end, label, about) or outside time; and a mark, flashback or tale
+    time_at: float | None = None
+    time_end: float | None = None
+    time_label: str | None = Field(default=None, max_length=200)
+    time_approx: bool | None = None
+    outside_time: bool | None = None
+    told_as: Literal["flashback", "tale"] | None = None
 
 
 class SnapshotIn(BaseModel):
@@ -132,6 +145,8 @@ class RestoreIn(BaseModel):
 
 class RetireIn(BaseModel):
     note: str | None = Field(default=None, max_length=5000)
+    # the review's choices (docs/SPEC.md §13.6.2); rows not chosen get their default
+    review: list[dict] = Field(default_factory=list, max_length=100_000)
 
 
 class ExperimentIn(BaseModel):
@@ -191,10 +206,12 @@ def chapter_out(db: Session, world: World, ch: Chapter, names: dict[uuid.UUID, s
     if ch.status_id:
         st = statuses.get(ch.status_id) if statuses is not None else db.get(ChapterStatus, ch.status_id)
         status = StatusRef(id=st.id, label=st.label, position=st.position) if st else None
+    from .storytime import times
+
     return ChapterOut(id=ch.id, project=slugs[ch.project_id], title=ch.title, state=ch.state, position=ch.position,
                       pov=pov, summary=ch.summary, status=status, experiment_item_id=ch.experiment_item_id,
-                      replaces_id=ch.replaces_id, words=words(ch.body), version=ch.version, updated_at=ch.updated_at,
-                      retired_at=ch.retired_at)
+                      words=words(ch.body), version=ch.version, updated_at=ch.updated_at, retired_at=ch.retired_at,
+                      **times(ch))
 
 
 def chapter_detail(db: Session, world: World, ch: Chapter) -> ChapterDetail:
@@ -207,11 +224,16 @@ def chapter_detail(db: Session, world: World, ch: Chapter) -> ChapterDetail:
                  "end": m.end, "matched_text": m.matched_text, "kind": m.kind} for m, name, ekind in found]
     notes = [NoteOut(id=n.id, body=n.body, created_at=n.created_at) for n in
              db.scalars(select(HarvestNote).where(HarvestNote.chapter_id == ch.id).order_by(HarvestNote.created_at))]
-    replaced = db.get(Chapter, ch.replaces_id) if ch.replaces_id else None
     item = db.get(Item, ch.experiment_item_id) if ch.experiment_item_id else None
+    experiment = None
+    if item is not None:
+        from .restructure import experiment_info
+
+        info = experiment_info(db, world, item)
+        experiment = {k: info[k] for k in ("id", "title", "status", "range", "insert", "lost", "replaced_by")}
+        experiment["drafts"] = [{"id": d["id"], "title": d["title"], "position": d["position"]} for d in info["drafts"]]
     return ChapterDetail(**base.model_dump(), body=ch.body, mentions=mentions, harvest_notes=notes,
-                         replaces_title=replaced.title if replaced else None,
-                         experiment_status=item.status if item else None)
+                         experiment=experiment, experiment_status=item.status if item else None)
 
 
 def last_revision(db: Session, chapter_id: uuid.UUID) -> Revision | None:
@@ -280,8 +302,8 @@ def _retire(db: Session, ch: Chapter, user: User, note: str | None) -> None:
 
 @router.get("/projects/{project_slug}/chapters")
 def manuscript(slug: str, project_slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    """The current chapters in order, experiments (each under the chapter it would replace), the POV tally and the
-    total word count."""
+    """The current chapters in order, the open experiments (each with the range it would replace, or where it adds,
+    and its drafts), the POV tally and the total word count."""
     world, _ = member_world(db, user, slug)
     project = _project(world, project_slug)
     rows = db.scalars(select(Chapter).where(Chapter.project_id == project.id, Chapter.state != "retired")
@@ -290,7 +312,10 @@ def manuscript(slug: str, project_slug: str, user: User = Depends(current_user),
     statuses = project_statuses(db, project.id)
     by_id = {s.id: s for s in statuses}
     current = [chapter_out(db, world, c, names, by_id) for c in rows if c.state == "current"]
-    experiments = [chapter_out(db, world, c, names, by_id) for c in rows if c.state == "experiment"]
+    from .restructure import experiments_in
+
+    # each open experiment: its range (or where it adds) and its drafts in order (docs/SPEC.md §13.6.1)
+    experiments = experiments_in(db, world, project.id)
     tally = Counter(c.pov.name for c in current if c.pov)
     retired = db.scalar(select(func.count()).select_from(Chapter).where(Chapter.project_id == project.id,
                                                                        Chapter.state == "retired"))
@@ -368,6 +393,8 @@ def salvage(slug: str, project_slug: str, q: str | None = Query(None, max_length
     """Retired chapters with their harvest notes, newest first; `q` searches titles, text and notes."""
     world, _ = member_world(db, user, slug)
     project = _project(world, project_slug)
+    from .restructure import salvage_extra
+
     query = select(Chapter).where(Chapter.project_id == project.id, Chapter.state == "retired")
     if q and q.strip():
         like = f"%{q.strip()}%"
@@ -387,7 +414,7 @@ def salvage(slug: str, project_slug: str, q: str | None = Query(None, max_length
         out.append({**chapter_out(db, world, ch).model_dump(mode="json"),
                     "harvest_notes": [NoteOut(id=n.id, body=n.body, created_at=n.created_at).model_dump(mode="json")
                                       for n in notes],
-                    "match": hit})
+                    "match": hit, **salvage_extra(db, world, ch)})
     return out
 
 
@@ -429,8 +456,9 @@ def update_chapter(slug: str, chapter_id: uuid.UUID, body: ChapterUpdate, user: 
 @router.patch("/chapters/{chapter_id}/about")
 def update_about(slug: str, chapter_id: uuid.UUID, body: AboutIn, user: User = Depends(current_user),
                  db: Session = Depends(get_db)) -> ChapterOut:
-    """The chapter's one-line summary and its status. Labels, not text: no version check and no new version, so
-    setting them on the manuscript list never turns another device's next save into a conflict copy."""
+    """The chapter's one-line summary, its status, when it is set and how it is told. Labels, not text: no version
+    check and no new version, so setting them on the manuscript list never turns another device's next save into a
+    conflict copy."""
     world, _ = member_world(db, user, slug)
     ch = _chapter(db, world, chapter_id)
     if body.summary is not None:
@@ -441,6 +469,21 @@ def update_about(slug: str, chapter_id: uuid.UUID, body: AboutIn, user: User = D
             if st is None or st.project_id != ch.project_id:
                 raise HTTPException(422, "No such status in this project.")
         ch.status_id = body.status_id
+    sent = body.model_fields_set
+    for field in ("time_at", "time_end", "time_approx", "outside_time", "told_as"):
+        if field in sent:
+            setattr(ch, field, getattr(body, field) if field not in ("time_approx", "outside_time")
+                    else bool(getattr(body, field)))
+    if "time_label" in sent:
+        ch.time_label = " ".join((body.time_label or "").split()) or None
+    if ch.outside_time and "time_at" in sent and body.time_at is not None:
+        ch.outside_time = False
+    if ch.outside_time or ch.time_at is None:
+        # outside time has no number; and a label, an end or "about" mean nothing without one
+        ch.time_at = ch.time_end = ch.time_label = None
+        ch.time_approx = False
+    if ch.time_end is not None and ch.time_at is not None and ch.time_end < ch.time_at:
+        raise HTTPException(422, "A span ends after it starts.")
     ch.updated_by = user.id
     db.commit()
     return chapter_out(db, world, ch)
@@ -528,13 +571,15 @@ def retire(slug: str, chapter_id: uuid.UUID, body: RetireIn, user: User = Depend
            db: Session = Depends(get_db)) -> ChapterDetail:
     world, _ = member_world(db, user, slug)
     ch = _chapter(db, world, chapter_id)
-    if ch.state != "current":
-        raise HTTPException(409, "Only a chapter in the book can be retired. Close an experiment instead.")
-    _retire(db, ch, user, body.note)
-    db.flush()
-    _renumber(db, ch.project_id)
-    db.commit()
-    return chapter_detail(db, world, ch)
+    if ch.state == "retired":
+        raise HTTPException(409, "This chapter is in Salvage already.")
+    from .restructure import Choice, RetireManyIn, retire_many
+
+    out = retire_many(slug, RetireManyIn(ids=[ch.id], review=[Choice(**c) for c in body.review],
+                                         notes={str(ch.id): body.note} if body.note else {}), user, db)
+    db.refresh(ch)
+    detail = chapter_detail(db, world, ch)
+    return JSONResponse(content={**detail.model_dump(mode="json"), "review": out})
 
 
 @router.post("/chapters/{chapter_id}/reinstate")
@@ -582,71 +627,40 @@ def delete_note(slug: str, note_id: uuid.UUID, user: User = Depends(current_user
 @router.post("/chapters/{chapter_id}/experiments", status_code=201)
 def start_experiment(slug: str, chapter_id: uuid.UUID, body: ExperimentIn, user: User = Depends(current_user),
                      db: Session = Depends(get_db)) -> ChapterDetail:
-    """An alternate draft of a chapter, tracked by an experiment item in the inbox. From scratch (the old text stays
-    out of sight while writing) or from a copy."""
+    """An alternate draft of a chapter, tracked by an experiment item in the inbox: an experiment whose range is this
+    one chapter (docs/SPEC.md §13.6.1). From scratch or from a copy."""
     world, _ = member_world(db, user, slug)
     original = _chapter(db, world, chapter_id)
     if original.state != "current":
         raise HTTPException(409, "Experiments start from a chapter in the book.")
     title = " ".join((body.title or original.title).split()) or original.title
-    item = Item(world_id=world.id, project_id=original.project_id, kind="experiment",
-                body=f"Rewrite of “{original.title}” ({'from scratch' if body.start == 'scratch' else 'from a copy'})",
-                source="desk", created_by=user.id, updated_by=user.id)
-    db.add(item)
-    db.flush()
-    ch = Chapter(project_id=original.project_id, title=title, body="" if body.start == "scratch" else original.body,
-                 state="experiment", position=original.position, pov_entity_id=original.pov_entity_id,
-                 experiment_item_id=item.id, replaces_id=original.id, created_by=user.id, updated_by=user.id)
-    db.add(ch)
-    db.flush()
-    if ch.body.strip():
-        # a copy is not a day's writing
-        snapshot(db, ch, "start", user)
-    refresh_source(db, world.id, "chapter", ch.id, ch.body)
-    refresh_source(db, world.id, "item", item.id, item.body)
+    from .restructure import new_experiment
+
+    project = db.get(Project, original.project_id)
+    assert project is not None
+    _, drafts = new_experiment(db, world, user, project, title, body.start, [original], None)
     db.commit()
-    return chapter_detail(db, world, ch)
+    return chapter_detail(db, world, drafts[0])
 
 
 @router.post("/chapters/{chapter_id}/close-experiment")
 def close_experiment(slug: str, chapter_id: uuid.UUID, body: CloseExperimentIn, user: User = Depends(current_user),
                      db: Session = Depends(get_db)) -> ChapterDetail:
-    """accepted: the draft takes the old chapter's place and the old one is retired. harvested or rejected: the draft
-    is retired. A note becomes a harvest note on whichever text leaves the book."""
+    """Close this draft's experiment (docs/SPEC.md §13.6.1). accepted: the drafts take the range's place and the range
+    is retired. harvested or rejected: the drafts are retired. A note becomes a harvest note on what leaves the book;
+    the review of what is tied to it takes its defaults."""
     world, _ = member_world(db, user, slug)
     ch = _chapter(db, world, chapter_id)
-    if ch.state != "experiment":
+    if ch.state != "experiment" or ch.experiment_item_id is None:
         raise HTTPException(409, "This chapter is not an experiment.")
-    snapshot(db, ch, "state", user)
-    if body.outcome == "accepted":
-        old = db.get(Chapter, ch.replaces_id) if ch.replaces_id else None
-        if old is not None and old.state == "current":
-            ch.position = old.position
-            _retire(db, old, user, body.note)
-        else:
-            ch.position = _next_position(db, ch.project_id)
-        ch.state = "current"
-        ch.version += 1
-        ch.updated_by = user.id
-    else:
-        _retire(db, ch, user, body.note)
-    db.flush()
-    _renumber(db, ch.project_id)
-    item = db.get(Item, ch.experiment_item_id) if ch.experiment_item_id else None
-    if item is not None and item.status == "open":
-        item.status = body.outcome
-        item.closed_at = datetime.now(UTC)
-        item.closed_note = (body.note or "").strip() or None
-        item.version += 1
-        item.updated_by = user.id
-    text = " ".join((body.decision or "").split())
-    if text:
-        d = Decision(world_id=world.id, project_id=ch.project_id, decided_on=body.decided_on or date.today(),
-                     text=text, item_id=item.id if item else None, created_by=user.id, updated_by=user.id)
-        db.add(d)
-        db.flush()
-        refresh_source(db, world.id, "decision", d.id, d.text)
+    from .restructure import CloseIn, close
+
+    item = db.get(Item, ch.experiment_item_id)
+    assert item is not None
+    close(db, world, user, item, CloseIn(outcome=body.outcome, note=body.note, decision=body.decision,
+                                         decided_on=body.decided_on))
     db.commit()
+    db.refresh(ch)
     return chapter_detail(db, world, ch)
 
 

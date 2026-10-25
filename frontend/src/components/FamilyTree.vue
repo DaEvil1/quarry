@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+import { useCards } from "../world/cards";
+import { birthOf } from "../world/eras";
 import { Family, kinOf, kinText, layoutTree, SLOT, type FamilyLink } from "../world/family";
 import type { GraphData } from "../world/graph";
+import { numberText } from "../world/time";
 
 // A family drawn in generations (docs/SPEC.md §12.2): couples side by side (a double line when married, a single one
 // for two parents who aren't), children hanging from their parents, recorded siblings without parents from a "?".
@@ -20,7 +23,19 @@ const emit = defineEmits<{ centre: [id: string] }>();
 
 const fam = computed(() => new Family(props.links));
 const node = computed(() => new Map(props.data.nodes.map((n) => [n.id, n])));
-const tree = computed(() => (fam.value.people.has(props.centre) ? layoutTree(fam.value, props.centre, (id) => node.value.get(id)?.name ?? id) : null));
+// a lineage's gap, from the two birth times when both are known (docs/SPEC.md §13.5): "about 600 years"
+const cards = useCards();
+function gap(ancestor: string, descendant: string): string {
+  const chapters = new Map(cards.timeline.map((c) => [c.id, c]));
+  const [a, d] = [ancestor, descendant].map((id) => {
+    const c = cards.byId.get(id);
+    return c ? birthOf(c, cards.byId, chapters) : null;
+  });
+  if (!a || !d) return "generations not recorded";
+  const n = Math.round(Math.abs(d.t - a.t));
+  return `about ${numberText(n)} ${n === 1 ? cards.unit.unit : cards.unit.units}`;
+}
+const tree = computed(() => (fam.value.people.has(props.centre) ? layoutTree(fam.value, props.centre, (id) => node.value.get(id)?.name ?? id, gap) : null));
 const how = computed(() => {
   const out = new Map<string, string[]>();
   for (const k of kinOf(fam.value, props.centre)) out.set(k.id, [...(out.get(k.id) ?? []), kinText(k, node.value.get(k.id)?.gender)]);
@@ -50,8 +65,9 @@ const points = (ps: [number, number][]) => ps.map(([x, y]) => `${x},${y}`).join(
               <polyline :points="points(l.points.map(([x, y]) => [x, y - 3]) as [number, number][])" class="fline married" :class="{ dashed: l.dashed }" />
               <polyline :points="points(l.points.map(([x, y]) => [x, y + 3]) as [number, number][])" class="fline married" :class="{ dashed: l.dashed }" />
             </template>
-            <polyline v-else :points="points(l.points)" class="fline" :class="[l.kind, { dashed: l.dashed }]" />
-            <text v-if="l.label" class="fline-label" :x="l.points[3]![0] + 4" :y="l.points[3]![1] - 6">{{ l.label }}</text>
+            <polyline v-else :points="points(l.points)" class="fline" :class="[l.kind, { dashed: l.dashed }]" :data-testid="l.kind === 'ancestor' ? 'family-lineage' : undefined" />
+            <text v-if="l.label && l.kind === 'ancestor'" class="fline-label lineage" :x="l.points[1]![0] + 6" :y="(l.points[0]![1] + l.points[1]![1]) / 2" data-testid="family-lineage-label">{{ l.label }}</text>
+            <text v-else-if="l.label" class="fline-label" :x="l.points[3]![0] + 4" :y="l.points[3]![1] - 6">{{ l.label }}</text>
           </template>
         </g>
         <g v-for="(u, i) in tree.unknown" :key="`u${i}`" class="funknown">
@@ -81,7 +97,8 @@ const points = (ps: [number, number][]) => ps.map(([x, y]) => `${x},${y}`).join(
     <p v-else class="empty">No recorded parents, children or marriages for them yet.</p>
     <p class="muted small">
       Click a name to centre the tree on them; ↗ opens the entry. Read from “parent of” (and any type ending in parent,
-      father or mother of), “married to” and “sibling of”; kin is worked out, never stored.
+      father or mother of), “married to”, “sibling of” and “ancestor of” (a long dashed line, the generations between
+      not recorded); kin is worked out, never stored.
     </p>
   </div>
 </template>

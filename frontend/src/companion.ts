@@ -18,6 +18,9 @@ export interface Check {
   /** a conflicting fact's label and the entry's kind, for "Both are true (several values)" */
   label?: string;
   kind?: EntityKind;
+  /** two holders of a one-at-a-time role: the earlier relationship, and the later one it can end before */
+  end?: { id: string; name: string };
+  before?: { id: string; name: string } | null;
 }
 
 export interface Resolution {
@@ -72,6 +75,10 @@ export interface PanelActions {
   addLabel(entity: EntityRef, label: string): void;
   /** a conflict that is two true values: the label holds several values for the kind */
   several(kind: EntityKind, label: string): void;
+  /** two holders of a one-at-a-time role: end the earlier one where the later one starts */
+  endBefore(earlier: string, later: string): void;
+  /** evidence in a retired chapter: point it at another chapter */
+  reAnchor(f: Finding, chapterId: string): void;
   saveNote(text: string): void;
   stash(): void;
   update(): void;

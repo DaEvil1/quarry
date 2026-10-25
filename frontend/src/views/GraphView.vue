@@ -4,6 +4,7 @@ import { computed, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { get } from "../api";
+import AsOfPicker from "../components/AsOfPicker.vue";
 import EntityPicker from "../components/EntityPicker.vue";
 import FamilyTree from "../components/FamilyTree.vue";
 import { useSession } from "../stores/session";
@@ -12,6 +13,9 @@ import { useCards } from "../world/cards";
 import { familyLinks } from "../world/family";
 import { clusters, neighbourhood, placeTree, visibleLinks, type GraphData, type Link, type PlaceNode } from "../world/graph";
 import { norm } from "../world/labels";
+import { speciesColours } from "../world/species";
+import type { At } from "../world/time";
+import { unitOf } from "../world/when";
 import NotFoundView from "./NotFoundView.vue";
 
 // The world as a graph: entries and their relationships at a point in the story, centred on one entry or all of
@@ -27,16 +31,21 @@ const data = shallowRef<GraphData | null>(null);
 const withCo = ref(false);
 const error = ref("");
 
-// filters (the as-of chapter and the centre are in the address)
+// filters (the as-of chapter or time, and the centre, are in the address)
 const asOfId = computed(() => (typeof route.query.asof === "string" ? route.query.asof : ""));
-const asOf = computed(() => cards.indexOf(asOfId.value || null) ?? null);
+const atTime = computed(() => {
+  const n = typeof route.query.at === "string" ? Number(route.query.at) : NaN;
+  return Number.isFinite(n) ? n : null;
+});
+const asOf = computed<At | null>(() => (atTime.value !== null ? { time: atTime.value } : (cards.pointOf(asOfId.value || null) ?? null)));
+const unit = computed(() => unitOf(world.value));
 const centre = computed(() => (typeof route.query.centre === "string" ? route.query.centre : ""));
 const depth = ref(2);
 const kinds = ref(new Set<string>(ENTITY_KINDS.map((k) => k.value)));
 const standings = ref(new Set<string>(["canon", "planned", "rumour"]));
 const typeId = ref("");
 const coMin = ref(0);
-const colourBy = ref<"kind" | "cluster">("kind");
+const colourBy = ref<"kind" | "cluster" | "species">("kind");
 const showLoners = ref(false);
 const setQuery = (q: Record<string, string | undefined>) => void router.replace({ query: { ...route.query, ...q } });
 
@@ -76,15 +85,6 @@ function toggle(which: "kinds" | "standings", v: string) {
   else next.add(v);
   set.value = next;
 }
-const timelineGroups = computed(() => {
-  const out: { name: string; chapters: typeof cards.timeline }[] = [];
-  for (const c of cards.timeline) {
-    const last = out[out.length - 1];
-    if (last?.name === c.project_name) last.chapters.push(c);
-    else out.push({ name: c.project_name, chapters: [c] });
-  }
-  return out;
-});
 
 // ---- what is shown ----
 const links = computed<Link[]>(() =>
@@ -205,8 +205,15 @@ const nodeById = computed(() => new Map((data.value?.nodes ?? []).map((n) => [n.
 const hoverNear = computed(() => (hover.value ? neighbourhood(shownLinks.value, hover.value, 1) : null));
 const showLabel = (id: string) =>
   shownNodes.value.length <= 70 || id === hover.value || (near.value?.get(id) ?? 9) <= 1 || (degree.value.get(id) ?? 0) >= 4 || !!hoverNear.value?.has(id);
+// colour by species: characters take their species' colour as of the graph's chapter (docs/SPEC.md §13.3)
+const bySpecies = computed(() => (colourBy.value === "species" && data.value ? speciesColours(data.value, asOf.value, cards.indexOf) : null));
+const speciesColour = computed(() => new Map((bySpecies.value?.legend ?? []).map((s) => [s.id, s.colour])));
 const colour = (id: string) => {
   if (colourBy.value === "kind") return `var(--k-${nodeById.value.get(id)?.kind ?? "other"})`;
+  if (colourBy.value === "species") {
+    const s = nodeById.value.get(id)?.kind === "species" ? id : bySpecies.value?.of.get(id);
+    return (s && speciesColour.value.get(s)) || "var(--muted)";
+  }
   const c = clusterOf.value.get(id) ?? -1;
   return c < 0 ? "var(--muted)" : `hsl(${(c * 137.5 + 25) % 360} 60% 50%)`;
 };
@@ -256,7 +263,7 @@ const inFamilies = computed(() => {
 const DEAD = /\b(dead|deceased|died|killed|slain|murdered)\b/i;
 /** A † for someone whose status is dead as of the chosen chapter (else at the end of the story). */
 function dead(id: string): boolean {
-  const at = asOfId.value || cards.timeline[cards.timeline.length - 1]?.id || null;
+  const at = atTime.value !== null ? { time: atTime.value } : asOfId.value || cards.endChapter;
   const c = cards.asOf(cards.byId.get(id), at);
   return !!c?.facts.some((f) => norm(f.label) === "status" && DEAD.test(f.value));
 }
@@ -294,14 +301,8 @@ const flatPlaces = computed(() => {
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
 
     <div class="toolbar graph-tools">
-      <label v-if="cards.timeline.length" class="small muted">As of
-        <select class="filter" :value="asOfId" data-testid="graph-as-of" @change="setQuery({ asof: ($event.target as HTMLSelectElement).value || undefined })">
-          <option value="">the whole story</option>
-          <optgroup v-for="p in timelineGroups" :key="p.name" :label="p.name">
-            <option v-for="c in p.chapters" :key="c.id" :value="c.id">{{ c.title }}</option>
-          </optgroup>
-        </select>
-      </label>
+      <AsOfPicker v-if="cards.timeline.length || cards.anyTime" :timeline="cards.timeline" :unit="unit" :asof="asOfId" :at="atTime" :times="cards.timed || cards.anyTime" :era-of="cards.eraOf" testid="graph-as-of"
+        @pick="(c) => setQuery({ asof: c.asof, at: c.at !== undefined ? String(c.at) : undefined })" />
       <label v-if="tab === 'graph' && projects.length > 1" class="small muted">Book
         <select class="filter" :value="book" data-testid="graph-book" @change="setQuery({ book: ($event.target as HTMLSelectElement).value || undefined })">
           <option value="">every book</option>
@@ -318,6 +319,7 @@ const flatPlaces = computed(() => {
           <select v-model="colourBy" class="filter">
             <option value="kind">kind</option>
             <option value="cluster">cluster</option>
+            <option value="species">species</option>
           </select>
         </label>
         <label class="small muted">Named together
@@ -369,6 +371,10 @@ const flatPlaces = computed(() => {
               <button type="button" class="btn btn-sm" @click="setQuery({ centre: undefined })">Everyone</button>
             </template>
             <span v-if="colourBy === 'cluster'" class="muted small" data-testid="cluster-count">{{ clusterCount }} cluster{{ clusterCount === 1 ? "" : "s" }}</span>
+            <span v-if="bySpecies" class="small species-legend" data-testid="species-legend">
+              <span v-for="s in bySpecies.legend" :key="s.id" class="legend-item"><span class="legend-dot" :style="{ background: s.colour ?? 'var(--muted)' }" />{{ s.name }} ({{ s.count }})</span>
+              <span class="legend-item muted"><span class="legend-dot" style="background: var(--muted)" />no species</span>
+            </span>
             <button type="button" class="btn btn-sm" @click="fit">Fit</button>
           </div>
           <p v-if="!centre && shownNodes.length > 120" class="muted small graph-hint">
@@ -415,7 +421,7 @@ const flatPlaces = computed(() => {
               @dblclick="openEntry(n.id)"
             >
               <title>{{ n.name }}{{ n.summary ? ` — ${n.summary}` : "" }} (click to centre, double-click to open)</title>
-              <circle :r="n.id === centre ? 11 : 6 + Math.min(5, degree.get(n.id) ?? 0)" :fill="colour(n.id)" />
+              <circle :r="n.id === centre ? 11 : 6 + Math.min(5, degree.get(n.id) ?? 0)" :fill="colour(n.id)" :data-fill="colour(n.id)" />
               <text v-if="showLabel(n.id)" y="-12" text-anchor="middle">{{ n.name }}</text>
             </g>
           </svg>

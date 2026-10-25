@@ -5,6 +5,7 @@
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "../types";
 import type { Card } from "../world/cards";
 import { isPronunciation } from "../world/labels";
+import { possessors, shownByName, speciesText } from "../world/species";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -68,9 +69,23 @@ export function cardDom(
   who.append(el("strong", "", card.name));
   if (said) who.append(el("span", "qcard-said", said.value));
   if (card.kind === "character" && card.gender) who.append(el("span", "qcard-gender", card.gender));
+  // as of this chapter (docs/SPEC.md §13.2.4)
+  if (card.age) who.append(el("span", "qcard-age", card.age));
+  // what a character is, as of this chapter: "selkie · appears as human" (docs/SPEC.md §13.3)
+  const kinds = speciesText(card);
+  if (kinds) who.append(el("span", "qcard-species", kinds));
   head.append(who, el("span", `qkind k-${card.kind}`, kindLabel(card.kind)));
   root.append(head);
+  const held = possessors(card);
+  if (held.length) {
+    const line = el("div", "qcard-possessed");
+    line.append("possessed by ");
+    held.forEach((p, i) => line.append(...(i ? [", "] : []), el("span", `qname k-${p.kind}`, p.name)));
+    root.append(line);
+  }
   if (card.summary) root.append(el("div", "qcard-summary", card.summary));
+  // an event's time, tinted by its era (docs/SPEC.md §13.2.1)
+  if (card.whenText) root.append(el("div", `qcard-when era-tint${card.whenColour ? ` era-${card.whenColour}` : ""}`, card.whenText));
   if (card.aliases.length) root.append(el("div", "qcard-also", `also ${card.aliases.join(", ")}`));
   // the first few facts; a label that holds several values shows them as chips side by side
   const facts: { label: string; values: string[]; several: boolean }[] = [];
@@ -90,11 +105,13 @@ export function cardDom(
     }
     root.append(dl);
   }
-  if (card.relations.length) {
+  const rels = card.relations.filter((r) => !shownByName(r));
+  if (rels.length) {
     const ul = el("ul", "qcard-rels");
-    for (const r of card.relations.slice(0, 4)) {
+    for (const r of rels.slice(0, 4)) {
       const li = el("li");
       li.append(`${r.label} `, el("span", `qname k-${r.other.kind}`, r.other.name));
+      if (r.role) li.append(el("span", "qcard-role", ` · ${r.role}`));
       if (r.standing !== "canon") li.append(el("span", "qcard-standing", ` (${r.standing})`));
       ul.append(li);
     }
@@ -208,16 +225,18 @@ export function nearMissStripDom(
   return root;
 }
 
-/** Selected words: make them a bible entry of some kind, or another name of an entry. */
+/** Selected words: make them a bible entry of some kind, or another name of an entry; or record them as an event. */
 export function selectionStripDom(
   text: string,
   names: EntityRef[],
-  actions: { create: (kind: EntityKind) => unknown; addName: (id: string) => unknown; done: () => void; cut?: () => unknown },
+  actions: { create: (kind: EntityKind) => unknown; addName: (id: string) => unknown; done: () => void; cut?: () => unknown; history?: HistoryActions },
 ): HTMLElement {
   const root = el("div", "qstrip");
   root.dataset.testid = "selection-strip";
   const main = el("div", "qrow");
   if (actions.cut) main.append(chip("Cut to bin", actions.cut, "quiet"));
+  const history = actions.history;
+  if (history) main.append(chip("Record as event", () => recordForm(root, history, actions.done), "quiet"));
   const common: EntityKind[] = ["character", "place", "faction", "object"];
   for (const k of common) main.append(chip(`+ ${kindLabel(k)}`, () => actions.create(k), `k-${k}`));
   const more = chip("More…", () => {
@@ -312,4 +331,212 @@ export function findingStripDom(message: string, actions: FindingActions): HTMLE
   if (actions.leave) row.append(chip("Leave it", actions.leave, "quiet"));
   root.append(row);
   return root;
+}
+
+// ---- recording history from the prose (docs/SPEC.md §13.2.3) -----------------------------------------------------
+
+/** What the passage strip needs from the chapter page: the names in the selection, the events to offer, and saving. */
+export interface HistoryActions {
+  /** the entries named in the selection (found by the matcher that colours names), in order */
+  named: EntityRef[];
+  /** events to offer, those named in the selection and the chapter first */
+  events: () => EntityRef[];
+  /** the entries already related to an event */
+  relatedTo: (eventId: string) => Set<string>;
+  /** an event's own time in words, and its number (to tell a different one) */
+  eventWhen: (eventId: string) => { text: string; at: number | null } | null;
+  /** this chapter's own time, when it is a tale or a flashback with one */
+  chapterTime: { text: string; at: number; approx: boolean } | null;
+  /** a tale or flashback with no time of its own */
+  untimed: boolean;
+  record: (r: { eventId?: string; name?: string; taking: { id: string; role: "involved" | "place" }[]; when: { at: number; approx: boolean } | null; choice: "keep" | "use" }) => Promise<unknown>;
+  /** where a character's birth and death are recorded now (a chapter's title), if they are */
+  life: (id: string) => { born: string | null; died: string | null };
+  setLife: (id: string, which: "born" | "died") => Promise<unknown>;
+  setChapterTime: () => void;
+}
+
+const parseNumber = (t: string) => {
+  const v = t.trim().replace("−", "-");
+  return /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : null;
+};
+
+/** A passage selected: cut it to the bin, record it as an event, or set a birth or a death here. */
+export function passageStripDom(actions: { cut?: () => unknown; history?: HistoryActions; done: () => void }): HTMLElement {
+  const root = el("div", "qstrip passage-strip");
+  root.dataset.testid = "passage-strip";
+  const main = el("div", "qrow");
+  if (actions.cut) main.append(chip("Cut to bin", actions.cut, "quiet"));
+  const h = actions.history;
+  if (h) {
+    main.append(chip("Record as event", () => recordForm(root, h, actions.done), "primary"));
+    root.append(main);
+    lifeChips(root, h);
+  } else root.append(main);
+  return root;
+}
+
+/** "Seyla: born here · died here", for each character named in the selection. */
+function lifeChips(root: HTMLElement, h: HistoryActions) {
+  const people = h.named.filter((n) => n.kind === "character");
+  for (const p of people) {
+    const row = el("div", "qrow life-row");
+    row.dataset.testid = "life-chips";
+    const life = h.life(p.id);
+    row.append(el("span", `qname k-${p.kind}`, p.name), ": ");
+    const one = (which: "born" | "died", label: string) => {
+      const was = life[which];
+      if (was) {
+        row.append(el("span", "qcard-also", `${p.name} is recorded ${which} in “${was}” · `));
+        row.append(chip("Move it here", async () => {
+          await h.setLife(p.id, which);
+          row.replaceChildren(el("span", "qcard-also", `${p.name}: ${which} here.`));
+        }));
+      } else {
+        row.append(chip(label, async () => {
+          await h.setLife(p.id, which);
+          row.replaceChildren(el("span", "qcard-also", `${p.name}: ${which} here.`));
+        }));
+      }
+    };
+    one("born", "born here");
+    row.append(" · ");
+    one("died", "died here");
+    root.append(row);
+    if (h.untimed) {
+      const note = el("div", "qcard-also untimed-note");
+      note.append(`This chapter has no time yet: ${p.name} will count as born before the story begins · `);
+      note.append(chip("Set its time…", h.setChapterTime, "quiet"));
+      root.append(note);
+    }
+  }
+}
+
+/** The strip grows into a small form in place, as "Another name of…" does: the event, who and where, when; Enter
+ * saves, Esc goes straight back to the text. */
+function recordForm(root: HTMLElement, h: HistoryActions, done: () => void) {
+  root.replaceChildren();
+  root.dataset.testid = "record-form";
+  let picked: EntityRef | null = null;
+  let choice: "keep" | "use" = "keep";
+  // 1. the event: a new one by name, or one that exists (those named here first)
+  const name = el("input", "qinput");
+  name.placeholder = "The event: a new name, or pick one";
+  name.setAttribute("aria-label", "Event");
+  const list = el("div", "qlist");
+  const renderEvents = () => {
+    const q = name.value.trim().toLowerCase();
+    list.replaceChildren(
+      ...h
+        .events()
+        .filter((e) => !q || e.name.toLowerCase().includes(q))
+        .slice(0, 5)
+        .map((e) =>
+          chip(e.name, () => {
+            picked = e;
+            name.value = e.name;
+            list.replaceChildren(el("span", "qcard-also", "an event in the bible"));
+            renderWho();
+            renderWhen();
+          }, picked?.id === e.id ? "k-event on" : "k-event"),
+        ),
+    );
+  };
+  name.addEventListener("input", () => {
+    picked = null;
+    renderEvents();
+    renderWho();
+    renderWhen();
+  });
+  // 2. who and where: a chip per entry named here; characters, factions and species ticked, the first place as where
+  const who = el("div", "qrow who-chips");
+  who.dataset.testid = "record-who";
+  const ticked = new Map<string, "involved" | "place" | null>();
+  let firstPlace = true;
+  for (const n of h.named) {
+    if (n.kind === "place") {
+      ticked.set(n.id, firstPlace ? "place" : null);
+      firstPlace = false;
+    } else ticked.set(n.id, ["character", "faction", "species"].includes(n.kind) ? "involved" : null);
+  }
+  const renderWho = () => {
+    const already = picked ? h.relatedTo(picked.id) : new Set<string>();
+    who.replaceChildren(
+      ...h.named.map((n) => {
+        const label = el("label", `qchip k-${n.kind} who-chip`);
+        const box = el("input");
+        box.type = "checkbox";
+        box.checked = !!ticked.get(n.id);
+        box.addEventListener("change", () => ticked.set(n.id, box.checked ? (n.kind === "place" ? "place" : "involved") : null));
+        label.append(box, ` ${n.name}${n.kind === "place" ? " (where)" : ""}${already.has(n.id) ? " · related already" : ""}`);
+        return label;
+      }),
+    );
+    if (!h.named.length) who.append(el("span", "qcard-also", "No names from the bible in the selection."));
+  };
+  // 3. when: a number (and about), empty to set later; a tale's own time is one chip away
+  const whenRow = el("div", "qrow");
+  const at = el("input", "qinput time-num");
+  at.placeholder = "when (optional)";
+  at.setAttribute("aria-label", "When");
+  at.inputMode = "decimal";
+  const aboutBox = el("input");
+  aboutBox.type = "checkbox";
+  aboutBox.setAttribute("aria-label", "About");
+  const aboutLabel = el("label", "qcard-also");
+  aboutLabel.append(aboutBox, " about");
+  const conflict = el("div", "qrow");
+  const renderWhen = () => {
+    conflict.replaceChildren();
+    const own = picked ? h.eventWhen(picked.id) : null;
+    const given = parseNumber(at.value);
+    if (own && own.at !== null && given !== null && given !== own.at) {
+      conflict.append(
+        chip(`Keep ${own.text}`, () => ((choice = "keep"), conflict.querySelectorAll(".qchip").forEach((c, i) => c.classList.toggle("on", i === 0))), choice === "keep" ? "on" : ""),
+        chip(`Use ${at.value.trim()}`, () => ((choice = "use"), conflict.querySelectorAll(".qchip").forEach((c, i) => c.classList.toggle("on", i === 1))), choice === "use" ? "on" : ""),
+      );
+    }
+  };
+  at.addEventListener("input", renderWhen);
+  whenRow.append(at, aboutLabel);
+  if (h.chapterTime) {
+    const t = h.chapterTime;
+    whenRow.append(chip(`This chapter's time (${t.text})`, () => {
+      at.value = String(t.at);
+      aboutBox.checked = t.approx;
+      renderWhen();
+    }, "quiet"));
+  }
+  // 4. save
+  const save = async () => {
+    const typed = name.value.trim();
+    if (!picked && !typed) {
+      name.focus();
+      return;
+    }
+    const n = parseNumber(at.value);
+    await h.record({
+      eventId: picked?.id,
+      name: picked ? undefined : typed,
+      taking: [...ticked].filter(([, r]) => r).map(([id, r]) => ({ id, role: r! })),
+      when: n === null ? null : { at: n, approx: aboutBox.checked },
+      choice,
+    });
+    done();
+  };
+  const row = el("div", "qrow");
+  row.append(chip("Save", save, "primary"), chip("Cancel", done, "quiet"));
+  root.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      done();
+    } else if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT" && (e.target as HTMLInputElement).type !== "checkbox") {
+      e.preventDefault();
+      void save();
+    }
+  });
+  root.append(el("span", "qstrip-q", "Record as event"), name, list, who, whenRow, conflict, row);
+  renderEvents();
+  renderWho();
+  setTimeout(() => name.focus());
 }
