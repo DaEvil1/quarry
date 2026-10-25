@@ -854,7 +854,11 @@ export function sharedCardDom(form: string, claimants: Card[], actions: SharedAc
     if (c.summary) li.append(el("span", "qcard-role", ` · ${c.summary}`));
     ul.append(li);
   }
-  root.append(ul, fromHere(claimants, null, actions));
+  const choose = fromHere(claimants, null, actions);
+  // the keyboard (Alt+Enter, F8) starts on the first choice
+  const first = choose.querySelector("button");
+  if (first) first.dataset.first = "";
+  root.append(ul, choose);
   return root;
 }
 

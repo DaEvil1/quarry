@@ -70,6 +70,8 @@ test("14.10 done when: ambiguous Isolde, coloured as a character, its card lists
   await expect(card).toContainText("Isolde Marr · Keeps the lamp at Old Harbour.");
   await expect(card).toContainText("Isolde Senn · A ferry pilot.");
   await expect(card.getByTestId("shared-strip").getByRole("button")).toHaveText(["Marr", "Senn", "Both"]);
+  // the keyboard starts on the first choice
+  await expect(card.getByTestId("shared-strip").getByRole("button", { name: "Marr" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
   // F8 stops at it with the other marked words

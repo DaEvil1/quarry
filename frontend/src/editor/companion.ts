@@ -154,7 +154,8 @@ function keyboardStrip(view: EditorView, inner: HTMLElement): HTMLElement {
       else if (b && b.isConnected) close();
     });
   });
-  requestAnimationFrame(() => focusables()[0]?.focus());
+  // a strip can say which of its buttons the keyboard starts on (a shared name: its first choice, not a name)
+  requestAnimationFrame(() => (box.querySelector<HTMLElement>("[data-first]:not([disabled])") ?? focusables()[0])?.focus());
   return box;
 }
 
