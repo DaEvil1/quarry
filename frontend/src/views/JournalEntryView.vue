@@ -529,8 +529,6 @@ watch(typewriter, (on) => {
 function mount(e: JournalDetail) {
   prose.value?.destroy();
   saver?.close();
-  title.value = e.title ?? "";
-  day.value = e.entry_date;
   words.value = countWords(e.body);
   if (!host.value) return;
   prose.value = createProse(host.value, {
@@ -593,6 +591,9 @@ async function load() {
     missing.value = true;
     return;
   }
+  // the head shows once the entry is here: what it says first, so nothing typed into it is overwritten
+  title.value = e.title ?? "";
+  day.value = e.entry_date;
   entry.value = e;
   toast.value = null;
   readAsOf(e.id);
@@ -756,6 +757,11 @@ async function confirmDelete() {
 }
 
 const toast = ref<{ label: string; undo: (() => Promise<void>) | null; actions?: { label: string; run: () => unknown }[] } | null>(null);
+// while Revising, a mark in the margin beside each passage with an open item (docs/SPEC.md §14.3.1)
+watch(
+  () => [mode.value, items.value, prose.value] as const,
+  ([m, list, p]) => p?.setItemMarks(m === "revising" ? list.flatMap((i) => (i.passage ? [i.passage] : [])) : null),
+);
 const editorStyle = computed(() => ({ "--prose-size": `${prefs.textSize}px`, "--prose-width": `${prefs.lineWidth}ch` }));
 const unit = computed(() => unitOf(world.value));
 </script>
@@ -811,7 +817,7 @@ const unit = computed(() => unitOf(world.value));
         <button class="btn btn-sm btn-primary" type="submit">Save</button>
       </form>
 
-      <div class="title-wrap journal-head">
+      <div v-if="entry" class="title-wrap journal-head">
         <input v-model="title" class="chapter-title" aria-label="Entry title" maxlength="300" placeholder="Untitled" />
         <div class="journal-about">
           <label class="visually-hidden" for="entry-date">Date</label>

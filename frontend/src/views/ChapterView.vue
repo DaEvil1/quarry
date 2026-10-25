@@ -897,6 +897,11 @@ const companionHooks: NonNullable<WorldHooks["companion"]> = {
   },
 };
 
+// while Revising, a mark in the margin beside each passage with an open item (docs/SPEC.md §14.3.1)
+watch(
+  () => [mode.value, items.value, prose.value] as const,
+  ([m, list, p]) => p?.setItemMarks(m === "revising" ? list.flatMap((i) => (i.passage ? [i.passage] : [])) : null),
+);
 const editorStyle = computed(() => ({ "--prose-size": `${prefs.textSize}px`, "--prose-width": `${prefs.lineWidth}ch` }));
 watch(title, (t) => {
   if (chapter.value && t.trim() && t !== chapter.value.title) saver?.edit({ title: t });

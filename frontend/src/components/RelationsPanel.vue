@@ -181,7 +181,7 @@ function doChange(r: Relationship) {
         </select>
         <span class="kname" :class="`k-${target.kind}`">{{ target.name }}</span>
         <input v-if="chosenType?.has_role" v-model="role" class="filter" :list="listId(chosenType.id, chosenGroup)" placeholder="Role (optional)" aria-label="Role" maxlength="100" />
-        <select v-model="standing" class="filter" aria-label="Standing">
+        <select v-model="standing" class="filter" aria-label="New relationship standing">
           <option v-for="s in STANDINGS" :key="s" :value="s">{{ s }}</option>
         </select>
         <input v-model="note" class="filter grow" placeholder="Note (optional)" aria-label="Note" maxlength="5000" />

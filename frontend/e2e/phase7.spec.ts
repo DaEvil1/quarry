@@ -38,6 +38,7 @@ test("dead from a chapter: the entry page as of the chapter before and the chapt
   await openEntry("Varren");
   const facts = page.getByTestId("facts");
   for (const value of ["alive", "dead"]) {
+    await facts.getByLabel("New fact standing").selectOption("canon");
     await facts.getByLabel("New fact label").fill("status");
     await facts.getByLabel("New fact value").fill(value);
     await facts.getByRole("button", { name: "Add" }).click();

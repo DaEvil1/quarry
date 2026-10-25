@@ -347,6 +347,30 @@ const passageField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+/** While Revising: a small mark in the margin beside each passage with an open item (docs/SPEC.md §14.3.1). */
+const setItemMarks = StateEffect.define<string[] | null>();
+const itemLine = Decoration.line({ class: "cm-has-item" });
+const itemMarksField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(marks, tr) {
+    for (const e of tr.effects) {
+      if (!e.is(setItemMarks)) continue;
+      if (!e.value?.length) return Decoration.none;
+      const doc = tr.state.doc;
+      const text = doc.toString();
+      const lines = new Set<number>();
+      for (const passage of e.value) {
+        const at = passage ? text.indexOf(passage) : -1;
+        if (at < 0) continue;
+        for (let n = doc.lineAt(at).number; n <= doc.lineAt(at + passage.length).number; n++) lines.add(doc.line(n).from);
+      }
+      return Decoration.set([...lines].sort((a, b) => a - b).map((from) => itemLine.range(from)));
+    }
+    return marks.map(tr.changes);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 // ---- focus mode: everything but the paragraph you're in is dimmed ---------------------------------------------
 
 const dimLine = Decoration.line({ class: "cm-dim" });
@@ -414,6 +438,7 @@ const theme = EditorView.theme({
   ".cm-margin": { color: "var(--muted)", fontStyle: "italic", fontSize: "0.9em" },
   ".cm-find": { textDecoration: "underline dotted var(--accent)", textDecorationThickness: "2px", textUnderlineOffset: "4px" },
   ".cm-find-name": { textDecorationColor: "var(--muted)" },
+  ".cm-has-item": { boxShadow: "-12px 0 0 -9px var(--accent)" },
   ".cm-passage": { backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent)", borderRadius: "2px" },
   ".cm-near-miss": { textDecoration: "underline wavy var(--warn)", textDecorationSkipInk: "none", textUnderlineOffset: "4px" },
   ".cm-searchMatch": { backgroundColor: "var(--warn-soft)", outline: "1px solid var(--warn)" },
@@ -478,6 +503,8 @@ export interface Prose {
   setChanges(changes: Change[] | null): void;
   /** mark a passage (found by its text; nothing if it can't be found), or unmark (null); true when found */
   markPassage(passage: string | null, scroll?: boolean): boolean;
+  /** the passages with an open item, marked in the margin (null: none, as while Drafting) */
+  setItemMarks(passages: string[] | null): void;
   destroy(): void;
 }
 
@@ -522,6 +549,7 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
     companion ? companionExtensions(companion) : [],
     changesField,
     passageField,
+    itemMarksField,
     opts.onFindAll ? findAllButton(opts.onFindAll) : [],
     focusMode.of([]),
     typewriterMode.of([]),
@@ -587,6 +615,7 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
       view.dispatch({ effects: [markPassage.of(range), ...(range && scroll ? [EditorView.scrollIntoView(range.from, { y: "center" })] : [])] });
       return !!range;
     },
+    setItemMarks: (passages) => view.dispatch({ effects: setItemMarks.of(passages) }),
     destroy: () => view.destroy(),
   };
 }
