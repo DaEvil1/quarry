@@ -151,7 +151,7 @@ def items_out(db: Session, world: World, items: list[Item]) -> list[ItemOut]:
             tags[item_id].append(EntityRef(id=e.id, name=e.name, kind=e.kind))
         for m, name, ekind in db.execute(
             select(Mention, Entity.name, Entity.kind).join(Entity, Entity.id == Mention.entity_id)
-            .where(Mention.source_table == "item", Mention.source_id.in_(ids)).order_by(Mention.start)
+            .where(Mention.source_table == "item", Mention.source_id.in_(ids)).order_by(Mention.start, Entity.name)
         ).all():
             found[m.source_id].append(MentionOut(entity_id=m.entity_id, entity_name=name, entity_kind=ekind,
                                                  start=m.start, end=m.end, matched_text=m.matched_text,
