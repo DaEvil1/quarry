@@ -103,8 +103,14 @@ def _safe(name: str, limit: int = 80) -> str:
     return name or "untitled"
 
 
+# libyaml when it is there (it is in the image): a world of thousands of entries is thousands of front matters, and the
+# pure-Python parser and emitter took most of a minute for them
+YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+YAML_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+
+
 def _doc(meta: dict, body: str) -> str:
-    return "---\n" + yaml.safe_dump(meta, allow_unicode=True, sort_keys=False) + "---\n\n" + body
+    return "---\n" + yaml.dump(meta, Dumper=YAML_DUMPER, allow_unicode=True, sort_keys=False) + "---\n\n" + body
 
 
 def _parse(text: str) -> tuple[dict, str]:
@@ -113,7 +119,7 @@ def _parse(text: str) -> tuple[dict, str]:
     end = text.find("\n---\n", 4)
     if end < 0:
         return {}, text
-    meta = yaml.safe_load(text[4:end]) or {}
+    meta = yaml.load(text[4:end], Loader=YAML_LOADER) or {}
     body = text[end + 5:]
     if body.startswith("\n"):
         body = body[1:]
@@ -570,14 +576,18 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     # facts and relationships point at chapters, so they are restored after the chapters
     world_model: list[tuple[Entity, dict]] = []
     entity_by_name: dict[str, uuid.UUID] = {}
+    names_seen: set[str] = set()
     for rel, meta, body in under(f"{root}/Bible/"):
         kind = meta.get("kind") if meta.get("kind") in KIND_FOLDERS else "other"
         ename = " ".join(str(meta.get("name") or rel.rsplit("/", 1)[-1][:-3]).split())
-        if ename.lower() in {n.lower() for n in entity_by_name}:
+        if ename.lower() in names_seen:
             continue
+        names_seen.add(ename.lower())
         # the level: a project's slug in the export (a missing or unknown one, as before phase 11, is the world)
         level = project_of(meta.get("project")) if len(project_ids) > 1 else None
-        e = Entity(world_id=world.id, kind=kind, name=ename, aliases=[str(a) for a in meta.get("aliases") or []],
+        # the id given here, so the entries are written in one go after the loop rather than one round trip each
+        e = Entity(id=uuid.uuid4(), world_id=world.id, kind=kind, name=ename,
+                   aliases=[str(a) for a in meta.get("aliases") or []],
                    body=body, summary=str(meta.get("summary") or ""), match_case=meta.get("match_case") is not False,
                    first_name_alias=meta.get("first_name_alias") is not False,
                    exclusions=[str(x) for x in meta.get("exclusions") or []], project_id=level,
@@ -587,16 +597,17 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                                if k in KIND_FOLDERS and k != kind and k not in [str(y) for y in (meta.get("also") or [])][:i]],
                    created_by=user.id, updated_by=user.id)
         db.add(e)
-        db.flush()
         entity_by_name[ename] = e.id
         if meta.get("id"):
             entity_by_old[str(meta["id"])] = e.id
         world_model.append((e, meta))
+    db.flush()
 
     # items: the world's own Planning/ and each project's
     item_by_old: dict[str, uuid.UUID] = {}
     # experiments' ranges and places, relinked once the chapters exist
     item_ranges: list[tuple[Item, dict]] = []
+    tags: list[ItemLink] = []
     # where items came from (a chapter or journal entry), relinked once those exist
     item_origins: list[tuple[Item, dict]] = []
     planning = [(None, rel, meta, body) for rel, meta, body in under(f"{root}/Planning/")]
@@ -606,23 +617,25 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
         status = meta.get("status") if meta.get("status") in ("open", "accepted", "rejected", "harvested",
                                                                "deferred") else "open"
         kind = meta.get("kind") if meta.get("kind") in ("spark", "question", "task", "experiment") else "spark"
-        i = Item(world_id=world.id, project_id=project_of(meta.get("project") or pslug), kind=kind,
+        i = Item(id=uuid.uuid4(), world_id=world.id, project_id=project_of(meta.get("project") or pslug), kind=kind,
                  title=meta.get("title"), body=body or "(empty)", status=status, source=meta.get("source"),
                  closed_at=_when(meta.get("closed_at")), closed_note=meta.get("closed_note"),
                  created_by=user.id, updated_by=user.id)
         if _when(meta.get("created_at")):
             i.created_at = _when(meta.get("created_at"))
         db.add(i)
-        db.flush()
         if meta.get("id"):
             item_by_old[str(meta["id"])] = i.id
         if kind == "experiment":
             item_ranges.append((i, meta))
         for tag in meta.get("tags") or []:
             if str(tag) in entity_by_name:
-                db.add(ItemLink(item_id=i.id, target_table="entity", target_id=entity_by_name[str(tag)]))
+                tags.append(ItemLink(item_id=i.id, target_table="entity", target_id=entity_by_name[str(tag)]))
         if isinstance(meta.get("from"), dict):
             item_origins.append((i, meta))
+    # the items first, then their tags
+    db.flush()
+    db.add_all(tags)
 
     # chapters: current, experiments, salvage
     chapter_by_old: dict[str, uuid.UUID] = {}

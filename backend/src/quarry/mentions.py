@@ -12,20 +12,27 @@ ambiguous (stored once per claimant, kind "ambiguous") until a choice line above
 says which entry or entries it means; it then counts as an ordinary mention of each one chosen. A choice holds to
 the next choice for the same name or the end of the text. An entry's own name is never shared: it wins.
 
-Mentions are recomputed whenever a text is saved, and for the whole world when names change. A world's text is
-small (a novel and its notes are a few hundred kilobytes), so a full rescan stays well under a second.
+Mentions are recomputed whenever a text is saved. When names change (an entry added, renamed or deleted, its other
+names, kinds, capitals or "not in this sense" phrases, or a "not a typo" word), only the texts the change can reach
+are rescanned: those that contain a name or a word of a name that changed (a shared name changes with any of its
+claimants' names, which its choice lines are read by), or a word close enough to one to be a near miss of it
+(`refresh_names`). A world grows to millions of words, and rescanning all of it for every new entry took seconds,
+then minutes.
 """
 
 from __future__ import annotations
 
 import re
+import threading
 import uuid
+from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import dataclass
 
 from rapidfuzz import process
 from rapidfuzz.distance import OSA
 from sqlalchemy import delete, select
+from sqlalchemy import text as sql
 from sqlalchemy.orm import Session
 
 from .margin import story_text
@@ -104,6 +111,29 @@ def article_forms(name: str) -> list[str]:
     return [name]
 
 
+def trie_pattern(forms: Iterable[str]) -> str:
+    """The names as one pattern that branches letter by letter ("Old H(?:arbour|all)"), trying the longer names first.
+    It matches exactly what the plain alternation of them, longest first, matches; but a regular expression tries a
+    plain alternation's names one by one at every place in the text, and a world has thousands of them."""
+    root: dict = {}
+    for f in forms:
+        node = root
+        for ch in f:
+            node = node.setdefault(ch, {})
+        node[""] = {}
+
+    def emit(node: dict) -> str:
+        alts = [re.escape(ch) + emit(node[ch]) for ch in sorted(node) if ch]
+        if not alts:
+            return ""
+        if len(alts) == 1 and "" not in node:
+            return alts[0]
+        # a name that ends here is tried after every longer one through here
+        return "(?:" + "|".join(alts) + ("|)" if "" in node else ")")
+
+    return emit(root)
+
+
 class Matcher:
     """Everything needed to scan the texts of one world."""
 
@@ -144,12 +174,11 @@ class Matcher:
         self.exact, self.loose = exact, loose
 
         def alternation(forms: Iterable[str], flags: int = 0) -> re.Pattern[str] | None:
-            # longest first, so "Old Harbour" wins over "Harbour"
-            ordered = sorted(forms, key=len, reverse=True)
-            if not ordered:
+            # the longest name that fits wins, so "Old Harbour" wins over "Old"
+            body = trie_pattern(forms)
+            if not body:
                 return None
-            return re.compile(r"(?<![\w'’-])(" + "|".join(re.escape(f) for f in ordered) + r")" + SUFFIX + r"(?![\w])",
-                              flags)
+            return re.compile(r"(?<![\w'’-])(" + body + r")" + SUFFIX + r"(?![\w])", flags)
 
         self.exact_re = alternation(exact)
         self.loose_re = alternation(loose, re.IGNORECASE)
@@ -165,6 +194,29 @@ class Matcher:
                     self.word_owner.setdefault(w if f in exact else w.capitalize(), eid)
         self.candidates = list(self.word_owner)
         self.ignored = set(ignored)
+        # the candidates by length (a word is only compared with those it could be one or two edits from), the order
+        # they were met in (ties go to the first), and each word's verdict so far
+        self.by_length: dict[int, list[str]] = {}
+        for w in self.candidates:
+            self.by_length.setdefault(len(w), []).append(w)
+        self.order = {w: i for i, w in enumerate(self.candidates)}
+        self.near_cache: dict[str, str | None] = {}
+
+    def nearest(self, base: str) -> str | None:
+        """The candidate `base` is most likely a misspelling of (the first met, of equally close ones), or None."""
+        if base in self.near_cache:
+            return self.near_cache[base]
+        limit = 1 if len(base) <= 6 else 2
+        best: tuple[float, int, str] | None = None
+        for n in range(len(base) - limit, len(base) + limit + 1):
+            bucket = self.by_length.get(n)
+            hit = process.extractOne(base, bucket, scorer=OSA.distance, score_cutoff=limit) if bucket else None
+            if hit is not None and (best is None or (hit[1], self.order[hit[0]]) < best[:2]):
+                best = (hit[1], self.order[hit[0]], hit[0])
+        if len(self.near_cache) > 50_000:
+            self.near_cache.clear()
+        self.near_cache[base] = best[2] if best else None
+        return self.near_cache[base]
 
     def _excluded(self, text_lower: str, eid: uuid.UUID, start: int, end: int,
                   cache: dict[uuid.UUID, list[tuple[int, int]]]) -> bool:
@@ -256,36 +308,99 @@ class Matcher:
             else:
                 found.extend(Found(eid, start, end, matched, "ambiguous") for eid, _ in owners)
         if self.candidates:
+            # the words come in order, and so do the names found (they don't overlap): one pass over both
+            t = 0
             for m in WORD_RE.finditer(text):
                 word = m.group(0)
-                if not word[0].isupper() or any(s <= m.start() < e for s, e in taken):
+                while t < len(taken) and taken[t][1] <= m.start():
+                    t += 1
+                if not word[0].isupper() or (t < len(taken) and taken[t][0] <= m.start()):
                     continue
                 base = POSSESSIVE_RE.sub("", word)
                 if len(base) < NEAR_MIN or base in self.ignored or word in self.ignored:
                     continue
                 if base.lower() in self.known_lower:
                     continue
-                limit = 1 if len(base) <= 6 else 2
-                best = process.extractOne(base, self.candidates, scorer=OSA.distance, score_cutoff=limit)
+                best = self.nearest(base)
                 if best is None:
                     continue
-                eid = self.word_owner[best[0]]
+                eid = self.word_owner[best]
                 if eid != skip_entity:
                     found.append(Found(eid, m.start(), m.start() + len(base), base, "near_miss"))
         found.sort(key=lambda f: f.start)
         return found
 
 
+# everything a matcher is built from, hashed by the database: kinds (a character's first name), names, other names,
+# capitals, first names, "not in this sense" phrases and "not a typo" words, in the order the matcher meets them
+NAMES_KEY = sql("""
+SELECT md5(coalesce(string_agg(concat_ws(chr(31), id::text, kind, array_to_string(also_kinds, chr(30)), name,
+                                         array_to_string(aliases, chr(30)), match_case::text, first_name_alias::text,
+                                         array_to_string(exclusions, chr(30))),
+                               chr(29) ORDER BY created_at, id), ''))
+    || md5(coalesce((SELECT string_agg(token, chr(29) ORDER BY token) FROM name_ignores WHERE world_id = :w), ''))
+FROM entities WHERE world_id = :w
+""")
+_matchers: OrderedDict[uuid.UUID, tuple[str, Matcher]] = OrderedDict()
+_matchers_lock = threading.Lock()
+KEEP_MATCHERS = 4
+
+
 def matcher_for(db: Session, world_id: uuid.UUID) -> Matcher:
-    entities = db.scalars(select(Entity).where(Entity.world_id == world_id)).all()
+    """The world's matcher as its names are now (in this transaction). Built once per set of names and kept: a chapter
+    save in a world of thousands of entries would otherwise spend most of its time building it again."""
+    key = db.execute(NAMES_KEY, {"w": world_id}).scalar_one()
+    with _matchers_lock:
+        kept = _matchers.get(world_id)
+        if kept is not None and kept[0] == key:
+            _matchers.move_to_end(world_id)
+            return kept[1]
+    # oldest first: when two entries claim a name, or two names are equally close to a near miss, the same one wins on
+    # every build (and a rescan after a change can tell which texts that touches)
+    entities = db.scalars(select(Entity).where(Entity.world_id == world_id)
+                          .order_by(Entity.created_at, Entity.id)).all()
     ignored = db.scalars(select(NameIgnore.token).where(NameIgnore.world_id == world_id)).all()
-    return Matcher(entities, ignored)
+    m = Matcher(entities, ignored)
+    with _matchers_lock:
+        _matchers[world_id] = (key, m)
+        _matchers.move_to_end(world_id)
+        while len(_matchers) > KEEP_MATCHERS:
+            _matchers.popitem(last=False)
+    return m
 
 
-def _store(db: Session, world_id: uuid.UUID, table: str, source_id: uuid.UUID, found: list[Found]) -> None:
-    db.execute(delete(Mention).where(Mention.source_table == table, Mention.source_id == source_id))
-    db.add_all(Mention(world_id=world_id, source_table=table, source_id=source_id, entity_id=f.entity_id,
-                       start=f.start, end=f.end, matched_text=f.matched[:200], kind=f.kind) for f in found)
+def _rows(world_id: uuid.UUID, table: str, source_id: uuid.UUID, found: list[Found]) -> list[dict]:
+    return [{"world_id": world_id, "source_table": table, "source_id": source_id, "entity_id": f.entity_id,
+             "start": f.start, "end": f.end, "matched_text": f.matched[:200], "kind": f.kind} for f in found]
+
+
+COLUMNS = ("world_id", "source_table", "source_id", "entity_id", "start", "end", "matched_text", "kind")
+
+
+def _insert(db: Session, rows: list[dict]) -> None:
+    """Store mentions with COPY, in this transaction: a world rescan writes tens of thousands of them, and an INSERT
+    per row (what an ORM or an executemany sends) took seconds."""
+    if not rows:
+        return
+    db.flush()
+    raw = db.connection().connection.driver_connection
+    columns = ", ".join(f'"{c}"' for c in COLUMNS)
+    with raw.cursor() as cur, cur.copy(f"COPY mentions ({columns}) FROM STDIN") as copy:
+        for r in rows:
+            copy.write_row([r[c] for c in COLUMNS])
+
+
+def _forget(db: Session, sources: list[tuple[str, uuid.UUID]]) -> None:
+    for table in {t for t, _ in sources}:
+        ids = [sid for t, sid in sources if t == table]
+        for i in range(0, len(ids), 5000):
+            db.execute(delete(Mention).where(Mention.source_table == table, Mention.source_id.in_(ids[i:i + 5000])))
+
+
+def _lock(db: Session, world_id: uuid.UUID) -> None:
+    """One writer of a world's mentions at a time, until the transaction ends: two saves rescanning overlapping texts
+    at once would otherwise wait on each other's rows and could deadlock."""
+    db.execute(sql("SELECT pg_advisory_xact_lock(:k)"), {"k": world_id.int % (2 ** 63)})
 
 
 def scan_source(m: Matcher, table: str, text: str, source_id: uuid.UUID | None = None) -> list[Found]:
@@ -305,32 +420,119 @@ def refresh_source(db: Session, world_id: uuid.UUID, table: str, source_id: uuid
                    matcher: Matcher | None = None) -> None:
     """Rescan one text after it was saved."""
     m = matcher or matcher_for(db, world_id)
-    _store(db, world_id, table, source_id, scan_source(m, table, text, source_id))
+    found = scan_source(m, table, text, source_id)
+    _lock(db, world_id)
+    _forget(db, [(table, source_id)])
+    _insert(db, _rows(world_id, table, source_id, found))
 
 
 def forget_source(db: Session, table: str, source_id: uuid.UUID) -> None:
     db.execute(delete(Mention).where(Mention.source_table == table, Mention.source_id == source_id))
 
 
+def _texts(db: Session, world_id: uuid.UUID) -> Iterable[tuple[str, uuid.UUID, str]]:
+    """Every text of a world that names are found in: (source table, id, the text as stored)."""
+    for table, model, column in (("item", Item, Item.body), ("decision", Decision, Decision.text),
+                                 ("journal", JournalEntry, JournalEntry.body), ("entity", Entity, Entity.body)):
+        for sid, body in db.execute(select(model.id, column).where(model.world_id == world_id)):
+            yield table, sid, body
+    for sid, body in db.execute(select(Chapter.id, Chapter.body).join(Project, Project.id == Chapter.project_id)
+                                .where(Project.world_id == world_id)):
+        yield "chapter", sid, body
+
+
 def refresh_world(db: Session, world_id: uuid.UUID) -> None:
-    """Rescan every text of a world: names, aliases or "not a typo" words changed."""
+    """Rescan every text of a world: a restored one, or one whose mentions are older than the matcher."""
     m = matcher_for(db, world_id)
     w = db.get(World, world_id)
     if w is not None:
         w.mentions_version = MENTIONS_VERSION
+    _lock(db, world_id)
     db.execute(delete(Mention).where(Mention.world_id == world_id))
-    db.flush()
-    for i in db.scalars(select(Item).where(Item.world_id == world_id)):
-        _store(db, world_id, "item", i.id, m.scan(i.body))
-    for d in db.scalars(select(Decision).where(Decision.world_id == world_id)):
-        _store(db, world_id, "decision", d.id, m.scan(d.text))
-    for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world_id)):
-        _store(db, world_id, "journal", j.id, scan_source(m, "journal", j.body))
-    for e in db.scalars(select(Entity).where(Entity.world_id == world_id)):
-        _store(db, world_id, "entity", e.id, m.scan(e.body, skip_entity=e.id))
-    for c in db.scalars(select(Chapter).join(Project, Project.id == Chapter.project_id)
-                        .where(Project.world_id == world_id)):
-        _store(db, world_id, "chapter", c.id, scan_source(m, "chapter", c.body))
+    rows: list[dict] = []
+    for table, sid, body in _texts(db, world_id):
+        rows += _rows(world_id, table, sid, scan_source(m, table, body, sid))
+    _insert(db, rows)
+
+
+@dataclass
+class Delta:
+    """What a change of names can reach: names whose owner, kind or "not in this sense" phrases changed (lower case);
+    single words that became or stopped being part of a name or "not a typo" (lower case); and the near-miss candidates
+    that changed (as spelled)."""
+
+    forms: set[str]
+    words: set[str]
+    near: list[str]
+
+    @property
+    def empty(self) -> bool:
+        return not (self.forms or self.words or self.near)
+
+    def reaches(self, text: str) -> bool:
+        """Whether a scan of `text` could come out differently. Errs on the side of yes."""
+        if self.forms:
+            lower = text.lower()
+            if any(f in lower for f in self.forms):
+                return True
+        if not (self.words or self.near):
+            return False
+        for word in {w for w in WORD_RE.findall(text) if w[0].isupper()}:
+            base = POSSESSIVE_RE.sub("", word)
+            if base.lower() in self.words or word.lower() in self.words:
+                return True
+            if self.near and len(base) >= NEAR_MIN:
+                limit = 1 if len(base) <= 6 else 2
+                if process.extractOne(base, self.near, scorer=OSA.distance, score_cutoff=limit) is not None:
+                    return True
+        return False
+
+
+def delta(before: Matcher, after: Matcher) -> Delta:
+    """What changed between two builds of a world's matcher."""
+
+    def table(m: Matcher, d: dict[str, list[tuple[uuid.UUID, str]]]) -> dict[str, tuple]:
+        # each form's claimants with their "not in this sense" phrases; for a shared name also their names, which its
+        # choice lines are read by
+        return {f: tuple((eid, kind, tuple(m.exclusions.get(eid, ())), m.names.get(eid) if len(owners) > 1 else None)
+                         for eid, kind in owners) for f, owners in d.items()}
+
+    forms: set[str] = set()
+    for b, a in ((table(before, before.exact), table(after, after.exact)),
+                 (table(before, before.loose), table(after, after.loose))):
+        forms |= {f.lower() for f in b.keys() | a.keys() if b.get(f) != a.get(f)}
+    # (shorter words are never near misses, so a change to them reaches nothing)
+    words = {w for w in (before.known_lower ^ after.known_lower) | {w.lower() for w in before.ignored ^ after.ignored}
+             if len(w) >= NEAR_MIN}
+    # a candidate whose owner changed; and every word of a changed name, since which of two equally close candidates
+    # wins depends on the order the names were met in
+    changed = {w.lower() for w in before.word_owner.keys() | after.word_owner.keys()
+               if before.word_owner.get(w) != after.word_owner.get(w)}
+    for f in forms:
+        changed |= {w for w in WORD_RE.findall(f) if len(w) >= NEAR_MIN}
+    near = sorted({w for w in [*before.candidates, *after.candidates] if w.lower() in changed})
+    return Delta(forms, words, near)
+
+
+def refresh_names(db: Session, world_id: uuid.UUID, before: Matcher,
+                  also: Iterable[tuple[str, uuid.UUID]] = ()) -> int:
+    """After names changed: rescan the texts the change can reach, and those in `also` (a new entry's own page).
+    `before` is the world's matcher from before the change. Answers how many texts were rescanned."""
+    after = matcher_for(db, world_id)
+    d = delta(before, after)
+    extra = set(also)
+    if d.empty and not extra:
+        return 0
+    _lock(db, world_id)
+    changed: list[tuple[str, uuid.UUID]] = []
+    rows: list[dict] = []
+    for table, sid, body in _texts(db, world_id):
+        if (table, sid) in extra or d.reaches(body):
+            changed.append((table, sid))
+            rows += _rows(world_id, table, sid, scan_source(after, table, body, sid))
+    _forget(db, changed)
+    _insert(db, rows)
+    return len(changed)
 
 
 def rescan_stale(db: Session) -> int:

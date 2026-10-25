@@ -138,11 +138,14 @@ def checks(db: Session, world: World, planned: bool = False) -> list[dict]:
     named: dict[uuid.UUID, Counter] = defaultdict(Counter)
     appears: dict[uuid.UUID, Counter] = defaultdict(Counter)
     if order:
-        for m in db.scalars(select(Mention).where(Mention.source_table == "chapter", Mention.source_id.in_(list(index)),
-                                                  Mention.kind.in_(COUNTED))):
-            named[m.entity_id][m.source_id] += 1
-            if not any(a <= m.start < b for a, b in told.get(m.source_id, ())):
-                appears[m.entity_id][m.source_id] += 1
+        # plain rows: a long book has tens of thousands of mentions
+        for entity_id, source_id, start in db.execute(
+                select(Mention.entity_id, Mention.source_id, Mention.start)
+                .where(Mention.source_table == "chapter", Mention.source_id.in_(list(index)),
+                       Mention.kind.in_(COUNTED))):
+            named[entity_id][source_id] += 1
+            if not any(a <= start < b for a, b in told.get(source_id, ())):
+                appears[entity_id][source_id] += 1
     facts = [f for f in db.scalars(select(Fact).where(Fact.world_id == world.id, Fact.standing.in_(standings)))
              if not f.outside_time]
     out: list[dict] = []
@@ -399,10 +402,13 @@ def checks(db: Session, world: World, planned: bool = False) -> list[dict]:
     # a computed age that disagrees with an "age" fact (docs/SPEC.md §13.2.4): canon facts, chapters on the clock; a
     # birth is a "born" fact or a canon birth event they are related to
     births = life_events(db, world, clock, entities, rels, "birth", standings)
+    facts_of: dict[uuid.UUID, list[Fact]] = defaultdict(list)
+    for f in facts:
+        facts_of[f.entity_id].append(f)
     for e in entities.values():
         if "character" not in kinds_of(e):
             continue
-        mine = [f for f in facts if f.entity_id == e.id]
+        mine = facts_of.get(e.id, [])
         born = birth_of(clock, mine, standings) or births.get(e.id)
         if born is None:
             continue

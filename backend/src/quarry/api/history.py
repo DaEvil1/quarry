@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..clock import Clock
 from ..db import get_db
-from ..mentions import refresh_world
+from ..mentions import forget_source, matcher_for, refresh_names
 from ..models import (
     ERA_COLOURS,
     Chapter,
@@ -215,6 +215,7 @@ def record_event(slug: str, body: RecordIn, user: User = Depends(current_user), 
         raise HTTPException(404, "No such journal entry.")
     project_id = ch.project_id if ch is not None else entry.project_id if entry is not None else None
     created = False
+    names = None
     if body.event_id is not None:
         e = db.get(Entity, body.event_id)
         if e is None or e.world_id != world.id or e.kind != "event":
@@ -228,6 +229,7 @@ def record_event(slug: str, body: RecordIn, user: User = Depends(current_user), 
         e = Entity(world_id=world.id, kind="event", name=name, aliases=[], body="", summary="",
                    project_id=project_id if len(world.projects) > 1 else None, created_by=user.id,
                    updated_by=user.id)
+        names = matcher_for(db, world.id)
         db.add(e)
         db.flush()
         created = True
@@ -281,8 +283,8 @@ def record_event(slug: str, body: RecordIn, user: User = Depends(current_user), 
         related.add(other.id)
         added.append(str(r.id))
     db.flush()
-    if created:
-        refresh_world(db, world.id)
+    if names is not None:
+        refresh_names(db, world.id, names)
     db.commit()
     now = event_when(e)
     return {"event": {"id": str(e.id), "name": e.name, "kind": "event"}, "event_id": str(e.id), "created": created,
@@ -306,6 +308,7 @@ def undo_record(slug: str, body: UndoRecordIn, user: User = Depends(current_user
     """Undo a Record as event: remove what that save added (the telling, the participants it recorded, the event it
     made) and put the event's time back."""
     world, _ = member_world(db, user, slug)
+    names = matcher_for(db, world.id) if body.created else None
     for rid in body.relationships:
         r = db.get(Relationship, rid)
         if r is not None and r.world_id == world.id:
@@ -317,6 +320,7 @@ def undo_record(slug: str, body: UndoRecordIn, user: User = Depends(current_user
     if e is not None and e.world_id == world.id:
         if body.created:
             db.delete(e)
+            forget_source(db, "entity", e.id)
         else:
             w = body.when_before or {}
             e.time_chapter_id = uuid.UUID(w["chapter"]) if w.get("chapter") else None
@@ -324,8 +328,8 @@ def undo_record(slug: str, body: UndoRecordIn, user: User = Depends(current_user
             e.time_approx, e.outside_time = bool(w.get("approx")), bool(w.get("outside"))
             e.version += 1
     db.flush()
-    if body.created:
-        refresh_world(db, world.id)
+    if names is not None:
+        refresh_names(db, world.id, names)
     db.commit()
     return {"undone": True}
 

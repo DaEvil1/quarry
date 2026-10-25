@@ -151,3 +151,27 @@ def test_shared_names(case):
 def test_shared_name_in_an_entrys_own_notes_means_itself():
     found = scan_source(SHARED_M, "entity", "Isolde keeps the lamp. Isolde Senn does not.", SHARED["marr"].id)
     assert [(f.matched, f.kind, SHARED_KEY[f.entity_id]) for f in found] == [("Isolde Senn", "exact", "senn")]
+
+
+def test_the_branching_pattern_matches_what_the_plain_alternation_did():
+    """The names are compiled letter by letter (fast with thousands of names); it must find exactly what the plain
+    alternation of them, longest first, found."""
+    import random
+    import re
+
+    from quarry.mentions import SUFFIX, trie_pattern
+
+    rnd = random.Random(5)
+    syl = ["ar", "an", "a", "bel", "be", "cor", "c", "dan", "el", "e", "is", "or", "o", "s", "’s"]
+    names = sorted({"".join(rnd.choice(syl) for _ in range(rnd.randint(1, 3))).capitalize()
+                    + (" " + rnd.choice(syl).capitalize() if rnd.random() < .3 else "") for _ in range(300)})
+    names += ["The Grey Keeper", "the Grey Keeper", "Old Harbour", "Old"]
+    words = [*names, *(n.lower() for n in names[:50]), "and", "Arx", "Belx", "O'", "-", "s"]
+    for flags, forms in ((0, names), (re.IGNORECASE, [n.lower() for n in names])):
+        plain = re.compile(r"(?<![\w'’-])(" + "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))
+                           + r")" + SUFFIX + r"(?![\w])", flags)
+        trie = re.compile(r"(?<![\w'’-])(" + trie_pattern(forms) + r")" + SUFFIX + r"(?![\w])", flags)
+        for _ in range(300):
+            text = "".join(rnd.choice(words) + rnd.choice([" ", "", "'s ", ". ", "-", "s "]) for _ in range(40))
+            assert [(m.span(), m.group(1)) for m in plain.finditer(text)] == \
+                [(m.span(), m.group(1)) for m in trie.finditer(text)], text
