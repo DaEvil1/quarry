@@ -44,13 +44,14 @@ const error = ref("");
 const root = ref<HTMLElement | null>(null);
 const offers = ref<Offers>({ chapters: [], entities: [] });
 
-onMounted(async () => {
-  if (props.autofocus) root.value?.focus();
-  try {
-    offers.value = await decisionOffers(props.world, props.decision.id);
-  } catch {
+// what the decision offers, asked for once when the step opens; a form opened before it arrives waits for it
+const ready = decisionOffers(props.world, props.decision.id)
+  .then((o) => (offers.value = o))
+  .catch(() => {
     /* the forms work without what the decision offers */
-  }
+  });
+onMounted(() => {
+  if (props.autofocus) root.value?.focus();
 });
 
 const entityChips = ref<EntityRef[]>([]);
@@ -61,6 +62,7 @@ function chipsFor(): EntityRef[] {
 
 async function open(m: Mode) {
   error.value = "";
+  await ready;
   mode.value = m;
   entityChips.value = chipsFor();
   if (m === "fact") startFact();

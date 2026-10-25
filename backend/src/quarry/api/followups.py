@@ -588,7 +588,10 @@ def offers(slug: str, decision_id: uuid.UUID, user: User = Depends(current_user)
                                             .order_by(Mention.start))]
     ids = list(dict.fromkeys([*tagged, *named]))
     entities = {e.id: e for e in db.scalars(select(Entity).where(Entity.world_id == world.id, Entity.id.in_(ids)))}
-    tagged_names = sorted((entities[x] for x in tagged if x in entities), key=lambda e: e.name.lower())
+    # tags keep no order: those the text names come first, in the order it names them, then the rest by name
+    at = {x: i for i, x in reversed(list(enumerate(named)))}
+    tagged_names = sorted((entities[x] for x in tagged if x in entities),
+                          key=lambda e: (at.get(e.id, len(named)), e.name.lower()))
     return {"chapters": named_chapters(db, world, d),
             "entities": [{"id": str(e.id), "name": e.name, "kind": e.kind, "tagged": e.id in set(tagged)}
                          for e in [*tagged_names, *(entities[x] for x in ids if x in entities and x not in set(tagged))]]}
