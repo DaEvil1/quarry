@@ -35,6 +35,9 @@ Tests need a server where the user may create databases; they create and migrate
 QUARRY_TEST_DATABASE_URL=postgresql://quarry:quarry@127.0.0.1:55433/quarry .venv/Scripts/python -m pytest
 ```
 
+`-n auto` (pytest-xdist, as CI runs them) spreads the tests over one process per core, each with a database of its
+own (`quarry_test_gw0`, `quarry_test_gw1`, …).
+
 The passkey tests use a software authenticator (`tests/softauth.py`) that signs real WebAuthn answers, so the
 server's verification runs unmocked.
 
@@ -66,6 +69,17 @@ QUARRY_DATABASE_URL=postgresql://quarry:quarry@127.0.0.1:55433/quarry_e2e QUARRY
 # back in frontend/:
 npm run e2e
 ```
+
+`phase1.spec.ts` is a setup project that the others depend on: first run, a world, and the signed-in state they start
+from. One worker runs everything in name order. `npm run e2e -- --workers=4` runs the files side by side and stays
+safe: the phase specs and `revising.spec.ts` carry on in phase 1's world one after another, the specs that load the
+demo world take turns, and `update.spec.ts` (which changes the served `sw.js`) runs last on its own. A new spec file
+that builds a world of its own needs nothing; one that carries on from another spec or loads the demo world belongs
+in that project in `playwright.config.ts`. Empty the database before each run either way.
+
+CI splits the run over three runners, each with its own database and server, and sets `E2E_SHARD` so
+`update.spec.ts` needn't wait there: `--project=chain --project=update`, and `--project=demo --project=own` with
+`--shard=1/2` and `--shard=2/2`.
 
 ## The whole stack in Docker
 

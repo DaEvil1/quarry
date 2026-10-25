@@ -2,7 +2,8 @@
 
 QUARRY_TEST_DATABASE_URL points at a server where the test user may create databases; a fresh database
 ``quarry_test`` is created per run, migrated with Alembic, and emptied between tests. Without it the database
-tests are skipped.
+tests are skipped. Under pytest-xdist (``-n auto``) each worker is a process of its own with its own database,
+``quarry_test_gw0`` and so on.
 """
 
 from __future__ import annotations
@@ -32,7 +33,8 @@ def db_url() -> Iterator[str]:
 
     base = make_url(normalize_db_url(TEST_URL))
     admin = create_engine(base, isolation_level="AUTOCOMMIT")
-    name = "quarry_test"
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    name = f"quarry_test_{worker}" if worker else "quarry_test"
     with admin.connect() as c:
         c.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
         c.execute(text(f'CREATE DATABASE "{name}"'))
