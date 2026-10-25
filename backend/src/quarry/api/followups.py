@@ -570,6 +570,30 @@ def decision_chapters(slug: str, decision_id: uuid.UUID, user: User = Depends(cu
     return named_chapters(db, world, _decision(db, world, decision_id))
 
 
+@router.get("/decisions/{decision_id}/offers")
+def offers(slug: str, decision_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    """What the follow-up step offers, worked out once when it opens (docs/SPEC.md §16.3): the chapters the decision
+    names, and its entries: those it is tagged with (and those the item it closed was tagged with), then those it
+    names (its stored mentions)."""
+    world, _ = member_world(db, user, slug)
+    d = _decision(db, world, decision_id)
+    tagged = list(db.scalars(select(DecisionLink.entity_id).where(DecisionLink.decision_id == d.id)))
+    if d.item_id is not None:
+        tagged += [x for x in db.scalars(select(ItemLink.target_id).where(ItemLink.item_id == d.item_id,
+                                                                          ItemLink.target_table == "entity"))
+                   if x not in tagged]
+    named = [m.entity_id for m in db.scalars(select(Mention).where(Mention.source_table == "decision",
+                                                                    Mention.source_id == d.id,
+                                                                    Mention.kind.in_(("exact", "alias")))
+                                            .order_by(Mention.start))]
+    ids = list(dict.fromkeys([*tagged, *named]))
+    entities = {e.id: e for e in db.scalars(select(Entity).where(Entity.world_id == world.id, Entity.id.in_(ids)))}
+    tagged_names = sorted((entities[x] for x in tagged if x in entities), key=lambda e: e.name.lower())
+    return {"chapters": named_chapters(db, world, d),
+            "entities": [{"id": str(e.id), "name": e.name, "kind": e.kind, "tagged": e.id in set(tagged)}
+                         for e in [*tagged_names, *(entities[x] for x in ids if x in entities and x not in set(tagged))]]}
+
+
 @router.get("/followup-candidates")
 def candidates(slug: str, decision: uuid.UUID | None = Query(default=None), user: User = Depends(current_user),
                db: Session = Depends(get_db)) -> list[dict]:

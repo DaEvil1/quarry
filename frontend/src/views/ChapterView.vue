@@ -14,11 +14,14 @@ import {
   resolve as resolveApi,
   saveSessionNote,
   sessionNote,
+  unresolve as unresolveApi,
   type Check,
   type PanelActions,
 } from "../companion";
+import { chapterGaps, followupToast, type Gap } from "../followups";
 import type { Since } from "../editor/companion";
 import { chapterPresence, setPresence } from "../storytime";
+import FollowUpStep from "../components/FollowUpStep.vue";
 import HistoryPanel from "../components/HistoryPanel.vue";
 import RetireReview from "../components/RetireReview.vue";
 import UndoToast from "../components/UndoToast.vue";
@@ -51,7 +54,7 @@ import {
   type Chapter,
   type StatusRef,
 } from "../manuscript";
-import { del, unreachable } from "../api";
+import { del, patch, unreachable } from "../api";
 import {
   cacheChapter,
   checkpointBody,
@@ -611,7 +614,9 @@ watch(mode, (m) => {
   analyseNow();
   showChanges();
 });
-const showPanel = ref(prefs.panel);
+// "?panel=looseEnds" (from "chapter 9 is written", docs/SPEC.md §16.5) opens the panel on Loose ends
+const startTab = route.query.panel === "looseEnds" ? ("looseEnds" as const) : undefined;
+const showPanel = ref(prefs.panel || !!startTab);
 watch(showPanel, (on) => {
   prefs.set("panel", on);
   if (on && mode.value === "drafting") analyseNow();
@@ -623,6 +628,14 @@ const linked = ref(new Set<string>());
 const resolved = ref(new Set<string>());
 const chapterChecks = ref<Check[]>([]);
 const items = ref<{ id: string; title: string | null; body: string; passage?: string | null }[]>([]);
+// the gap lines (docs/SPEC.md §16.4): fetched with the items tied to the chapter, when it opens and when Loose ends is
+// shown, never while typing; offline they aren't shown
+const gaps = ref<Gap[]>([]);
+async function loadGaps() {
+  const ch = chapter.value;
+  if (!ch || session.offline) return;
+  gaps.value = await chapterGaps(worldSlug.value, ch.id).catch(() => gaps.value);
+}
 const nextNote = ref("");
 const backIn = ref<{ context: string; note: string; cursor: number } | null>(null);
 let analyseTimer = 0;
@@ -683,14 +696,16 @@ function applyFix(f: Finding, at: { from: number } | null = placeOf(f)) {
 
 async function loadCompanion(ch: Chapter) {
   const w = worldSlug.value;
-  const [pairs, res, chk, its, note] = await Promise.allSettled([
+  const [pairs, res, chk, its, note, gp] = await Promise.allSettled([
     linkedPairs(w),
     resolutions(w),
     loadChecksApi(w, ch.id, planned.value),
     chapterItems(w, ch.id),
     sessionNote(w, ch.id),
+    chapterGaps(w, ch.id),
   ]);
   if (chapter.value?.id !== ch.id) return;
+  gaps.value = gp.status === "fulfilled" ? gp.value : [];
   if (pairs.status === "fulfilled") linked.value = pairs.value;
   if (res.status === "fulfilled") resolved.value = new Set(res.value.map((r) => `${r.rule}|${r.key}`));
   if (chk.status === "fulfilled") chapterChecks.value = chk.value;
@@ -768,6 +783,34 @@ function onTab(t: string) {
   panelTab.value = t;
   if (mode.value === "drafting") analyseNow();
   if (t === "continuity") void loadChecks();
+  if (t === "looseEnds") void loadGaps();
+}
+
+/** Make it canon here, from a gap line (§16.4): established in this chapter, with the selection as its evidence. */
+async function canonHere(g: Gap, evidence: string | null) {
+  const ch = chapter.value;
+  if (!ch) return;
+  error.value = "";
+  try {
+    const body = { make_canon: g.id, established_in_chapter_id: ch.id, ...(evidence ? { evidence } : {}) };
+    const made = g.table === "fact"
+      ? await addFact(worldSlug.value, g.entity_id, { label: g.label ?? "", value: "", ...body })
+      : await addRelationship(worldSlug.value, { type_id: g.type_id!, a_id: g.a_id!, b_id: g.b_id!, ...body });
+    const where = ch.state === "current" ? `chapter ${ch.position + 1}` : ch.title;
+    followupToast.value = {
+      label: `Canon in ${where}${g.others_todo === 0 ? " · the decision is done" : ""}`,
+      undo: async () => {
+        const back = { base_version: made.version, standing: g.standing, established_in_chapter_id: null, evidence: null };
+        await patch(`/api/worlds/${encodeURIComponent(worldSlug.value)}/${g.table === "fact" ? "facts" : "relationships"}/${g.id}`, back);
+        await Promise.all([loadGaps(), loadChecks()]);
+        void cards.refresh(worldSlug.value);
+      },
+    };
+    await Promise.all([loadGaps(), loadChecks()]);
+    void cards.refresh(worldSlug.value);
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
 }
 
 async function afterWorldChange() {
@@ -776,6 +819,21 @@ async function afterWorldChange() {
 }
 
 const panelActions: PanelActions = {
+  canonHere: (g, evidence) => void canonHere(g, evidence),
+  async notYet(g) {
+    await resolveApi(worldSlug.value, "followup_gap", g.key, "later").catch((e) => (error.value = (e as Error).message));
+    await loadGaps();
+  },
+  async showAgain(g) {
+    if (g.not_yet) await unresolveApi(worldSlug.value, g.not_yet).catch((e) => (error.value = (e as Error).message));
+    await loadGaps();
+  },
+  selection() {
+    const p = prose.value;
+    if (!p) return "";
+    const s = p.view.state.selection.main;
+    return s.empty ? "" : p.view.state.doc.sliceString(s.from, s.to).trim();
+  },
   jump(f) {
     const at = placeOf(f);
     const p = prose.value;
@@ -1214,6 +1272,14 @@ async function experiment(from: "copy" | "scratch") {
 
 const closing = ref<"accepted" | "harvested" | "rejected" | "retire" | null>(null);
 const decision = ref("");
+// the follow-up step under the close form, after closing an experiment with a decision line (docs/SPEC.md §16.3);
+// `then`: where to go once it ends (a draft that left the book goes to its project)
+const closeStep = ref<{ decision: { id: string; text: string }; then: (() => unknown) | null } | null>(null);
+function closeStepDone() {
+  const then = closeStep.value?.then;
+  closeStep.value = null;
+  void then?.();
+}
 // what leaves the book (the review before it, docs/SPEC.md §13.6.2): this chapter when retiring; when closing an
 // experiment, its range (accepting) or its drafts (harvesting, rejecting)
 const leavingBook = computed(() => {
@@ -1236,6 +1302,7 @@ async function confirmClose(review: Choice[], notes: Record<string, string>) {
   error.value = "";
   try {
     const outcome = closing.value;
+    const text = decision.value.trim();
     const done =
       outcome === "retire"
         ? await retireMany(worldSlug.value, [ch.id], review, notes)
@@ -1248,13 +1315,17 @@ async function confirmClose(review: Choice[], notes: Record<string, string>) {
       void cards.refresh(worldSlug.value);
       await load();
     };
+    const logged = done.decision_id && !session.offline ? { id: done.decision_id, text } : null;
     if (outcome === "accepted") {
       await load();
       const one = (chapter.value?.experiment?.range.length ?? 0) <= 1 && (chapter.value?.experiment?.drafts.length ?? 0) <= 1;
       notice.value = `${one ? "Accepted: this draft is now the chapter. The old one is in Salvage." : "Accepted: the drafts are in the book; what they replace is in Salvage."} ${done.said?.join(" ") ?? ""}`.trim();
       toast.value = { label: `Accepted · ${reviewLine(done.summary)}`, undo };
+      if (logged) closeStep.value = { decision: logged, then: null };
     } else {
-      await router.push({ name: "project", params: { world: worldSlug.value, project: ch.project } });
+      const go = () => router.push({ name: "project", params: { world: worldSlug.value, project: ch.project } });
+      if (logged) closeStep.value = { decision: logged, then: go };
+      else await go();
     }
   } catch (e) {
     error.value = (e as Error).message;
@@ -1335,6 +1406,7 @@ const experimentText = computed(() => {
         </div>
         <RetireReview :world="world.slug" :chapters="leavingBook" :experiment="closing === 'accepted' ? chapter?.experiment?.id : undefined" :targets="reviewTargets" :verb="CLOSE_TEXT[closing].verb" @done="confirmClose" @cancel="closing = null" />
       </template>
+      <FollowUpStep v-if="closeStep" :world="world.slug" :decision="closeStep.decision" lead="Decision logged" autofocus @done="closeStepDone" />
 
       <div v-if="offlineCopy" class="notice offline small" role="status" data-testid="offline-copy">
         Offline: this is the copy on this device. What you write is kept here and saved when you're back.
@@ -1377,6 +1449,8 @@ const experimentText = computed(() => {
       :findings="findings"
       :checks="chapterChecks"
       :items="items"
+      :gaps="gaps"
+      :start-tab="startTab"
       :note="nextNote"
       :back-in="backIn"
       :drafting="mode === 'drafting'"

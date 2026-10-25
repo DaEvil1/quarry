@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 
 import { typeOptions } from "../bible";
 import type { Check, PanelActions } from "../companion";
+import { decisionDay, type Gap } from "../followups";
 import { usePrefs } from "../prefs";
 import { ENTITY_KINDS, type EntityKind, type RelationType } from "../types";
 import { EDITORS, type EditorName, type Finding } from "../world/findings";
@@ -16,6 +17,8 @@ const props = defineProps<{
   findings: Finding[];
   checks: Check[];
   items: { id: string; title: string | null; body: string; passage?: string | null }[];
+  /** the gap lines: planned changes that follow a decision, tied to this written chapter (docs/SPEC.md §16.4) */
+  gaps?: Gap[];
   note: string;
   backIn: { context: string; note: string } | null;
   drafting: boolean;
@@ -28,19 +31,26 @@ const props = defineProps<{
   journal?: boolean;
   /** Include planned on the Continuity tab (docs/SPEC.md §14.6) */
   planned?: boolean;
+  /** the tab to open on (a link "into the chapter's Loose ends", docs/SPEC.md §16.5) */
+  startTab?: EditorName;
 }>();
 const emit = defineEmits<{ dismissBack: []; tab: [tab: string]; planned: [on: boolean] }>();
 
 const prefs = usePrefs();
-const tab = ref<"chapter" | EditorName>("chapter");
+const tab = ref<"chapter" | EditorName>(props.startTab ?? "chapter");
 const editors = computed(() => EDITORS.filter((e) => prefs.editors[e.name].on && !(props.journal && e.name === "continuity")));
 const byEditor = computed(() => {
   const out = Object.fromEntries(EDITORS.map((e) => [e.name, [] as Finding[]])) as Record<EditorName, Finding[]>;
   for (const f of props.findings) out[f.editor].push(f);
   return out;
 });
+const openGaps = computed(() => (props.gaps ?? []).filter((g) => !g.not_yet));
+const laterGaps = computed(() => (props.gaps ?? []).filter((g) => g.not_yet));
+// the selection, read when the pointer or focus comes to a gap line (not while typing): "…, with the selection"
+const selected = ref("");
+const peek = () => (selected.value = props.actions.selection?.() ?? "");
 const count = (e: EditorName) =>
-  e === "continuity" ? props.checks.filter((c) => !c.later).length : e === "looseEnds" ? byEditor.value.looseEnds.length + props.items.length : byEditor.value[e].length;
+  e === "continuity" ? props.checks.filter((c) => !c.later).length : e === "looseEnds" ? byEditor.value.looseEnds.length + props.items.length + openGaps.value.length : byEditor.value[e].length;
 function pick(t: "chapter" | EditorName) {
   tab.value = t;
   limit.value = PAGE;
@@ -98,7 +108,7 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
       </label>
       <p v-if="!openChecks.length" class="muted small">Nothing to check in this chapter.</p>
       <div v-for="c in openChecks" :key="c.rule + c.key" class="finding">
-        <div class="small">{{ c.message }}<span v-if="c.planned" class="pill" data-testid="planned-tag"> planned</span></div>
+        <div class="small">{{ c.message }}<span v-if="c.planned" class="pill" data-testid="planned-tag"> planned</span><template v-if="c.decided"> · <RouterLink :to="{ name: 'decisions', params: { world: props.world }, hash: `#d-${c.decided.id}` }" :title="c.decided.text" data-testid="finding-decided">decided {{ decisionDay(c.decided.decided_on) }}</RouterLink></template></div>
         <div class="qrow">
           <button v-for="e in c.entities" :key="e.id" type="button" class="qchip" :class="`k-${e.kind}`" @click="props.actions.open(e)">{{ e.name }}</button>
           <button v-if="c.rule === 'fact_conflict' && c.label && c.kind" type="button" class="qchip" title="The label holds several values at once for this kind" @click="props.actions.several(c.kind, c.label)">Both are true (several values)</button>
@@ -131,6 +141,24 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
           <RouterLink class="small" :to="{ name: 'item', params: { world: props.world, id: i.id } }">{{ i.title || i.body.split("\n")[0] }}</RouterLink>
           <blockquote v-if="i.passage" class="small muted passage-quote">{{ i.passage }}</blockquote>
         </div>
+        <template v-if="props.gaps?.length">
+          <div class="small muted">Decided, not in the book yet</div>
+          <div v-for="g in openGaps" :key="g.key" class="finding gap-line" data-testid="gap-line" @pointerenter="peek" @focusin="peek">
+            <div class="small">Decided {{ decisionDay(g.decision.decided_on) }}: {{ g.what }} · not in the book yet</div>
+            <RouterLink class="small muted gap-quote" :to="{ name: 'decisions', params: { world: props.world }, hash: `#d-${g.decision.id}` }">“{{ g.decision.text }}”</RouterLink>
+            <div class="qrow">
+              <button type="button" class="qchip primary" data-testid="gap-canon" @mousedown.prevent="peek" @click="props.actions.canonHere?.(g, selected || null)">{{ selected ? "Make it canon here, with the selection" : "Make it canon here" }}</button>
+              <button type="button" class="qchip quiet" data-testid="gap-not-yet" @click="props.actions.notYet?.(g)">Not yet</button>
+            </div>
+          </div>
+          <details v-if="laterGaps.length" class="small" data-testid="gap-later">
+            <summary>Not yet · {{ laterGaps.length }}</summary>
+            <div v-for="g in laterGaps" :key="g.key" class="finding later">
+              Decided {{ decisionDay(g.decision.decided_on) }}: {{ g.what }}
+              <button type="button" class="linkish small" data-testid="gap-show-again" @click="props.actions.showAgain?.(g)">Show again</button>
+            </div>
+          </details>
+        </template>
         <button type="button" class="btn btn-sm stash-btn" @click="props.actions.stash()">Stash a thought <kbd>Ctrl Shift S</kbd></button>
       </template>
 

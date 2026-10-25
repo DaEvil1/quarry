@@ -29,7 +29,13 @@ export interface Front {
   premise: string | null;
   notes: FrontNote[];
   lately: LatelyEvent[];
-  decisions: { id: string; decided_on: string; text: string; project: string | null }[];
+  decisions: { id: string; decided_on: string; text: string; project: string | null; followups?: import("./followups").FollowupCounts | null }[];
+  /** To follow through (docs/SPEC.md §16.5): the decisions with open follow-ups, oldest first, five, and how many there
+   * are in all; each with the first written chapter one of its planned changes is tied to */
+  follow_through?: {
+    decisions: { id: string; decided_on: string; text: string; project: string | null; followups: import("./followups").FollowupCounts; written: { id: string; title: string; n: number } | null }[];
+    count: number;
+  };
   questions: { latest: { id: string; title: string | null; body: string; created_at: string; project: string | null }[]; count: number; oldest: string | null };
   projects: { slug: string; words: number; chapters: number; last_written: string | null }[];
 }

@@ -3,6 +3,8 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { get, patch, unreachable } from "../api";
+import FollowsNote from "../components/FollowsNote.vue";
+import FollowUpStep from "../components/FollowUpStep.vue";
 import InlineText from "../components/InlineText.vue";
 import RetireReview from "../components/RetireReview.vue";
 import TimeField from "../components/TimeField.vue";
@@ -239,6 +241,8 @@ function closeExp(x: Experiment, outcome: "accepted" | "harvested" | "rejected")
   decision.value = "";
 }
 const toast = ref<{ label: string; undo: () => Promise<void> } | null>(null);
+// the follow-up step under the close form, after closing an experiment with a decision line (docs/SPEC.md §16.3)
+const closeStep = ref<{ id: string; text: string } | null>(null);
 async function reviewed(review: Choice[], notes: Record<string, string>) {
   const w = world.value;
   const r = reviewing.value;
@@ -247,8 +251,10 @@ async function reviewed(review: Choice[], notes: Record<string, string>) {
   try {
     let done: Reviewed;
     if (r.experiment && r.outcome) {
+      const text = decision.value.trim();
       done = await closeRange(w.slug, r.experiment.id, { outcome: r.outcome, review, notes, decision: decision.value || undefined, decided_on: localToday() });
       notice.value = done.said?.join(" ") ?? "";
+      closeStep.value = done.decision_id && !session.offline ? { id: done.decision_id, text } : null;
     } else {
       done = await retireMany(w.slug, r.chapters.map((c) => c.id), review, notes);
     }
@@ -656,6 +662,7 @@ async function save() {
         </div>
         <RetireReview :world="world.slug" :chapters="reviewing.chapters" :experiment="reviewing.outcome === 'accepted' ? reviewing.experiment?.id : undefined" :targets="targets" :verb="reviewing.verb" @done="reviewed" @cancel="reviewing = null" />
       </template>
+      <FollowUpStep v-if="closeStep" :world="world.slug" :decision="closeStep" lead="Decision logged" autofocus @done="closeStep = null" />
       <p v-if="manuscript && !manuscript.chapters.length" class="empty">No chapters yet.</p>
       <form class="actions new-chapter" @submit.prevent="addChapter">
         <label for="new-chapter" class="visually-hidden">New chapter title</label>
@@ -719,6 +726,7 @@ async function save() {
         <li v-for="i in openItems" :key="i.id">
           <span class="pill" :class="`kind-${i.kind}`">{{ i.kind }}</span>
           <RouterLink class="grow" :to="{ name: 'item', params: { world: world.slug, id: i.id } }">{{ firstLine(i) }}</RouterLink>
+          <FollowsNote v-if="i.follows?.length" :world="world.slug" :follows="i.follows" task />
           <span class="muted small">{{ age(i.created_at) }}</span>
         </li>
       </ul>

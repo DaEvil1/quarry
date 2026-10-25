@@ -4,6 +4,7 @@ import { useRoute } from "vue-router";
 
 import { endBefore, setLabelSwitches } from "../bible";
 import { checks, resolutions, resolve, unresolve, type Check, type Resolution } from "../companion";
+import { decisionDay } from "../followups";
 import { includePlanned, setIncludePlanned } from "../focus";
 import { useSession } from "../stores/session";
 import NotFoundView from "./NotFoundView.vue";
@@ -56,7 +57,8 @@ const groups = computed(() => {
   }
   return out;
 });
-const intentional = computed(() => settled.value.filter((r) => r.outcome === "intentional" && !["unrecorded", "echo", "long_sentence", "doubled", "where", "missing_label", "crossover"].includes(r.rule)));
+// a gap line's "Not yet" (followup_gap, docs/SPEC.md §16.4) is not a finding's resolution: never listed here
+const intentional = computed(() => settled.value.filter((r) => r.outcome === "intentional" && !["unrecorded", "echo", "long_sentence", "doubled", "where", "missing_label", "crossover", "followup_gap"].includes(r.rule)));
 
 async function settle(c: Check, outcome: "intentional" | "later") {
   await resolve(worldSlug.value, c.rule, c.key, outcome);
@@ -119,7 +121,7 @@ async function reopen(r: Resolution) {
       </h2>
       <ul class="rows">
         <li v-for="c in g.items" :key="c.rule + c.key" data-testid="check">
-          <span class="grow">{{ c.message }}<span v-if="c.planned" class="pill" data-testid="planned-tag"> planned</span></span>
+          <span class="grow">{{ c.message }}<span v-if="c.planned" class="pill" data-testid="planned-tag"> planned</span><template v-if="c.decided"> · <RouterLink :to="{ name: 'decisions', params: { world: world.slug }, hash: `#d-${c.decided.id}` }" :title="c.decided.text" data-testid="finding-decided">decided {{ decisionDay(c.decided.decided_on) }}</RouterLink></template></span>
           <RouterLink v-for="e in c.entities" :key="e.id" class="kname small" :class="`k-${e.kind}`" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink>
           <button v-if="c.rule === 'fact_conflict' && c.label && c.kind" type="button" class="btn btn-sm" title="The label holds several values at once for this kind" @click="bothTrue(c)">Both are true (several values)</button>
           <button v-if="c.rule === 'role_clash' && c.end && c.before" type="button" class="btn btn-sm" data-testid="end-before" @click="handOver(c)">End {{ c.end.name }}'s before {{ c.before.name }}'s</button>

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { focusOf, writeLastPlace } from "../focus";
+import { followupToast } from "../followups";
 import { readLastUsed, writeLastUsed } from "../lastUsed";
 import { syncWorld } from "../offline";
 import { ENTITY_KINDS } from "../types";
@@ -12,11 +13,13 @@ import { restoreWritingPrefs, useGuide } from "../stores/guide";
 import { useSession } from "../stores/session";
 import GuideOverlay from "./GuideOverlay.vue";
 import Icon from "./Icon.vue";
+import UndoToast from "./UndoToast.vue";
 import UpdateBar from "./UpdateBar.vue";
 import WorldSwitcher from "./WorldSwitcher.vue";
 
 const session = useSession();
 const guide = useGuide();
+const dismissFollowupToast = () => (followupToast.value = null);
 // a walkthrough left in the middle (a closed tab) gives back the writer's own writing settings
 restoreWritingPrefs();
 const cards = useCards();
@@ -226,6 +229,8 @@ async function signOut() {
       </div>
     </main>
     <GuideOverlay />
+    <!-- a follow-up made, dropped or made canon (docs/SPEC.md §16): above a page's own toast, beside it -->
+    <UndoToast class="toast-second" :label="followupToast?.label ?? null" :undo="followupToast?.undo ?? null" @dismiss="dismissFollowupToast" />
 
     <nav class="tabbar" aria-label="Sections">
       <RouterLink :to="to('capture')" :class="{ active: tabActive('capture') }">

@@ -9,6 +9,7 @@ import { filterText } from "../world/labels";
 import { factsAsOf, norm, type At, type IndexOf } from "../world/time";
 import type { Era } from "../world/eras";
 import type { Unit } from "../world/when";
+import FollowsNote from "./FollowsNote.vue";
 import InlineText from "./InlineText.vue";
 import SpanPicker from "./SpanPicker.vue";
 
@@ -114,6 +115,13 @@ async function expectIt() {
 }
 
 const set = (f: Fact, changes: Partial<Fact>) => run(() => updateFact(props.world, f, changes));
+// a fact that follows a decision says so before it goes: the follow-up stays on the decision, dropped (§16.1)
+function remove(f: Fact) {
+  const d = f.follows?.[0];
+  if (d && !confirm(`This follows the decision "${d.text}". It will be listed there as dropped.`)) return;
+  void run(() => deleteFact(props.world, f.id));
+}
+const followRow = (f: Fact) => (f.standing === "canon" ? null : { table: "fact" as const, id: f.id, entities: [props.entity.id] });
 const setSpan = (f: Fact, span: Span) => set(f, span);
 const now = computed(() => (props.asOf === null ? null : new Set(factsAsOf(props.facts, props.asOf, props.indexOf, props.several).map((f) => f.id))));
 
@@ -144,7 +152,7 @@ const filterLink = (f: Fact) => ({ name: "bible-kind", params: { world: props.wo
     </div>
     <table v-if="props.facts.length" class="facts">
       <tbody>
-        <tr v-for="r in rows" :key="r.facts[0]!.id" :class="{ off: !r.several && now && !now.has(r.facts[0]!.id), several: r.several }" :title="!r.several && now && !now.has(r.facts[0]!.id) ? 'Not true at this point in the story' : ''">
+        <tr v-for="r in rows" :id="`fact-${r.facts[0]!.id}`" :key="r.facts[0]!.id" :class="{ off: !r.several && now && !now.has(r.facts[0]!.id), several: r.several }" :title="!r.several && now && !now.has(r.facts[0]!.id) ? 'Not true at this point in the story' : ''">
           <th>
             <InlineText v-if="!r.several" :value="r.label" label="Label" :maxlength="100" @save="(v) => v && set(r.facts[0]!, { label: v })" />
             <template v-else>{{ r.label }} <span class="muted small" title="This label holds several values at once">(several)</span></template>
@@ -163,13 +171,15 @@ const filterLink = (f: Fact) => ({ name: "bible-kind", params: { world: props.wo
               /><template v-if="r.facts[0]!.evidence && r.facts[0]!.established_in_chapter_id"> — {{ props.chapterTitles[r.facts[0]!.established_in_chapter_id] ?? "a chapter" }}</template>
             </div>
             <PlannedIn v-if="r.facts[0]!.planned_in_journal_id" :world="props.world" :entry="props.journalEntries?.[r.facts[0]!.planned_in_journal_id]" :passage="r.facts[0]!.planned_evidence" />
+            <FollowsNote v-if="r.facts[0]!.follows?.length || followRow(r.facts[0]!)" :world="props.world" :follows="r.facts[0]!.follows" :row="followRow(r.facts[0]!)" @changed="emit('changed')" />
           </td>
           <td v-else class="grow" :colspan="3">
             <div class="value-chips" data-testid="value-chips">
               <span v-for="f in r.facts" :key="f.id" class="chip static value-chip" :class="[f.standing, { off: now && !now.has(f.id) }]" data-testid="value-chip">
                 <InlineText :value="f.value" label="Value" placeholder="—" :maxlength="5000" :list="listFor(r.label)" @save="(v) => set(f, { value: v })" />
                 <SpanPicker :span="f" :timeline="props.timeline" :unit="props.unit" :era-of="props.eraOf" @save="(sp) => setSpan(f, sp)" />
-                <button type="button" class="chip-x" :aria-label="`Remove ${r.label}: ${f.value}`" @click="run(() => deleteFact(props.world, f.id))">×</button>
+                <FollowsNote v-if="f.follows?.length" :world="props.world" :follows="f.follows" />
+                <button type="button" class="chip-x" :aria-label="`Remove ${r.label}: ${f.value}`" @click="remove(f)">×</button>
               </span>
             </div>
           </td>
@@ -179,7 +189,7 @@ const filterLink = (f: Fact) => ({ name: "bible-kind", params: { world: props.wo
                 <option v-for="s in STANDINGS" :key="s" :value="s">{{ s }}</option>
               </select>
             </td>
-            <td><button type="button" class="icon-btn small" :aria-label="`Remove ${r.label}`" @click="run(() => deleteFact(props.world, r.facts[0]!.id))">×</button></td>
+            <td><button type="button" class="icon-btn small" :aria-label="`Remove ${r.label}`" @click="remove(r.facts[0]!)">×</button></td>
           </template>
         </tr>
       </tbody>

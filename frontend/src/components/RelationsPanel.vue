@@ -7,6 +7,7 @@ import { holds, type At, type IndexOf } from "../world/time";
 import type { Era } from "../world/eras";
 import type { Unit } from "../world/when";
 import EntityPicker from "./EntityPicker.vue";
+import FollowsNote from "./FollowsNote.vue";
 import InlineText from "./InlineText.vue";
 import SpanPicker from "./SpanPicker.vue";
 import PlannedIn from "./PlannedIn.vue";
@@ -33,6 +34,13 @@ const cards = useCards();
 const off = (r: Relationship) => props.asOf !== null && !holds(r, props.asOf, props.indexOf);
 const setSpan = (r: Relationship, span: Span) => run(() => updateRelationship(props.world, r, span));
 const emit = defineEmits<{ changed: []; error: [message: string] }>();
+// a relationship that follows a decision says so before it goes: the follow-up stays on the decision, dropped (§16.1)
+function remove(r: Relationship) {
+  const d = r.follows?.[0];
+  if (d && !confirm(`This follows the decision "${d.text}". It will be listed there as dropped.`)) return;
+  void run(() => deleteRelationship(props.world, r.id));
+}
+const followRow = (r: Relationship) => (r.standing === "canon" ? null : { table: "relationship" as const, id: r.id, entities: [r.a.id, r.b.id] });
 
 const groups = computed(() => {
   const out = new Map<string, Relationship[]>();
@@ -137,7 +145,7 @@ function doChange(r: Relationship) {
       <template v-for="[reads, list] in groups" :key="reads">
         <dt>{{ reads }}</dt>
         <dd>
-          <span v-for="r in list" :key="r.id" class="rel" :class="[`k-${r.other?.kind}`, { off: off(r) }]" :title="off(r) ? 'Not true at this point in the story' : ''" data-testid="relationship">
+          <span v-for="r in list" :id="`rel-${r.id}`" :key="r.id" class="rel" :class="[`k-${r.other?.kind}`, { off: off(r) }]" :title="off(r) ? 'Not true at this point in the story' : ''" data-testid="relationship">
             <RouterLink class="kname" :to="{ name: 'entity', params: { world: props.world, id: r.other?.id } }">{{ r.other?.name }}</RouterLink>
             <span v-if="r.role || r.has_role" class="rel-role" data-testid="role">
               ·
@@ -149,6 +157,7 @@ function doChange(r: Relationship) {
             <SpanPicker :span="r" :timeline="props.timeline" :unit="props.unit" :era-of="props.eraOf" @save="(sp) => setSpan(r, sp)" />
             <span v-if="r.note" class="muted small">— {{ r.note }}</span>
             <PlannedIn v-if="r.planned_in_journal_id" :world="props.world" :entry="props.journalEntries?.[r.planned_in_journal_id]" :passage="r.planned_evidence" />
+            <FollowsNote v-if="r.follows?.length || followRow(r)" :world="props.world" :follows="r.follows" :row="followRow(r)" @changed="emit('changed')" />
             <button v-if="r.has_role && props.timeline.length && changing !== r.id" type="button" class="linkish small" data-testid="change-role" @click="startChange(r)">Change role from here…</button>
             <form v-if="changing === r.id" class="span-form" data-testid="change-role-form" @submit.prevent="doChange(r)" @keydown.esc.prevent="changing = null">
               <label class="small muted">from
@@ -165,7 +174,7 @@ function doChange(r: Relationship) {
             </form>
             <RouterLink class="small read-together" :to="{ name: 'entity-read', params: { world: props.world, id: props.entity.id }, query: { with: r.other?.id } }"
               :title="`Read the paragraphs that name both ${props.entity.name} and ${r.other?.name}`">Read together</RouterLink>
-            <button type="button" class="icon-btn small" :aria-label="`Remove ${reads} ${r.other?.name}`" @click="run(() => deleteRelationship(props.world, r.id))">×</button>
+            <button type="button" class="icon-btn small" :aria-label="`Remove ${reads} ${r.other?.name}`" @click="remove(r)">×</button>
           </span>
         </dd>
       </template>

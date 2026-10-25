@@ -225,6 +225,8 @@ export interface Reviewed {
   chapters: string[];
   said?: string[];
   first?: string | null;
+  /** the decision an experiment's close logged (docs/SPEC.md §16.3) */
+  decision_id?: string | null;
 }
 export const chapterTies = (world: string, ids: string[], experiment?: string) =>
   get<{ rows: Tie[] }>(`${base(world)}/chapters/ties?ids=${ids.join(",")}${experiment ? `&experiment=${experiment}` : ""}`);
