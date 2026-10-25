@@ -5,7 +5,7 @@ The backend is Python (FastAPI, SQLAlchemy, Alembic) in `backend/`. The frontend
 
 ## A database
 
-Any PostgreSQL 16+ works. A throwaway container:
+Any PostgreSQL 16+ works. A throwaway one in a container:
 
 ```bash
 docker run -d --name quarry-pg -e POSTGRES_USER=quarry -e POSTGRES_PASSWORD=quarry -e POSTGRES_DB=quarry -p 127.0.0.1:55433:5432 postgres:17-alpine
