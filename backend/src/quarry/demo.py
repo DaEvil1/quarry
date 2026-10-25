@@ -36,6 +36,9 @@ For getting back in and checking (docs/SPEC.md §14.4–§14.9) it has a premise
 entry, an old entry with decisions and changes since, Brother Cade's death planned (a finding once "Include planned" is on),
 four events joined by "caused" and "followed from" (the Mountain Fires placed after the Flood of Lanterns they caused,
 which is a finding), and the Ninefold Delta, a place that is also a character.
+
+For names shared by two entries (docs/SPEC.md §14.10) it has two Linnets, Linnet Dray and Linnet Sorrel the
+lock-keeper, and "The Cartographer" calls one of them just "Linnet" before, between and after choice lines.
 """
 
 from __future__ import annotations
@@ -149,6 +152,12 @@ BIBLE: list[dict] = [
             {"type": "parent of", "type_kinds": ["character", "character"], "to": "corin"},
             {"type": "lives in", "type_kinds": ["character", "place"], "to": "greywater"},
         ],
+        "body": _p(""),
+    },
+    {
+        "id": "linnet-sorrel", "name": "Linnet Sorrel", "kind": "character", "gender": "female",
+        "summary": "Keeps the lower gates at Marrow Locks for the Wardens; shares a first name with Linnet Dray.",
+        "relationships": [{"type": "works at", "type_kinds": ["character", "place"], "to": "marrow-locks"}],
         "body": _p(""),
     },
     {
@@ -603,6 +612,14 @@ CHAPTERS: list[dict] = [
             "\"These are wrong,\" Tamsin said.",
             "\"All maps of the delta are wrong,\" said Hesper. \"I'm trying to make one that's wrong more "
             "slowly.\"",
+            # two Linnets: which one the bare name means is settled by a line, from there on (docs/SPEC.md §14.10)
+            "Linnet sent word from the locks that the ash had reached the lower gates.",
+            "%% Linnet: Linnet Sorrel",
+            "Linnet kept the gates open a day longer than the Wardens allowed.",
+            "%% Linnet: Linnet Dray",
+            "In Greywater, Linnet read the letter twice and burned it.",
+            "%% Linnet: ?",
+            "Hesper asked which Linnet the ferry-folk meant, and nobody could say.",
         ),
     },
     {
