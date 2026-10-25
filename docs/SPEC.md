@@ -208,8 +208,9 @@ quarry/                      # public GitHub repo (code only)
     Journal kept beside what is canon in the book (recording a fact from a passage, *Make it canon here*), reading an
     entry's thread through the planning, sparks and questions from a passage, loose ends in the Journal, a front page
     for getting back into a world, "since this was written" on journal entries, "Include planned" on the Continuity
-    checks, cause arrows on the Timeline, and entries of more than one kind. Designed in §14, with a *done when* per
-    part; built after phase 12 is merged, as two build phases, 13a and 13b (§14.10).
+    checks, cause arrows on the Timeline, entries of more than one kind, and a focus per world (writing or
+    planning). Designed in §14, with a *done when* per
+    part; built after phase 12 is merged, as two build phases, 13a and 13b (§14.11).
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -1892,7 +1893,8 @@ Phase 13 makes the planning a first-class place to work: the **editor's world to
 **planned in the Journal** kept beside what is **canon in the book**; a way to **read an entry's thread through the
 planning**; **turning a passage into a spark or question**; a **front page** for getting back into a world after a
 long gap; **"since this was written"** on old notes; **"Include planned"** on the Continuity checks; **cause arrows**
-on the Timeline; and **entries of more than one kind** (a world that is a place and acts).
+on the Timeline; **entries of more than one kind** (a world that is a place and acts); and a **focus** per world,
+*Writing* or *Planning*, that decides what is up front.
 
 The approach is *dump freely, then sweep*: write in the Journal as before, and classify afterwards with the same
 gestures as in a chapter (the quick-fix strip, F8, recording from a selection). There are no questionnaires and no
@@ -2181,10 +2183,8 @@ been happening, worked out for you.
   - **New project** becomes a button beside *Projects* that opens the form in place.
   - **Rename** (name and address), the world's **time unit** (§13.1.1, from 12a) and **Delete this world…** move to
     a new **World settings** page, `/w/<world>/settings`, linked from the head.
-- **Getting there after a gap.** Opening a world that hasn't been opened on this device for four weeks lands on the
-  front page instead of the last place used; otherwise the last place, as today. (Open: a focus chosen per world may
-  replace this rule, §14.11.) The world switcher's world name
-  always leads to it.
+- **Getting there.** The world's name in the nav always leads to the front page, and a world whose focus is
+  *Planning* opens on it (§14.9).
 - **On the phone** the sections stack in the order above.
 - **Export** writes `premise:` into `world.md`; **Restore** reads it back.
 
@@ -2203,9 +2203,8 @@ for chapters.
 *Done when* the demo world's page shows a premise edited in place, the latest note for next time with *Continue*,
 *Lately* with the days on which words, journal entries, facts and items were added (each dated and with how long ago),
 the last decisions and the open questions with the `??` count; leaving a journal entry after writing 30 words asks for
-a note that then leads *Where you left off*; Rename, the time unit and Delete are on *World settings*; a world not
-opened on this device for four weeks opens on its front page; and exporting and restoring the world keeps the
-premise.
+a note that then leads *Where you left off*; Rename, the time unit and Delete are on *World settings*; and exporting
+and restoring the world keeps the premise.
 
 ### 14.5 Since this was written
 
@@ -2241,9 +2240,9 @@ the Journal list shows `5 since` dimmed beside it; and an entry written today sh
 In a world with little or no prose, much of what is recorded is honestly *planned*: true in your head, not on the page
 yet. The checks read canon only, so they see nothing there. This adds the Graph's standing switch to them.
 
-- **The switch.** *Include planned*, on the Checks page and in the editor's Continuity tab, off to start. It is
-  remembered per world on the device, as the Graph's standing switches are. The default is unchanged: **the checks
-  look at canon**, as today.
+- **The switch.** *Include planned*, on the Checks page and in the editor's Continuity tab. It starts from the
+  world's focus (§14.9): off under *Writing*, the default focus, and on under *Planning*; set by hand, it stays until
+  the focus changes. So the default is unchanged: under *Writing* **the checks look at canon**, as today.
 - **With it on**, every check that reads canon only also reads planned facts and relationships, as if they were
   canon: *named after being recorded dead*, *named before coming into the story*, *two values at once*, *a place
   inside itself*, *their own ancestor*, and phase 12's *two holders of a one-at-a-time role* and *an age that
@@ -2355,7 +2354,51 @@ Characters (tagged there, and counted in both), its page heads `Place · also a 
 place colour and says `also a character`; *Make main* on Character colours it as a character; and exporting and
 restoring the world keeps both kinds in order.
 
-### 14.9 Data model, in one place
+### 14.9 A focus per world
+
+A world is worked on in stretches: months of planning, then a run of writing, then back. A **focus** says which one
+it is now (Thomas: "I just choose the 'current' phase really so I can go back and forth"). Everything works under
+either focus; it only changes what is up front.
+
+- **Two focuses**: **Writing** (the default, and every existing world's) and **Planning**.
+- **Switching** at any time: a small two-way switch beside the world's name in the world switcher and in the front
+  page's head (`Writing · Planning`). It takes effect at once, without leaving the page. It is kept on the server, per
+  person and world, so the phone and the desk agree.
+- **Where the world opens.** Opening the world (from the switcher, or the app on the desk) lands:
+  - under *Writing*, at the last place used in it on this device, as today;
+  - under *Planning*, on the front page (§14.4).
+
+  The world's name in the nav always leads to the front page. The phone still starts at Capture, as the installed
+  app does today. There is no rule about time spent away.
+- **The order of the nav.** The desk nav has three groups today: the planning links (Capture, Inbox, Triage,
+  Decisions, Journal), the world (the kinds, Bible, Graph, the Timeline and the chart from phase 12, Where everyone is,
+  Checks, Name check) and the projects with their manuscripts. Nothing is hidden under either focus, and no link
+  moves between groups except the Timeline:
+  - *Writing*: the projects first, then the planning links, then the world;
+  - *Planning*: the planning links first, with the Journal at their head and the Timeline after Decisions; then the
+    world; then the projects.
+
+  The phone's bottom tab bar stays as it is; its *World* tab opens the front page.
+- **Include planned** (§14.6) starts **on** under *Planning* and **off** under *Writing*. Switched by hand on the
+  Checks page or in the Continuity tab, it stays as set until the focus changes, which sets it again.
+- **Nothing else** follows the focus: Drafting/Revising, the editor's settings, the companion's tabs and the Graph's
+  standing switches are as they were.
+- Not exported, like the note for next time: it is how one person is working on the world, not part of it.
+
+**Data:**
+
+```sql
+world_members  + focus text default 'writing' CHECK (focus IN ('writing', 'planning'))
+```
+
+`PUT /worlds/<slug>/focus`; `GET /worlds` and `GET /worlds/<slug>` carry it.
+
+*Done when* switching the demo world to *Planning* on the front page reorders the nav at once (Journal first in the
+planning links, the Timeline after Decisions, the projects last), turns *Include planned* on in Checks, and opening
+the world again on the desk lands on the front page, while the phone shows *Planning* too; switching back to
+*Writing* puts the projects first, turns *Include planned* off, and the world opens at the last chapter used.
+
+### 14.10 Data model, in one place
 
 ```sql
 revisions      doc_table + 'journal'                                        -- §14.1.1
@@ -2366,6 +2409,7 @@ item_links     target_table + 'journal'; + passage text NULL                -- �
 worlds         + premise text NULL                                          -- §14.4
 session_notes  + journal_id NULL; chapter_id NULL-able, exactly one of them -- §14.4
 entities       + also_kinds text[]                                          -- §14.8
+world_members  + focus text default 'writing'                               -- §14.9; writing | planning
 ```
 
 Endpoints: the journal is saved like a chapter, with revisions, and joins `GET /offline` (§14.1.1); facts and
@@ -2373,7 +2417,7 @@ relationships take where they were planned and *make canon*, and `POST /events/r
 (§14.1.2); `GET /planning` (§14.2); `POST /items` takes a chapter or journal entry with a passage (§14.3); `GET
 /worlds/<slug>/front`, `premise` on `PATCH /worlds/<slug>`, and the journal's session notes (§14.4); `GET
 /journal/<id>/since` and counts on `GET /journal` (§14.5); `planned=1` on `GET /checks` (§14.6); one more check
-(§14.7); `also_kinds` on `PATCH /entities/<id>` (§14.8). The planning reading, loose ends, *Lately*, *since this was
+(§14.7); `also_kinds` on `PATCH /entities/<id>` (§14.8); `PUT /worlds/<slug>/focus` (§14.9). The planning reading, loose ends, *Lately*, *since this was
 written* and the cause arrows are worked out when read, never stored.
 
 **Phase 13 is done when** each part's *done when* above holds, and the demo world (The Ninefold Delta) shows it: a
@@ -2383,7 +2427,7 @@ parked spark from the Journal; a note for next time left in a journal entry; an 
 since; a planned death that *Include planned* turns into a finding; three events joined by *caused* and *followed
 from*, one of them before its cause; and an entry that is a place and also a character.
 
-### 14.10 Two build phases
+### 14.11 Two build phases
 
 Phase 13 is built **after phase 12 is merged**, as two build phases, by one build session, as **stacked pull
 requests**: 13a off master, 13b off 13a's branch. These are only the order the code is written in; nothing in the
@@ -2393,30 +2437,20 @@ app is split by them.
    copy, planned in the Journal and canon in the book with *Record a fact* and *Make it canon here*, the planning
    reading, sparks and questions from a passage, and loose ends in the Journal. Most of the work is here, and the rest
    reads what it adds.
-2. **13b, getting back in and checking** (§14.4–§14.8): the front page and World settings, the Journal's note for next
-   time, *since this was written*, *Include planned*, cause arrows and their check, and entries of more than one kind.
+2. **13b, getting back in and checking** (§14.4–§14.9): the front page and World settings, the Journal's note for next
+   time, *since this was written*, *Include planned*, cause arrows and their check, entries of more than one kind, and
+   the focus.
    Each is small and works from existing links.
 
 Each phase updates the demo world with its own parts, and each pull request lists what it leaves for the next.
 
-### 14.11 Open questions for phase 13
+### 14.12 Open questions for phase 13
 
-Thomas's answers so far (DECISIONS.md, 2026-10-25): an entry can add a kind and stay one entry (§14.8); something is
-planned until it is in the book or marked canon (§14.1.2); cause arrows show on hover and can be kept, and a click
-still opens (§14.7); an effect before its cause is a Continuity finding (§14.7); and two build phases.
-
-1. **A focus per world, instead of "four weeks away".** Thomas: "Maybe I just choose the 'current' phase really so I
-   can go back and forth?" A proposal, not yet specced: each world has a **focus**, *Writing* or *Planning*, switched
-   at any time from the world switcher or the front page, and kept on the server so the phone and the desk agree.
-   Everything works under both; the focus only changes what is up front:
-   - **where the world opens**: *Writing* at the last chapter (the last place, as today); *Planning* on the front
-     page (§14.4), which replaces the four-week rule;
-   - **the nav's order**: *Writing* puts the manuscript first; *Planning* puts the Journal, the inbox, Decisions and
-     the Timeline first;
-   - **Include planned** (§14.6) starts on under *Planning* and off under *Writing*, and can still be switched either
-     way.
-
-   Does that match what was meant, and should anything else follow the focus?
+None left. Thomas's answers are in DECISIONS.md (2026-10-25): something is planned until it is in the book or marked
+canon, with *Make it canon here* (§14.1.2); cause arrows show on hover and can be kept, and a click still opens
+(§14.7); an effect before its cause is a Continuity finding (§14.7); an entry can add a kind and stay one entry
+(§14.8); a focus per world, *Writing* or *Planning*, decides where the world opens, the nav's order and where
+*Include planned* starts (§14.9); and two build phases (§14.11).
 
 ## 15. Out of scope (for now)
 
