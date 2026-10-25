@@ -1,4 +1,5 @@
-// When a chapter is saved and when a snapshot (revision) is kept, as the spec sets it out:
+// When a chapter (or a journal entry, docs/SPEC.md §14.1.1) is saved and when a snapshot (revision) is kept, as the
+// spec sets it out:
 //  - typing autosaves the working copy 1.5 s after the last keystroke, sending the version it started from;
 //  - a snapshot is kept after 5 minutes without typing, after 30 minutes of continuous writing, on Ctrl+S (a
 //    labelled checkpoint) and when the chapter is left;
@@ -8,7 +9,7 @@
 //    text the server already has (the answer to the first try was lost) counts as saved, not as a conflict.
 
 import { ApiError, unreachable } from "../api";
-import { ChapterConflict, type Chapter } from "../manuscript";
+import { DocConflict, type Chapter } from "../manuscript";
 
 export const AUTOSAVE_MS = 1500;
 export const IDLE_MS = 5 * 60_000;
@@ -24,20 +25,28 @@ export interface Changes {
   pov_entity_id?: string | null;
 }
 
-export interface SaverDeps {
-  save(baseVersion: number, changes: Changes): Promise<Chapter>;
+/** What the saver needs of the document it saves: a chapter, or a journal entry. */
+export interface SavedDoc {
+  version: number;
+  body: string;
+  title: string | null;
+  pov?: { id: string } | null;
+}
+
+export interface SaverDeps<T extends SavedDoc = Chapter> {
+  save(baseVersion: number, changes: Changes): Promise<T>;
   snapshot(reason: "autosnap" | "checkpoint" | "conflict", extra?: { label?: string; body?: string }): Promise<unknown>;
   now(): number;
 }
 
-export interface SaverHooks {
-  saved(chapter: Chapter, sentBody: string | undefined): void;
+export interface SaverHooks<T extends SavedDoc = Chapter> {
+  saved(doc: T, sentBody: string | undefined): void;
   /** another device saved first: the editor should show `current`; `mine` was kept as a revision */
-  conflict(current: Chapter, mine: string): void;
+  conflict(current: T, mine: string): void;
   status(status: SaveStatus): void;
 }
 
-export class ChapterSaver {
+export class ChapterSaver<T extends SavedDoc = Chapter> {
   private version: number;
   private pending: Changes = {};
   private inFlight: Promise<void> | null = null;
@@ -48,9 +57,9 @@ export class ChapterSaver {
   private closed = false;
 
   constructor(
-    chapter: Pick<Chapter, "version">,
-    private deps: SaverDeps,
-    private hooks: SaverHooks,
+    chapter: Pick<SavedDoc, "version">,
+    private deps: SaverDeps<T>,
+    private hooks: SaverHooks<T>,
   ) {
     this.version = chapter.version;
     this.lastSnapshotAt = deps.now();
@@ -93,25 +102,26 @@ export class ChapterSaver {
         this.hooks.status(this.dirty ? "unsaved" : "saved");
         if (this.deps.now() - this.lastSnapshotAt >= LONG_MS) await this.keep("autosnap");
       } catch (e) {
-        const sameText = e instanceof ChapterConflict &&
-          (sending.body === undefined || sending.body === e.current.body) &&
-          (sending.title === undefined || sending.title === e.current.title) &&
-          (sending.pov_entity_id === undefined || sending.pov_entity_id === (e.current.pov?.id ?? null));
+        const theirs = e instanceof DocConflict ? (e.current as T) : null;
+        const sameText = theirs !== null &&
+          (sending.body === undefined || sending.body === theirs.body) &&
+          (sending.title === undefined || sending.title === (theirs.title ?? "")) &&
+          (sending.pov_entity_id === undefined || sending.pov_entity_id === (theirs.pov?.id ?? null));
         if (sameText) {
           // the earlier try did reach the server; only its answer was lost (signal dropped mid-save)
-          const current = (e as ChapterConflict).current;
+          const current = theirs;
           this.version = current.version;
           this.hooks.saved(current, sending.body);
           this.hooks.status(this.dirty ? "unsaved" : "saved");
-        } else if (e instanceof ChapterConflict) {
-          const mine = sending.body ?? e.current.body;
+        } else if (theirs !== null) {
+          const mine = sending.body ?? theirs.body;
           // keep this device's text before taking the other one
-          if (sending.body !== undefined && sending.body !== e.current.body) {
+          if (sending.body !== undefined && sending.body !== theirs.body) {
             await this.deps.snapshot("conflict", { body: sending.body }).catch(() => undefined);
           }
-          this.version = e.current.version;
+          this.version = theirs.version;
           this.pending = {};
-          this.hooks.conflict(e.current, mine);
+          this.hooks.conflict(theirs, mine);
           this.hooks.status("conflict");
         } else {
           // keep the text for the next try; anything typed meanwhile wins over what was being sent
@@ -146,7 +156,7 @@ export class ChapterSaver {
   }
 
   /** The editor took a new text from elsewhere (a restore, another device): carry on from its version. */
-  rebase(chapter: Pick<Chapter, "version">): void {
+  rebase(chapter: Pick<SavedDoc, "version">): void {
     this.version = chapter.version;
     this.pending = {};
     clearTimeout(this.saveTimer);

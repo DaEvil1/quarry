@@ -381,6 +381,20 @@ def close_item(slug: str, item_id: uuid.UUID, body: CloseIn, user: User = Depend
     return CloseOut(item=one_out(db, world, item), decision_id=decision_id)
 
 
+@router.delete("/items/{item_id}", status_code=204)
+def delete_item(slug: str, item_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
+    """Undo an item just made (a spark or question from a passage): only an open or parked one, never an experiment,
+    and never one a decision came from."""
+    world, _ = member_world(db, user, slug)
+    item = _item(db, world, item_id)
+    if item.kind == "experiment" or item.status not in ("open", "deferred") or db.scalar(
+            select(func.count()).select_from(Decision).where(Decision.item_id == item.id)):
+        raise HTTPException(409, "Only an open item can be removed; close it instead.")
+    db.execute(delete(Mention).where(Mention.source_table == "item", Mention.source_id == item.id))
+    db.delete(item)
+    db.commit()
+
+
 @router.post("/items/{item_id}/reopen")
 def reopen_item(slug: str, item_id: uuid.UUID, user: User = Depends(current_user),
                 db: Session = Depends(get_db)) -> ItemOut:

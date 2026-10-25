@@ -143,7 +143,21 @@ export const factSuggestions = (world: string) => get<Record<string, KindSuggest
 export const addFact = (
   world: string,
   entityId: string,
-  body: { label: string; value: string; standing?: Standing; evidence?: string | null; established_in_chapter_id?: string | null; from_chapter_id?: string | null },
+  body: {
+    label: string;
+    value: string;
+    standing?: Standing;
+    evidence?: string | null;
+    established_in_chapter_id?: string | null;
+    from_chapter_id?: string | null;
+    from_time?: number | null;
+    until_time?: number | null;
+    /** where it was planned (docs/SPEC.md §14.1.2) */
+    planned_in_journal_id?: string | null;
+    planned_evidence?: string | null;
+    /** "Make it canon here": the planned fact this records in the book */
+    make_canon?: string;
+  },
 ) => post<Fact>(`${base(world)}/entities/${entityId}/facts`, body);
 export const updateFact = (world: string, fact: Pick<Fact, "id" | "version">, changes: Partial<Omit<Fact, "id" | "version">>) =>
   patch<Fact>(`${base(world)}/facts/${fact.id}`, { base_version: fact.version, ...changes });
@@ -158,7 +172,19 @@ export const deleteRelationType = (world: string, id: string) => del(`${base(wor
 
 export const addRelationship = (
   world: string,
-  body: { type_id: string; a_id: string; b_id: string; standing?: Standing; note?: string | null; established_in_chapter_id?: string | null; evidence?: string | null; role?: string | null },
+  body: {
+    type_id: string;
+    a_id: string;
+    b_id: string;
+    standing?: Standing;
+    note?: string | null;
+    established_in_chapter_id?: string | null;
+    evidence?: string | null;
+    role?: string | null;
+    planned_in_journal_id?: string | null;
+    planned_evidence?: string | null;
+    make_canon?: string;
+  },
 ) => post<Relationship>(`${base(world)}/relationships`, body);
 export const updateRelationship = (
   world: string,

@@ -234,6 +234,12 @@ def test_an_item_made_from_a_passage(world: Client):
     s = world.post(f"{W}/items", json={"body": "Why wait?", "chapter_id": ch["id"], "passage": "Isolde waited"}).json()
     assert (s["origin"]["table"], s["origin"]["title"], s["origin"]["passage"]) == ("chapter", "The Quay", "Isolde waited")
     assert [i["passage"] for i in world.get(f"{W}/chapters/{ch['id']}/items").json()] == ["Isolde waited"]
+    # Undo: an item just made can be removed (an open or parked one)
+    assert world.delete(f"{W}/items/{s['id']}").status_code == 204
+    assert world.get(f"{W}/chapters/{ch['id']}/items").json() == []
+    assert world.delete(f"{W}/items/{parked['id']}").status_code == 204
+    world.post(f"{W}/items/{q['id']}/close", json={"status": "accepted", "decision": "The Guild lit it"})
+    assert world.delete(f"{W}/items/{q['id']}").status_code == 409
 
 
 def test_the_planning_reading_reads_items_and_decisions(world: Client):

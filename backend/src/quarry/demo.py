@@ -26,6 +26,11 @@ evidence passage in it.
 For history and the Timeline (docs/SPEC.md §13.2) it has a few events of history (the raising of the locks, recorded
 from a passage of chapter 3 with its telling; the spring flood Agathe drowned in), two eras in their colours (the Lock
 Years, and the Ash Summers nested in them), the Flood of Lanterns happening in a chapter, and a prophecy outside time.
+
+For planning before writing (docs/SPEC.md §14.1–§14.3) its Journal goes back years: an entry of 2019, "What the
+Wardens want", with a fact on the Wardens and an event (the First Toll) recorded from it as planned, the event's
+passage kept as a note; an entry of 2021 with "??" markers; Hesper's trade, planned in an entry of 2014 and made canon
+in "The Cartographer"; a question made from a passage of chapter 3; and a spark parked from the Journal.
 """
 
 from __future__ import annotations
@@ -212,6 +217,11 @@ BIBLE: list[dict] = [
         "summary": "A cartographer from Greywater, mapping the delta's shifting channels.",
         # planted: named in book one before she is introduced in book two; and a label that holds several values
         "facts": [{"label": "introduced", "value": "", "from": "b2-c2"},
+                  # planned in the Journal in 2014, then made canon in the chapter that shows it
+                  {"label": "trade", "value": "cartographer", "established_in": "b2-c2",
+                   "evidence": "Hesper Quill had been told the ferry at Carrow Ferry was run by a girl who knew the "
+                               "channels better than any chart.",
+                   "planned_in": "j-map", "planned_evidence": "Hesper Quill, a mapmaker"},
                   {"label": "languages", "value": "Delta speech"},
                   {"label": "languages", "value": "the Greywater chart-cant"}],
         "relationships": [{"type": "lives in", "type_kinds": ["character", "place"], "to": "greywater"}],
@@ -297,7 +307,10 @@ BIBLE: list[dict] = [
     {
         "id": "wardens", "name": "The River Wardens", "kind": "faction", "aliases": ["the Wardens"],
         "summary": "They keep the locks and take the tolls, and believe the river can be ruled.",
-        "facts": [{"label": "motto", "value": "The water answers to the lock."}],
+        "facts": [{"label": "motto", "value": "The water answers to the lock."},
+                  # planned in the Journal (docs/SPEC.md §14.1.2)
+                  {"label": "age", "value": "three hundred years", "standing": "planned", "planned_in": "j-wardens",
+                   "planned_evidence": "The River Wardens have kept the locks for three hundred years"}],
         "relationships": [
             {"type": "controls", "type_kinds": ["faction", "place"], "to": "marrow-locks"},
             {"type": "allied with", "type_kinds": ["faction", "faction"], "to": "ashen-order", "standing": "rumour",
@@ -384,6 +397,18 @@ BIBLE: list[dict] = [
         ],
         "tellings": [{"chapter": "b1-c3", "passage": "Brother Cade said the River Wardens raised Marrow Locks the year "
                       "his own teacher was born, and that the Ninefold Delta has never forgiven them."}],
+        "body": _p(""),
+    },
+    {
+        "id": "first-toll", "name": "The First Toll", "kind": "event",
+        "summary": "The first toll the Wardens took, long before the locks.",
+        "facts": [{"label": "type", "value": "founding"}],
+        "relationships": [{"type": "involved", "type_kinds": ["event", "*"], "to": "wardens", "standing": "planned",
+                           "planned_in": "j-wardens",
+                           "planned_evidence": "The first toll was paid in lanterns, at the mouth of the Outer Sound."}],
+        # recorded from the Journal: a note, not a telling, so it is not in the book yet
+        "notes": [{"journal": "j-wardens",
+                   "passage": "The first toll was paid in lanterns, at the mouth of the Outer Sound."}],
         "body": _p(""),
     },
     {
@@ -641,6 +666,16 @@ ITEMS: list[dict] = [
      "source": "desk", "created_at": "2026-09-30T19:30:00+00:00", "closed_at": "2026-10-01T10:00:00+00:00",
      "closed_note": "Chapter 2. The first chapter needs him alive to give her the compass.", "tags": ["Oskar Vey"],
      "body": "Does Oskar die in chapter 1 or chapter 2?"},
+    # made from a passage of chapter 3 (docs/SPEC.md §14.3.1)
+    {"id": "item-locks", "kind": "question", "status": "open", "project": "the-ferrymans-daughter", "source": "desk",
+     "created_at": "2026-10-09T20:00:00+00:00", "tags": ["Marrow Locks"],
+     "from": {"chapter": "b1-c3"}, "passage": "Brother Cade said the River Wardens raised Marrow Locks",
+     "body": "How far upriver do the locks reach?\n\n> Brother Cade said the River Wardens raised Marrow Locks"},
+    # parked from the Journal: an old idea kept without it waiting in the inbox
+    {"id": "item-lantern-toll", "kind": "spark", "status": "deferred", "project": None, "source": "desk",
+     "created_at": "2026-10-09T20:05:00+00:00", "tags": ["The River Wardens"],
+     "from": {"journal": "j-wardens"}, "passage": "The first toll was paid in lanterns",
+     "body": "> The first toll was paid in lanterns"},
     {"id": "item-experiment", "kind": "experiment", "status": "open", "project": "the-ferrymans-daughter",
      "source": "desk", "created_at": "2026-10-07T21:00:00+00:00", "tags": [],
      "title": "Lanterns on the Water (from the water)",
@@ -659,6 +694,21 @@ DECISIONS = [
 ]
 
 JOURNAL = [
+    # years of planning before the book (docs/SPEC.md §14)
+    {"id": "j-map", "date": "2014-05-11", "title": "The first map", "project": None,
+     "body": _p("Someone has to map the delta, and the map has to be wrong by the time it is finished. Hesper Quill, "
+                "a mapmaker from Greywater, who knows her maps go out of date.",
+                "Ilse Marrow wants the delta mapped so it can be locked.")},
+    {"id": "j-wardens", "date": "2019-03-02", "title": "What the Wardens want", "project": None,
+     "body": _p("The River Wardens have kept the locks for three hundred years, since the Raising of the Locks. Ilse "
+                "Marrow knows the toll is older than the locks; Tamsin doesn't.",
+                "The first toll was paid in lanterns, at the mouth of the Outer Sound. That is why the Flood of "
+                "Lanterns frightens them.")},
+    {"id": "j-loose", "date": "2021-08-14", "title": "Loose threads", "project": "ash-season",
+     "body": _p("Hesper's age ?? maybe forty, maybe older than Ilse.",
+                "Where does Corin sleep when he comes down from Greywater (??)",
+                "???",
+                "The ash should reach Carrow Ferry before Hesper does.")},
     {"id": "j1", "date": "2026-10-02", "title": "Why a ferry?", "project": None,
      "body": _p("A ferry is a story that goes back and forth: the same crossing, a different person every time. "
                 "Tamsin can stay in one place and still meet everyone in the delta.",
@@ -692,18 +742,21 @@ def demo_files() -> dict[str, str]:
                               "evidence": f.get("evidence"), "note": f.get("note"),
                               "established_in": f.get("established_in"), "from": f.get("from"),
                               "until": f.get("until"),
-                              **{k: f[k] for k in ("from_time", "from_approx", "until_time", "outside_time") if k in f}}
+                              **{k: f[k] for k in ("from_time", "from_approx", "until_time", "outside_time",
+                                                   "planned_in", "planned_evidence") if k in f}}
                              for f in e["facts"]]
         if e.get("relationships"):
             meta["relationships"] = [{"type": r["type"], "type_kinds": r["type_kinds"], "to": r["to"],
                                       "to_name": names[r["to"]], "standing": r.get("standing", "canon"),
                                       "evidence": r.get("evidence"), "note": r.get("note"),
                                       "established_in": r.get("established_in"), "from": r.get("from"),
-                                      "until": r.get("until"), "role": r.get("role")} for r in e["relationships"]]
+                                      "until": r.get("until"), "role": r.get("role"),
+                                      **{k: r[k] for k in ("planned_in", "planned_evidence") if k in r}}
+                                     for r in e["relationships"]]
         if e.get("is_at"):
             meta["is_at"] = [{"chapter": p["chapter"], "place": p["place"], "place_name": names[p["place"]],
                               "note": p.get("note")} for p in e["is_at"]]
-        for k in ("when", "colour", "tellings"):
+        for k in ("when", "colour", "tellings", "notes"):
             if e.get(k):
                 meta[k] = e[k]
         files[f"{ROOT}/Bible/{KIND_FOLDERS[e['kind']]}/{e['name']}.md"] = _doc(meta, e.get("body", ""))
@@ -736,6 +789,9 @@ def demo_files() -> dict[str, str]:
                                       "closed_note", "tags")}
         if i.get("replaces"):
             meta["replaces"] = i["replaces"]
+        for k in ("from", "passage"):
+            if i.get(k):
+                meta[k] = i[k]
         files[f"{folder}/Planning/{i['status']}/{i['id']}.md"] = _doc(meta, i["body"])
 
     lines = ["# Decisions", ""]

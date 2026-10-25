@@ -31,7 +31,7 @@ import type { Card } from "../world/cards";
 import type { Hit, Matcher } from "../world/matcher";
 import { changeAt, changesField, setChanges, type Change } from "./changes";
 import { buildMarks, companionExtensions, marksChanged, markedAt, openKbd, Since, type CompanionHooks } from "./companion";
-import { cardDom, cutStripDom, findingStripDom, passageStripDom, selectionStripDom, nearMissStripDom, wasDom, type HistoryActions, type IsAtActions, type LinkActions } from "./strips";
+import { cardDom, cutStripDom, findingStripDom, passageStripDom, selectionStripDom, nearMissStripDom, wasDom, type HistoryActions, type IsAtActions, type LinkActions, type PassageActions } from "./strips";
 
 export { countWords } from "../words";
 
@@ -61,6 +61,10 @@ export interface WorldHooks {
   several?(kind: string, label: string): boolean;
   /** recording a selected passage as an event, or a birth or death in it (docs/SPEC.md §13.2.3) */
   history?(from: number, to: number, text: string): HistoryActions;
+  /** recording a fact from a selected passage, or making it a spark or question (docs/SPEC.md §14.1.2, §14.3) */
+  passage?(from: number, to: number, text: string): PassageActions;
+  /** "is at" is per chapter: a journal entry has none (docs/SPEC.md §14.1.1) */
+  noIsAt?: boolean;
 }
 
 /** A phone or tablet: long selections get a strip with "Cut to bin" (there is no Ctrl+Shift+X there). */
@@ -175,7 +179,7 @@ function hitDom(v: EditorView, hooks: WorldHooks, h: Hit): HTMLElement {
     open: () => hooks.open(h.entityId),
     notHere: () => hooks.exclude(h.entityId, phraseAround(v, h)),
     link: hooks.link(h.entityId),
-    isAt: hooks.isAt(h.entityId),
+    isAt: hooks.noIsAt ? undefined : hooks.isAt(h.entityId),
     several: hooks.several,
   });
 }
@@ -194,14 +198,16 @@ function full(hooks: WorldHooks): CompanionHooks | null {
       const text = view.state.sliceDoc(sel.from, sel.to).trim();
       const cut = hooks.cut ? () => hooks.cut!(sel.from, sel.to) : undefined;
       const history = hooks.history && text.length >= 2 ? hooks.history(sel.from, sel.to, view.state.sliceDoc(sel.from, sel.to)) : undefined;
+      const passage = hooks.passage && text.length >= 2 ? hooks.passage(sel.from, sel.to, view.state.sliceDoc(sel.from, sel.to)) : undefined;
       if (text.length < 2 || text.length > 80 || text.includes("\n")) {
-        if (history) return { from: sel.from, dom: passageStripDom({ cut, history, done: () => view.focus() }) };
+        if (history || passage) return { from: sel.from, dom: passageStripDom({ cut, history, passage, done: () => view.focus() }) };
         return cut ? { from: sel.from, dom: cutStripDom(cut) } : null;
       }
       return {
         from: sel.from,
         dom: selectionStripDom(text, hooks.names(), {
           history,
+          passage,
           create: async (kind) => {
             await hooks.create(text, kind);
             view.dispatch({ selection: { anchor: sel.to } });
@@ -271,10 +277,12 @@ function intent(hooks: WorldHooks): Extension[] {
         view.focus();
       } : null;
       const history = hooks.history && text.length >= 2 ? hooks.history(sel.from, sel.to, tr.state.sliceDoc(sel.from, sel.to)) : undefined;
+      const passage = hooks.passage && text.length >= 2 ? hooks.passage(sel.from, sel.to, tr.state.sliceDoc(sel.from, sel.to)) : undefined;
       if (text.length < 2 || text.length > 80 || text.includes("\n")) {
-        // a passage selected: record it as an event (desk and phone), or on a phone cut it to the bin
-        if (history) {
-          return [{ pos: sel.to, above: false, strictSide: false, create: (view) => ({ dom: wrap(passageStripDom({ cut: cut && coarse() ? cut(view) : undefined, history, done: () => view.focus() })) }) }];
+        // a passage selected: record a fact or an event from it, make it a spark or a question (desk and phone), or
+        // on a phone cut it to the bin
+        if (history || passage) {
+          return [{ pos: sel.to, above: false, strictSide: false, create: (view) => ({ dom: wrap(passageStripDom({ cut: cut && coarse() ? cut(view) : undefined, history, passage, done: () => view.focus() })) }) }];
         }
         if (!cut || !text || !coarse()) return [];
         return [{ pos: sel.to, above: false, strictSide: false, create: (view) => ({ dom: wrap(cutStripDom(cut(view))) }) }];
@@ -293,6 +301,7 @@ function intent(hooks: WorldHooks): Extension[] {
             // wrapped: CodeMirror makes the returned element its (transparent) tooltip box
             dom: wrap(selectionStripDom(text, hooks.names(), {
               history,
+              passage,
               create: async (kind) => {
                 await hooks.create(text, kind);
                 view.dispatch({ selection: { anchor: sel.to } });
@@ -322,6 +331,21 @@ function intent(hooks: WorldHooks): Extension[] {
     }),
   ];
 }
+
+// ---- a passage marked from outside (resting on an item made from it, docs/SPEC.md §14.3.1) -----------------------
+
+const markPassage = StateEffect.define<{ from: number; to: number } | null>();
+const passageMark = Decoration.mark({ class: "cm-passage" });
+const passageField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(marks, tr) {
+    for (const e of tr.effects) {
+      if (e.is(markPassage)) return e.value ? Decoration.set([passageMark.range(e.value.from, e.value.to)]) : Decoration.none;
+    }
+    return marks.map(tr.changes);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 // ---- focus mode: everything but the paragraph you're in is dimmed ---------------------------------------------
 
@@ -390,6 +414,7 @@ const theme = EditorView.theme({
   ".cm-margin": { color: "var(--muted)", fontStyle: "italic", fontSize: "0.9em" },
   ".cm-find": { textDecoration: "underline dotted var(--accent)", textDecorationThickness: "2px", textUnderlineOffset: "4px" },
   ".cm-find-name": { textDecorationColor: "var(--muted)" },
+  ".cm-passage": { backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent)", borderRadius: "2px" },
   ".cm-near-miss": { textDecoration: "underline wavy var(--warn)", textDecorationSkipInk: "none", textUnderlineOffset: "4px" },
   ".cm-searchMatch": { backgroundColor: "var(--warn-soft)", outline: "1px solid var(--warn)" },
   ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--accent-soft)" },
@@ -451,6 +476,8 @@ export interface Prose {
   since(): Since;
   /** show what changed since a checkpoint (null: nothing) */
   setChanges(changes: Change[] | null): void;
+  /** mark a passage (found by its text; nothing if it can't be found), or unmark (null); true when found */
+  markPassage(passage: string | null, scroll?: boolean): boolean;
   destroy(): void;
 }
 
@@ -494,6 +521,7 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
     intentMode.of(opts.readOnly ? [] : intent(opts.world)),
     companion ? companionExtensions(companion) : [],
     changesField,
+    passageField,
     opts.onFindAll ? findAllButton(opts.onFindAll) : [],
     focusMode.of([]),
     typewriterMode.of([]),
@@ -553,6 +581,12 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
       return s;
     },
     setChanges: (changes) => view.dispatch({ effects: setChanges.of(changes) }),
+    markPassage(passage, scroll = false) {
+      const at = passage ? view.state.doc.toString().indexOf(passage) : -1;
+      const range = passage && at >= 0 ? { from: at, to: at + passage.length } : null;
+      view.dispatch({ effects: [markPassage.of(range), ...(range && scroll ? [EditorView.scrollIntoView(range.from, { y: "center" })] : [])] });
+      return !!range;
+    },
     destroy: () => view.destroy(),
   };
 }

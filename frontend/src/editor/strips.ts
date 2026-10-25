@@ -229,7 +229,7 @@ export function nearMissStripDom(
 export function selectionStripDom(
   text: string,
   names: EntityRef[],
-  actions: { create: (kind: EntityKind) => unknown; addName: (id: string) => unknown; done: () => void; cut?: () => unknown; history?: HistoryActions },
+  actions: { create: (kind: EntityKind) => unknown; addName: (id: string) => unknown; done: () => void; cut?: () => unknown; history?: HistoryActions; passage?: PassageActions },
 ): HTMLElement {
   const root = el("div", "qstrip");
   root.dataset.testid = "selection-strip";
@@ -237,6 +237,7 @@ export function selectionStripDom(
   if (actions.cut) main.append(chip("Cut to bin", actions.cut, "quiet"));
   const history = actions.history;
   if (history) main.append(chip("Record as event", () => recordForm(root, history, actions.done), "quiet"));
+  if (actions.passage) passageChips(main, root, actions.passage, actions.done);
   const common: EntityKind[] = ["character", "place", "faction", "object"];
   for (const k of common) main.append(chip(`+ ${kindLabel(k)}`, () => actions.create(k), `k-${k}`));
   const more = chip("More…", () => {
@@ -350,8 +351,9 @@ export interface HistoryActions {
   /** a tale or flashback with no time of its own */
   untimed: boolean;
   record: (r: { eventId?: string; name?: string; taking: { id: string; role: "involved" | "place" }[]; when: { at: number; approx: boolean } | null; choice: "keep" | "use" }) => Promise<unknown>;
-  /** where a character's birth and death are recorded now (a chapter's title), if they are */
-  life: (id: string) => { born: string | null; died: string | null };
+  /** where a character's birth and death are recorded now (a chapter's title), if they are; not in the Journal, where
+   * there is no "here" */
+  life?: (id: string) => { born: string | null; died: string | null };
   setLife: (id: string, which: "born" | "died") => Promise<unknown>;
   setChapterTime: () => void;
 }
@@ -361,17 +363,19 @@ const parseNumber = (t: string) => {
   return /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : null;
 };
 
-/** A passage selected: cut it to the bin, record it as an event, or set a birth or a death here. */
-export function passageStripDom(actions: { cut?: () => unknown; history?: HistoryActions; done: () => void }): HTMLElement {
+/** A passage selected: cut it to the bin, record a fact or an event from it, make it a spark or a question, or set a
+ * birth or a death here. */
+export function passageStripDom(actions: { cut?: () => unknown; history?: HistoryActions; passage?: PassageActions; done: () => void }): HTMLElement {
   const root = el("div", "qstrip passage-strip");
   root.dataset.testid = "passage-strip";
   const main = el("div", "qrow");
   if (actions.cut) main.append(chip("Cut to bin", actions.cut, "quiet"));
+  if (actions.passage) passageChips(main, root, actions.passage, actions.done);
   const h = actions.history;
   if (h) {
     main.append(chip("Record as event", () => recordForm(root, h, actions.done), "primary"));
     root.append(main);
-    lifeChips(root, h);
+    if (h.life) lifeChips(root, h);
   } else root.append(main);
   return root;
 }
@@ -382,7 +386,7 @@ function lifeChips(root: HTMLElement, h: HistoryActions) {
   for (const p of people) {
     const row = el("div", "qrow life-row");
     row.dataset.testid = "life-chips";
-    const life = h.life(p.id);
+    const life = h.life!(p.id);
     row.append(el("span", `qname k-${p.kind}`, p.name), ": ");
     const one = (which: "born" | "died", label: string) => {
       const was = life[which];
@@ -539,4 +543,264 @@ function recordForm(root: HTMLElement, h: HistoryActions, done: () => void) {
   renderEvents();
   renderWho();
   setTimeout(() => name.focus());
+}
+
+// ---- a passage becomes a fact, a spark or a question (docs/SPEC.md §14.1.2, §14.3.1) ------------------------------
+
+/** What recording from a selected passage needs from the page: the names in it, suggestions, and saving. */
+export interface PassageActions {
+  /** a chapter's passage or a journal entry's: what a fact's standing and span start on */
+  where: "chapter" | "journal";
+  /** the entries named in the selection, in order */
+  named: EntityRef[];
+  /** every entry, for "Other…" */
+  names: () => EntityRef[];
+  /** label suggestions for a kind, and value suggestions for a label (docs/SPEC.md §12.6) */
+  labels: (kind: EntityKind) => string[];
+  values: (kind: EntityKind, label: string) => string[];
+  /** in a chapter: what is there already as planned (a fact with the same label), to make canon here instead */
+  planned?: (entityId: string, label: string) => Promise<{ id: string; value: string; where: string } | null>;
+  recordFact: (f: {
+    entity: EntityRef;
+    label: string;
+    value: string;
+    span: { here: boolean; from: number | null; until: number | null };
+    standing: "canon" | "planned";
+    makeCanon?: string;
+  }) => Promise<unknown>;
+  saveItem: (i: { kind: "spark" | "question" | "task"; line: string; entities: string[]; park: boolean }) => Promise<unknown>;
+}
+
+/** The chips a selection offers for passage actions. */
+export function passageChips(row: HTMLElement, root: HTMLElement, p: PassageActions, done: () => void) {
+  row.append(
+    chip("Record a fact", () => factForm(root, p, done), "quiet"),
+    chip("Spark", () => itemForm(root, p, "spark", done), "quiet"),
+    chip("Question", () => itemForm(root, p, "question", done), "quiet"),
+  );
+}
+
+/** A choice of chips, one on. */
+function choices<T extends string>(options: { value: T; label: string }[], start: T): { row: HTMLElement; value: () => T } {
+  const row = el("div", "qrow");
+  let current = start;
+  const draw = () =>
+    row.replaceChildren(
+      ...options.map((o) => {
+        const c = chip(o.label, () => {
+          current = o.value;
+          draw();
+        }, current === o.value ? "on" : "");
+        c.setAttribute("aria-pressed", String(current === o.value));
+        return c;
+      }),
+    );
+  draw();
+  return { row, value: () => current };
+}
+
+/** Esc goes straight back to the text; Enter in a text box saves. */
+function formKeys(root: HTMLElement, save: () => unknown, done: () => void) {
+  root.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      done();
+    } else if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT" && (e.target as HTMLInputElement).type !== "checkbox") {
+      e.preventDefault();
+      void save();
+    }
+  });
+}
+
+/** Suggestions under a text box: chips that fill it in. */
+function suggest(box: HTMLInputElement, list: HTMLElement, all: () => string[], picked: () => void) {
+  const render = () => {
+    const q = box.value.trim().toLowerCase();
+    list.replaceChildren(
+      ...all()
+        .filter((s) => s.toLowerCase() !== q && (!q || s.toLowerCase().includes(q)))
+        .slice(0, 6)
+        .map((s) =>
+          chip(s, () => {
+            box.value = s;
+            list.replaceChildren();
+            picked();
+          }, "quiet"),
+        ),
+    );
+  };
+  box.addEventListener("input", render);
+  box.addEventListener("focus", render);
+  return render;
+}
+
+const timeNumber = (t: string) => {
+  const v = t.trim().replace("−", "-");
+  return /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : null;
+};
+
+/** Record a fact: the entry, label and value, when it holds, standing; Enter saves. In a chapter, a fact planned
+ * before with the same label is offered to be made canon here instead of a second one. */
+function factForm(root: HTMLElement, p: PassageActions, done: () => void) {
+  root.replaceChildren();
+  root.dataset.testid = "fact-form";
+  let entity: EntityRef | null = p.named[0] ?? null;
+  // 1. the entry: a chip for each named in the selection (the first chosen), or another
+  const who = el("div", "qrow");
+  who.dataset.testid = "fact-entry";
+  const choose = (n: EntityRef) => {
+    entity = n;
+    drawWho();
+    void checkPlanned();
+  };
+  const drawWho = () => {
+    const other = entity && !p.named.some((n) => n.id === entity!.id) ? entity : null;
+    who.replaceChildren(
+      ...p.named.map((n) => chip(n.name, () => choose(n), `k-${n.kind}${entity?.id === n.id ? " on" : ""}`)),
+      other ? chip(other.name, () => undefined, `k-${other.kind} on`) : chip("Other…", pickOther, "quiet"),
+    );
+  };
+  const pickOther = () => {
+    const box = el("input", "qinput");
+    box.placeholder = "Which entry?";
+    box.setAttribute("aria-label", "Entry");
+    const list = el("div", "qlist");
+    const render = () => {
+      const q = box.value.trim().toLowerCase();
+      list.replaceChildren(
+        ...p
+          .names()
+          .filter((n) => !q || n.name.toLowerCase().includes(q))
+          .slice(0, 6)
+          .map((n) => chip(labelled(n), () => choose(n), `k-${n.kind}`)),
+      );
+    };
+    box.addEventListener("input", render);
+    render();
+    who.replaceChildren(box, list);
+    setTimeout(() => box.focus());
+  };
+  // 2. label and value, with the suggestions of §12.6
+  const label = el("input", "qinput");
+  label.placeholder = "label (status, age …)";
+  label.setAttribute("aria-label", "Label");
+  const labels = el("div", "qlist");
+  const value = el("input", "qinput");
+  value.placeholder = "value";
+  value.setAttribute("aria-label", "Value");
+  const values = el("div", "qlist");
+  suggest(label, labels, () => (entity ? p.labels(entity.kind) : []), () => {
+    void checkPlanned();
+    value.focus();
+  });
+  suggest(value, values, () => (entity && label.value.trim() ? p.values(entity.kind, label.value.trim()) : []), () => value.focus());
+  label.addEventListener("change", () => void checkPlanned());
+  // 3. when it holds: in a chapter from this chapter (or throughout); a time on either side instead
+  const span = choices<"here" | "throughout">(
+    p.where === "chapter" ? [{ value: "here", label: "from this chapter" }, { value: "throughout", label: "throughout" }] : [{ value: "throughout", label: "holds throughout" }],
+    p.where === "chapter" ? "here" : "throughout",
+  );
+  span.row.dataset.testid = "fact-span";
+  const from = el("input", "qinput time-num");
+  from.placeholder = "from (time)";
+  from.setAttribute("aria-label", "From time");
+  from.inputMode = "decimal";
+  const until = el("input", "qinput time-num");
+  until.placeholder = "until (time)";
+  until.setAttribute("aria-label", "Until time");
+  until.inputMode = "decimal";
+  const when = el("div", "qrow");
+  when.append(span.row, from, until);
+  // 4. standing: planned until it is in the book or marked canon (Thomas, docs/SPEC.md §14.1.2)
+  const standing = choices<"canon" | "planned">([{ value: "canon", label: "canon" }, { value: "planned", label: "planned" }], p.where === "chapter" ? "canon" : "planned");
+  standing.row.dataset.testid = "fact-standing";
+  // make it canon here, when it is there as planned already
+  const plannedRow = el("div", "qrow");
+  plannedRow.dataset.testid = "planned-here";
+  let plannedId: string | null = null;
+  let asNew = false;
+  let asked = 0;
+  const checkPlanned = async () => {
+    const ask = ++asked;
+    plannedId = null;
+    asNew = false;
+    plannedRow.replaceChildren();
+    const l = label.value.trim();
+    if (!p.planned || !entity || !l) return;
+    const found = await p.planned(entity.id, l).catch(() => null);
+    if (ask !== asked || !found) return;
+    plannedId = found.id;
+    plannedRow.append(
+      el("span", "qcard-also", `Planned: ${l} ${found.value} (${found.where}) · `),
+      chip("Make it canon here", () => save(), "primary"),
+      chip("Record a new one", () => {
+        asNew = true;
+        plannedRow.replaceChildren(el("span", "qcard-also", "A new fact, beside the planned one."));
+      }),
+    );
+  };
+  // 5. save (Enter)
+  const save = async () => {
+    const l = label.value.trim();
+    if (!entity) return;
+    if (!l) {
+      label.focus();
+      return;
+    }
+    const fromT = timeNumber(from.value);
+    await p.recordFact({
+      entity,
+      label: l,
+      value: value.value.trim(),
+      span: { here: span.value() === "here" && fromT === null, from: fromT, until: timeNumber(until.value) },
+      standing: standing.value(),
+      makeCanon: plannedId && !asNew ? plannedId : undefined,
+    });
+    done();
+  };
+  const row = el("div", "qrow");
+  row.append(chip("Save", save, "primary"), chip("Cancel", done, "quiet"));
+  formKeys(root, save, done);
+  root.append(el("span", "qstrip-q", "Record a fact"), who, label, labels, value, values, when, standing.row, plannedRow, row);
+  drawWho();
+  if (!entity) pickOther();
+  else setTimeout(() => label.focus());
+}
+
+/** A spark, question or task from the passage: kind, a line of your own (optional), the entries named, park it. */
+function itemForm(root: HTMLElement, p: PassageActions, start: "spark" | "question", done: () => void) {
+  root.replaceChildren();
+  root.dataset.testid = "item-form";
+  const kind = choices<"spark" | "question" | "task">(
+    [{ value: "spark", label: "spark" }, { value: "question", label: "question" }, { value: "task", label: "task" }],
+    start,
+  );
+  kind.row.dataset.testid = "item-kind";
+  const line = el("input", "qinput");
+  line.placeholder = "A line of your own (optional)";
+  line.setAttribute("aria-label", "Your line");
+  const ticked = new Set(p.named.map((n) => n.id));
+  const who = el("div", "qrow who-chips");
+  for (const n of p.named) {
+    const label = el("label", `qchip k-${n.kind} who-chip`);
+    const box = el("input");
+    box.type = "checkbox";
+    box.checked = true;
+    box.addEventListener("change", () => (box.checked ? ticked.add(n.id) : ticked.delete(n.id)));
+    label.append(box, ` ${n.name}`);
+    who.append(label);
+  }
+  const parkLabel = el("label", "qchip quiet");
+  const park = el("input");
+  park.type = "checkbox";
+  parkLabel.append(park, " Park it");
+  const save = async () => {
+    await p.saveItem({ kind: kind.value(), line: line.value.trim(), entities: [...ticked], park: park.checked });
+    done();
+  };
+  const row = el("div", "qrow");
+  row.append(parkLabel, chip("Save", save, "primary"), chip("Cancel", done, "quiet"));
+  formKeys(root, save, done);
+  root.append(el("span", "qstrip-q", "From this passage"), kind.row, line, who, row);
+  setTimeout(() => line.focus());
 }

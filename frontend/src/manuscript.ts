@@ -126,10 +126,18 @@ export const getSalvage = (world: string, p: string, q = "") =>
 export const getChapter = (world: string, id: string) => get<Chapter>(`${base(world)}/chapters/${id}`);
 export const deleteChapter = (world: string, id: string) => del(`${base(world)}/chapters/${id}`);
 
+/** A document (a chapter, a journal entry) changed on another device since this one loaded it; `current` is the
+ * server's copy. */
+export class DocConflict<T = unknown> extends Error {
+  constructor(public current: T, message = "This changed on another device.") {
+    super(message);
+  }
+}
+
 /** The chapter changed on another device since this one loaded it; `current` is the server's copy. */
-export class ChapterConflict extends Error {
-  constructor(public current: Chapter) {
-    super("This chapter changed on another device.");
+export class ChapterConflict extends DocConflict<Chapter> {
+  constructor(current: Chapter) {
+    super(current, "This chapter changed on another device.");
   }
 }
 
