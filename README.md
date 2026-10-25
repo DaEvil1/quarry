@@ -1,12 +1,122 @@
 # Quarry
 
-A writing environment for long fiction set in shared worlds: capture sparks on the phone, triage them at the desk, keep a living bible of the world, and write the manuscript in a fast, dark editor.
+**A quiet writing environment for long fiction set in shared worlds.**
 
-Quarry does bookkeeping only. It never generates, suggests or critiques story content.
+Catch an idea on your phone, sort it at your desk, keep a living bible of your world, and write the book in a fast,
+dark editor that knows every name in it, without ever writing a word for you.
 
-**Status:** v1: all five phases built. Sign in with a passkey; create worlds and their projects; capture sparks, questions and tasks on the phone (also offline, and by sharing from other apps); triage them at the desk with the keyboard; keep a decisions log and a journal; keep a bible of the world, see where every name is mentioned, and fix misspelled names in one click; write chapters in a distraction-free editor with history, experiments and salvage; export a world as Markdown and restore it; and on the phone, open and write chapters and browse and restore their history with no network. Phases 6–9 of the world model ([docs/WORLD-MODEL.md](docs/WORLD-MODEL.md)) are in: bible entries carry a one-liner, facts and relationships that read both ways; each kind has its own table; and the editor colours names by kind as they are typed, shows a name's card when you rest on it (never while typing), and turns a selection into a new entry or links names from their card. Chapters are the story's clock: facts and relationships hold from/until a chapter, entry pages and cards read *as of* a chapter, and a grid shows where everyone is per chapter, recorded or derived from the text. A relationship graph (filters, as of a chapter, centred on someone with their first- and second-order links, clusters) and a place tree show the world at a glance, and the manuscript lists each chapter's cast. A writing companion beside the editor groups rule-based findings into five editors (Proofreader, Continuity, Connections, Archivist, Loose ends), quiet while Drafting and marked in the text while Revising, with Alt+Enter for quick fixes, F8 for a classifying pass, Ctrl+Shift+S to stash a thought, margin notes, a note for next time, and a Checks page for the whole world. Phase 10, revising and salvaging ([docs/SPEC.md](docs/SPEC.md) §11), is in too: a rename keeps the old name as another name; chapters have a one-line summary and a status (each project names its own stages); Ctrl+Shift+X cuts a passage to the project's bin (also offline), from where it can be put back; an entry's page reads every paragraph that names it, alone or together with a second entry, on the phone with no network too; the project page shows the words written and cut each day; while Revising the editor tints what changed since a labelled checkpoint; and find and replace works across chapters with a preview, a checkpoint per chapter and Undo. Phase 11, more views of the bible ([docs/SPEC.md](docs/SPEC.md) §12), adds a mentions strip on each entry page (where in the story it is named, and the gaps); a family tree with kin worked out (siblings, cousins, in-laws, step-relations), worded by a character's gender field; the Where-everyone-is grid for any entries, with "do these share a chapter?"; entries that live in one book's bible or the world's; the *witnessed* relationship and a *pronunciation* fact; and labels and values: value suggestions, filtering and grouping a kind's table by a value, a Labels page to rename and merge them (with Undo), labels that hold several values, and labels expected on every entry, asked once at the third use and found by the Archivist. Phase 12 ([docs/SPEC.md](docs/SPEC.md) §13) adds Species as a ninth kind (a word after a character's name, a column on the characters table, a graph colouring), roles in groups with a "one at a time" check, and more starting vocabulary: *possesses*, *ancestor of* (a long dashed link in the family tree), directions between places, *name meaning*, and starting values for a place's or an event's type and a species' form. Chapters can be set in in-world time (a number in the world's unit, or outside time) and marked as a tale or a flashback, so facts, relationships, *as of* and the Checks follow when things happen rather than the order they are told; facts can be bounded by a time; experiments can replace a run of chapters with several drafts, or only add some; and nothing leaves the book without a review of what is tied to it, with Undo. Events have a *when* (a chapter, a time, or outside time) and eras are events in a colour of their own, so every time shown carries its era; a Timeline page lays the events, the book, births, deaths and movements on one axis, to scale with empty stretches folded, with lanes per character, faction or era, clusters that split as you zoom in, brushing a span, an overview strip, a told view and History; a selected passage can be recorded as an event (kept as a telling of it) and births and deaths set from it; and ages are worked out from birth times. A chart draws the places as a schematic map from what is recorded: lands as hexagons holding their towns, water around its islands, borders touching, roads and sea routes as lines, north up, who controls each place and who is there as of a chapter or a time; places dragged on it stay pinned, and beside the Timeline it follows a brushed span and lists what changed across it. None of it writes or suggests story content. To see it all without writing anything, load the demo world from the New world page, or open the Guide (the nav's foot, or Settings on a phone): thirteen short walkthroughs, watched or tried step by step, each on a sandbox copy of the demo world ([docs/SPEC.md](docs/SPEC.md) §15). See [docs/SPEC.md](docs/SPEC.md) for the design and the phases, and [docs/DECISIONS.md](docs/DECISIONS.md) for the decisions behind it.
+> Quarry does bookkeeping only. It never generates, suggests or critiques story content.
 
-- [docs/development.md](docs/development.md): running it locally and the tests
-- [docs/deploy.md](docs/deploy.md): putting it on the droplet
+---
 
-Python (FastAPI, SQLAlchemy, Alembic, py_webauthn) and PostgreSQL behind a Vue 3 + TypeScript PWA, shipped as one Docker image.
+## Why Quarry
+
+Long fiction in a shared world means hundreds of names, years of notes, and a story that is rewritten many times.
+Quarry is built around one loop, **spark → inbox → triage → canon and manuscript**, and keeps the bookkeeping out of
+your way while you write:
+
+- **Writing never waits for the tool.** Nothing pops up or takes the keyboard while you type. Names are coloured
+  quietly; everything else waits in a side panel until a natural break.
+- **No AI in the story.** Every check is a plain rule over your own text and notes.
+- **Nothing has to be filled in.** An entry can be just a name, forever. Structure grows from what you write.
+- **Nothing is lost.** Every save is versioned, chapters are retired rather than deleted, and a world exports to plain
+  Markdown at any time.
+- **Prose stays pure.** No markup in the manuscript; links live beside the text, never in it.
+
+## What it does
+
+### Capture and triage
+- **Capture anywhere.** A phone screen that opens straight to a text box, works offline, and takes text shared from
+  any app.
+- **Triage at the desk.** One item at a time, by keyboard: accept, reject, harvest, defer, with an optional one-line
+  decision.
+- **A journal and a decisions log** for the thinking around the book.
+
+### The bible and the world model
+- **Entries for every kind of thing:** characters, places, factions, cultures, species, events, objects and terms.
+- **Facts and relationships that read both ways,** with when they hold, how sure you are (canon, planned or rumour),
+  and the passage that established them.
+- **Names found automatically.** Every mention of every name, including other spellings, is found in all your texts.
+  Likely misspellings are caught and fixed in one click.
+- **Views:** a relationship graph, a family tree with relatives worked out, a place tree, *where everyone is* per
+  chapter, a mentions strip for each entry, and labels you can filter, group and tidy.
+
+### Writing
+- **A CodeMirror editor** with autosave, history with diffs, focus mode and typewriter scrolling.
+- **Live names:** coloured by kind as you type, with a card when you rest on one (never while typing), and a one-row
+  quick-fix strip for new names and misspellings.
+- **A writing companion** with five rule-based editors (Proofreader, Continuity, Connections, Archivist, Loose ends),
+  silent while Drafting and marked in the text while Revising.
+- **Getting back in:** where you stopped, a note for next time, and margin notes that never reach the manuscript.
+
+### Time, history and places
+- **One clock for the story:** chapters, facts and relationships can be set in in-world time, before the story, or
+  outside time, so flashbacks and tales are checked against when they happen, not where they're told.
+- **A Timeline** with coloured eras, lanes per character or faction, births, deaths and movements, a *told* order
+  beside the *happened* one, and history recorded straight from a passage.
+- **A chart:** a schematic map drawn from what's recorded (lands holding their towns, borders, seas, roads), with
+  pins you can drag and who controls what as of any point in the story.
+
+### Revising and restructuring
+- **Experiments:** alternate drafts of a chapter, or of a whole run of chapters, written beside the book and swapped
+  in when you're ready.
+- **Salvage and a cuts bin,** so nothing that leaves the book is lost.
+- **Find and replace across chapters** with a preview and Undo, word history per day, and changes since a checkpoint.
+
+### Planning
+- **A front page** for coming back after a break: the premise, where you left off, recent decisions and open
+  questions.
+- **The Journal in the full editor,** so planning notes get the same name tools as chapters.
+- **Planned facts** that become canon when the text shows them, and checks that can include them.
+
+### Safe and portable
+- **Passkey sign-in**, no passwords.
+- **An installable PWA** whose chapters and recent history work offline on the phone.
+- **Export and Restore:** a whole world as Markdown with frontmatter, read back losslessly.
+
+## Try it
+
+- **The demo world.** Load *The Ninefold Delta* from **New world**: a small made-up story with something of every
+  feature planted in it.
+- **The Guide.** Thirteen short walkthroughs, at the foot of the nav or under Settings on a phone. Watch one play
+  itself, or try it step by step, always on a throwaway copy of the demo world.
+
+## Run it locally
+
+The quickest way is the whole stack in Docker:
+
+```bash
+docker compose up -d --build
+```
+
+Open <http://localhost:8766> (use `localhost`, not `127.0.0.1`, for passkeys) and enter the setup token
+`local-setup-token` on first run.
+
+For development with hot reload and the tests, see [docs/development.md](docs/development.md).
+
+## Built with
+
+| Layer | |
+|---|---|
+| Backend | Python 3.12, FastAPI, SQLAlchemy 2, Alembic, py_webauthn |
+| Database | PostgreSQL 16+ |
+| Frontend | Vue 3, TypeScript, Vite, Pinia, CodeMirror 6, Dexie, d3-force; an installable PWA |
+| Tests | pytest, Vitest, Playwright, run in parallel in GitHub Actions |
+| Shipping | one Docker image (`ghcr.io/daevil1/quarry`) serving the API and the app |
+
+## Documentation
+
+| Document | What's in it |
+|---|---|
+| [docs/SPEC.md](docs/SPEC.md) | The design: principles, data model, screens, and every phase with its *done when* |
+| [docs/WORLD-MODEL.md](docs/WORLD-MODEL.md) | The bible as data: kinds, facts, relationships, story time and the companion |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Dated one-line decisions, and the reasons for them |
+| [docs/research/](docs/research/README.md) | How writers work, and what other writing and worldbuilding tools do |
+| [docs/development.md](docs/development.md) | Running it locally, the tests and the performance checks |
+| [docs/deploy.md](docs/deploy.md) | Deploying to a server behind nginx |
+
+## Status
+
+Phases 1–13 and the Guide are built and in use. Next is phase 14, decisions with follow-ups
+([SPEC §16](docs/SPEC.md)). Quarry is a personal tool for a single writer, with the data model ready for co-writing
+later. The code is public; no story content is ever committed, and every example and test uses made-up names.
