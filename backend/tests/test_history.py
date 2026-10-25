@@ -210,7 +210,14 @@ def test_demo_world_shows_history(signed_in: Client):
     D = f"/api/worlds/{world['slug']}"
     cards = {c["name"]: c for c in signed_in.get(f"{D}/cards").json()}
     eras = [c for c in cards.values() if c.get("era_colour")]
-    assert {c["name"] for c in eras} == {"The Lock Years", "The Ash Summers"}
+    assert {c["name"] for c in eras} == {"The Lock Years", "The Ash Summers", "The Open Water", "The Lock Works"}
+    # a long era with one nested at its end, and five events close together before the raising of the locks
+    assert (cards["The Open Water"]["when"]["at"], cards["The Open Water"]["when"]["end"]) == (320, 379)
+    assert (cards["The Lock Works"]["when"]["at"], cards["The Lock Works"]["when"]["end"]) == (376, 379)
+    cluster = sorted(n for n, c in cards.items() if c["kind"] == "event" and (c.get("when") or {}).get("at") in (378, 379))
+    assert cluster == ["The Drowning of the Lock Diggers", "The Ferrymen's Petition",
+                       "The Night the Lower Gates Were Shut Against the Spring Tide", "The Survey of the Nine Channels",
+                       "The Toll-House Riots"]
     assert cards["The Opening of the Hand"]["when"]["outside"] is True
     assert cards["The Flood of Lanterns"]["when"]["chapter"]
     raising = signed_in.get(f"{D}/entities/{cards['The Raising of the Locks']['id']}").json()

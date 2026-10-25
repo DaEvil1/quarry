@@ -10,6 +10,9 @@ declare module "vue-router" {
   interface RouteMeta {
     /** Reachable without signing in (setup and sign-in). */
     public?: boolean;
+    /** How wide the page may grow on a wide screen (docs/DECISIONS.md, "Page widths"): reading and form pages keep a
+     * comfortable measure (the default), tables use more of the screen, the drawn views all of it. */
+    width?: "read" | "wide" | "full";
   }
 }
 
@@ -51,24 +54,24 @@ export const router = createRouter({
         { path: "w/:world/decisions", name: "decisions", component: () => import("./views/DecisionsView.vue") },
         { path: "w/:world/journal", name: "journal", component: () => import("./views/JournalView.vue") },
         { path: "w/:world/journal/:id", name: "journal-entry", component: () => import("./views/JournalEntryView.vue") },
-        { path: "w/:world/bible", name: "bible", component: () => import("./views/BibleView.vue") },
-        { path: "w/:world/bible/k/:kind", name: "bible-kind", component: () => import("./views/BibleView.vue") },
+        { path: "w/:world/bible", name: "bible", component: () => import("./views/BibleView.vue"), meta: { width: "wide" } },
+        { path: "w/:world/bible/k/:kind", name: "bible-kind", component: () => import("./views/BibleView.vue"), meta: { width: "wide" } },
         { path: "w/:world/bible/types", name: "relation-types", component: () => import("./views/RelationTypesView.vue") },
         { path: "w/:world/bible/labels", name: "labels", component: () => import("./views/LabelsView.vue") },
         { path: "w/:world/bible/:id", name: "entity", component: () => import("./views/EntityView.vue") },
         { path: "w/:world/bible/:id/read", name: "entity-read", component: () => import("./views/ThreadView.vue") },
         { path: "w/:world/checks", name: "checks", component: () => import("./views/ChecksView.vue") },
-        { path: "w/:world/graph", name: "graph", component: () => import("./views/GraphView.vue") },
-        { path: "w/:world/chart", name: "chart", component: () => import("./views/ChartView.vue") },
-        { path: "w/:world/timeline", name: "timeline", component: () => import("./views/TimelineView.vue") },
-        { path: "w/:world/where", name: "where", component: () => import("./views/WhereView.vue") },
+        { path: "w/:world/graph", name: "graph", component: () => import("./views/GraphView.vue"), meta: { width: "full" } },
+        { path: "w/:world/chart", name: "chart", component: () => import("./views/ChartView.vue"), meta: { width: "full" } },
+        { path: "w/:world/timeline", name: "timeline", component: () => import("./views/TimelineView.vue"), meta: { width: "full" } },
+        { path: "w/:world/where", name: "where", component: () => import("./views/WhereView.vue"), meta: { width: "full" } },
         { path: "w/:world/names", name: "names", component: () => import("./views/NameCheckView.vue") },
         { path: "w/:world/items/:id", name: "item", component: () => import("./views/ItemView.vue") },
         { path: "w/:world/p/:project", name: "project", component: () => import("./views/ProjectView.vue") },
         { path: "w/:world/p/:project/salvage", name: "salvage", component: () => import("./views/SalvageView.vue") },
         { path: "w/:world/p/:project/read", name: "read", component: () => import("./views/ReadView.vue") },
         { path: "w/:world/p/:project/replace", name: "replace", component: () => import("./views/ReplaceView.vue") },
-        { path: "w/:world/chapters/:id", name: "chapter", component: () => import("./views/ChapterView.vue") },
+        { path: "w/:world/chapters/:id", name: "chapter", component: () => import("./views/ChapterView.vue"), meta: { width: "full" } },
         { path: ":rest(.*)*", name: "not-found", component: () => import("./views/NotFoundView.vue") },
       ],
     },

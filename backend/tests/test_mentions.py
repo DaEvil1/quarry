@@ -77,6 +77,31 @@ def test_not_flagged():
     assert kinds("ISOLDE shouted") == []
 
 
+def test_a_word_of_a_longer_name_is_a_near_miss_only_within_that_name():
+    # the same cases as frontend/src/matcher.test.ts
+    tamsin, oskar = entity("Tamsin Vey"), entity("Oskar Vey")
+    years = entity("The Lock Years", kind="event")
+    harbour = entity("Old Harbour", "Harbour Lights", kind="place")
+    m = Matcher([tamsin, oskar, years, harbour])
+    # a first name stands alone: its misspelling is one anywhere
+    assert kinds("Oscar rowed. Tamsen waited.", m) == [("Oscar", "near_miss", oskar.id), ("Tamsen", "near_miss", tamsin.id)]
+    # "Years" alone names nothing, so "Fears" is no misspelling of it; within the name it is
+    assert kinds("Fears: that the delta is changing. Old Fears.", m) == []
+    assert kinds("In the Lock Yeras. The Lock Yeras.", m) == [("Yeras", "near_miss", years.id)] * 2
+    assert kinds("Harbor lights. Harbor Lightsome. Harbor. Sea-Old Harbor.", m) == []
+    assert kinds("At Old Harbor's edge, under Harbor Lights.", m) == [
+        ("Harbor", "near_miss", harbour.id), ("Harbor", "near_miss", harbour.id)]
+    # without a first name, only the whole name with a word misspelt
+    oskar.first_name_alias = False
+    assert kinds("Oscar rowed. Oscar Vey rowed.", Matcher([oskar])) == [("Oscar", "near_miss", oskar.id)]
+    assert [f.start for f in Matcher([oskar]).scan("Oscar rowed. Oscar Vey rowed.")] == [13]
+    # a name matched whatever the capitals: the rest of it in any capitals
+    loose = entity("Old Harbour", kind="place")
+    loose.match_case = False
+    assert kinds("OLD Harbor, old Harbor. Harbor.", Matcher([loose])) == [
+        ("Harbor", "near_miss", loose.id), ("Harbor", "near_miss", loose.id)]
+
+
 def test_far_words_are_not_near_misses():
     assert kinds("Mountains and Valleys") == []
 

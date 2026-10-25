@@ -201,7 +201,8 @@ async function signOut() {
       <WorldSwitcher :worlds="session.worlds" :current="world" />
     </header>
 
-    <main>
+    <main :class="`page-${route.meta.width ?? 'read'}`">
+      <div class="page">
       <UpdateBar />
       <div v-if="offline" class="notice offline" role="status" data-testid="offline">
         Offline. Captures and cuts are kept on this device and sync when you're back.
@@ -212,6 +213,7 @@ async function signOut() {
         <RouterLink to="/login">Sign in</RouterLink>
       </div>
       <RouterView />
+      </div>
     </main>
     <GuideOverlay />
 

@@ -431,6 +431,68 @@ export function ticks(axis: Axis, x0: number, x1: number, minPx = 90): number[] 
   return out;
 }
 
+// ---- labels -----------------------------------------------------------------------------------------------------
+
+export interface LabelSpot {
+  /** 0 beside the mark, then upwards */
+  row: number;
+  /** drawn to the left of the mark (near the right edge, or where the right is taken) */
+  left: boolean;
+  /** the name, or its start with "…" when only that fits */
+  text: string;
+}
+
+/**
+ * Names for the marks of one lane, in rows above the axis line, never over each other or past the edge. Marks come
+ * in order along the axis, with `pad` the gap between a mark's centre and its name. Each name goes in the lowest row
+ * where it fits to the right of its mark, else to the left; failing both, shortened where there is most room; failing
+ * that (less than three letters), it is left out and read from the mark's card. A name beside the mark (row 0)
+ * also stops short of the next mark's dot. Worked out for what is on screen only, so it costs a few dozen measures.
+ */
+export function placeLabels(
+  items: { x: number; text: string; pad: number }[],
+  o: { rows: number; width: number; measure: (s: string) => number; fit: (s: string, room: number) => string; gap?: number },
+): (LabelSpot | null)[] {
+  const gap = o.gap ?? 8;
+  const ends: number[] = new Array(o.rows).fill(-Infinity);
+  return items.map((it, i) => {
+    if (!it.text) return null;
+    const w = o.measure(it.text);
+    const prevX = items[i - 1]?.x ?? -Infinity;
+    const nextX = items[i + 1]?.x ?? Infinity;
+    const rightLimit = (r: number) => Math.min(o.width - 4, r === 0 ? nextX - 7 : Infinity);
+    for (let r = 0; r < o.rows; r++) {
+      const start = it.x + it.pad;
+      if (start >= ends[r]! + gap && start + w <= rightLimit(r)) {
+        ends[r] = start + w;
+        return { row: r, left: false, text: it.text };
+      }
+    }
+    for (let r = 0; r < o.rows; r++) {
+      const end = it.x - it.pad;
+      const start = end - w;
+      if (start >= Math.max(ends[r]! + gap, 4, r === 0 ? prevX + 7 : -Infinity) && end <= o.width - 4) {
+        ends[r] = end;
+        return { row: r, left: true, text: it.text };
+      }
+    }
+    // shortened, in the row with the most room to the right of the mark
+    let best = -1;
+    let room = 0;
+    for (let r = 0; r < o.rows; r++) {
+      const start = Math.max(it.x + it.pad, ends[r]! + gap);
+      if (start > it.x + it.pad + 1) continue;
+      const free = rightLimit(r) - start;
+      if (free > room) (room = free), (best = r);
+    }
+    if (best < 0) return null;
+    const text = o.fit(it.text, room);
+    if (!text) return null;
+    ends[best] = it.x + it.pad + o.measure(text);
+    return { row: best, left: false, text };
+  });
+}
+
 /** What a brushed span holds, per kind (In this span). */
 export function inSpan(marks: Mark[], from: number, to: number): Mark[] {
   return marks.filter((m) => m.t <= to && (m.t2 ?? m.t) >= from);

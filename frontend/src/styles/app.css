@@ -27,6 +27,8 @@
   --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
   --prose: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --tabbar-h: 58px;
+  --page-read: 1100px;
+  --page-wide: 1680px;
   /* kinds of things in the world: text colours that read on the page in both themes */
   --k-character: #b4500f;
   --k-place: #1f7a4d;
@@ -138,7 +140,13 @@ p { margin: 0 0 10px; }
   background: var(--accent-fill); color: var(--on-fill); font-weight: 600; }
 .badge.dim { background: rgba(255,255,255,.12); color: var(--nav-text); }
 
-main { flex: 1; min-width: 0; padding: 24px 28px 48px; max-width: 1100px; }
+/* Page widths (docs/DECISIONS.md): the page sits in the middle of what the nav leaves. Reading and form pages keep a
+   comfortable measure; tables grow to a wider one; the drawn views (Timeline, Chart, Graph, Where everyone is) and the
+   editor take the whole width. Set per route (meta.width), never per page. */
+main { flex: 1; min-width: 0; padding: 24px 28px 48px; --page-max: var(--page-read); }
+main.page-wide { --page-max: var(--page-wide); }
+main.page-full { --page-max: none; }
+main > .page { max-width: var(--page-max); margin-inline: auto; }
 .page-head { margin-bottom: 18px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .crumbs { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
 
@@ -341,8 +349,10 @@ mark.near-miss { background: var(--warn-soft); }
 .picker input { width: 100%; font: inherit; font-size: 15px; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 6px;
   background: var(--surface); color: var(--text); }
 .picker input:focus { outline: 2px solid var(--accent-soft); }
+/* the suggestions float over the page: opening or closing them never moves what is below (a click there would miss) */
 .picker-list { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--surface); box-shadow: 0 8px 22px rgb(0 0 0 / .15); }
+  background: var(--surface); box-shadow: 0 8px 22px rgb(0 0 0 / .15);
+  position: absolute; top: 100%; left: 0; min-width: 100%; z-index: 25; max-height: min(320px, 50vh); overflow-y: auto; }
 .picker-list li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
 .picker-list li[aria-selected="true"], .picker-list li:hover { background: var(--accent-soft); }
 .snippet { font-family: var(--prose); font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -420,7 +430,7 @@ main:has(.chapter-page) { max-width: none; padding: 0; }
 
 .update-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 12px; border-radius: 6px;
   background: var(--accent-soft); border-left: 3px solid var(--accent); }
-.chapter-page .update-bar, main:has(.chapter-page) > .update-bar { margin: 8px 16px 0; }
+.chapter-page .update-bar, main:has(.chapter-page) .page > .update-bar { margin: 8px 16px 0; }
 
 /* the world: names by kind, cards and strips ----------------------------------------------------------------------- */
 
@@ -486,7 +496,9 @@ main:has(.chapter-page) { max-width: none; padding: 0; }
 .review-row .warn { color: var(--warn); }
 .review-notes { margin-top: 12px; }
 .review-notes .field { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
-.as-of-pick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.as-of-pick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; min-width: 0; }
+/* a select is as wide as its longest choice: a long chapter title must not push the page sideways */
+select.filter { max-width: min(100%, 30em); text-overflow: ellipsis; }
 .as-of-time { display: inline-flex; gap: 4px; align-items: center; }
 .species-legend { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; }
 .legend-item { display: inline-flex; align-items: center; gap: 4px; }
@@ -567,7 +579,8 @@ dl.relations dd { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
 @media (max-width: 600px) { dl.relations { grid-template-columns: 1fr; } dl.relations dd { margin-bottom: 6px; } }
 
 /* bible tables */
-.table-card { padding: 0; overflow-x: auto; }
+/* the scroller holds what is positioned inside it too (a visually hidden label), so nothing escapes it sideways */
+.table-card { padding: 0; overflow-x: auto; position: relative; }
 table.bible-table { width: 100%; border-collapse: collapse; }
 .bible-table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .bible-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -611,7 +624,9 @@ tr.off .kname, .rel.off .kname { text-decoration: line-through; }
 table.where-grid { border-collapse: collapse; font-size: 13px; }
 .where-grid th, .where-grid td { border-bottom: 1px solid var(--border); padding: 0; text-align: left; vertical-align: middle; }
 .where-grid tbody th, .where-grid .events-row th { position: sticky; left: 0; background: var(--surface); padding: 6px 12px; white-space: nowrap; z-index: 1; }
-.where-grid .chapter-head { padding: 8px 6px; font-weight: 500; min-width: 92px; max-width: 140px; }
+/* a table cell, whatever the manuscript list's .chapter-head says */
+.where-grid .chapter-head { display: table-cell; padding: 8px 6px; font-weight: 500; min-width: 92px; max-width: 140px; vertical-align: bottom; }
+.where-grid .head-when { display: block; }
 .where-grid .chapter-head a { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .where-grid .num-label { color: var(--text); font-weight: 600; }
 .where-grid .project-head { padding: 8px 6px 0; color: var(--muted); font-size: 12px; border-bottom: 0; }
@@ -633,7 +648,7 @@ table.where-grid { border-collapse: collapse; font-size: 13px; }
 .graph-card { flex: 1; min-width: 0; padding: 0; overflow: hidden; }
 .graph-head { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .centre-pick { max-width: 320px; position: relative; }
-svg.graph { display: block; width: 100%; height: min(70vh, 720px); cursor: grab; touch-action: none; background: var(--surface); }
+svg.graph { display: block; width: 100%; height: max(420px, calc(100vh - 300px)); cursor: grab; touch-action: none; background: var(--surface); }
 svg.graph:active { cursor: grabbing; }
 .glinks line { stroke: var(--muted); opacity: .55; }
 .glinks line.co { stroke-dasharray: 3 4; opacity: .4; }
@@ -644,6 +659,7 @@ svg.graph:active { cursor: grabbing; }
 .gnode circle { stroke: var(--surface); stroke-width: 2; }
 .gnode.centre circle { stroke: var(--text); }
 .gnode text { font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; pointer-events: none; }
+.graph-extra { font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; font-weight: 600; fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; pointer-events: none; }
 .circle { width: 280px; flex: none; }
 .circle li { padding: 2px 0; }
 @media (max-width: 900px) { .graph-layout { flex-direction: column; } .circle { width: auto; align-self: stretch; } }
@@ -803,6 +819,8 @@ g:hover > .word-up { fill: color-mix(in srgb, var(--accent) 75%, var(--text)); }
 .value-link { font: inherit; background: none; border: 0; padding: 0 6px 0 0; color: inherit; cursor: pointer; text-align: left; }
 .value-link:hover { color: var(--accent); text-decoration: underline; }
 .fact-cell .value-link + .value-link::before { content: ""; }
+/* a fact's values (a species, a year) stay on one line; the one-liner beside them wraps instead */
+.fact-cell { white-space: nowrap; }
 .filter-chips { margin: -4px 0 12px; }
 /* the Labels page */
 .labels-kind h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; }
@@ -860,7 +878,7 @@ svg.timeline { display: block; cursor: grab; outline: none; font: 11.5px system-
 svg.timeline:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 svg.timeline:active { cursor: grabbing; }
 .tl-era { fill: var(--era-bg); stroke: none; opacity: .75; }
-.tl-era-name { fill: var(--era); font-weight: 600; pointer-events: none; }
+.tl-era-name { fill: var(--era); font-weight: 600; }
 .tl-overview-bg { fill: var(--bg); }
 .tl-density { fill: var(--muted); opacity: .55; }
 .tl-book-band { fill: var(--accent); }
@@ -878,7 +896,7 @@ svg.timeline:active { cursor: grabbing; }
 .tl-lane-title-bg { fill: var(--surface); opacity: .85; }
 .tl-lane-title { fill: var(--text); font-weight: 600; cursor: pointer; }
 .tl-lane.folded .tl-lane-title { font-weight: 400; fill: var(--muted); }
-.tl-lane-outside { fill: var(--muted); font-style: italic; }
+.tl-lane-outside { fill: var(--muted); font-style: italic; cursor: help; }
 .tl-book { fill: var(--accent); opacity: .35; }
 .tl-seg.tone-life { fill: var(--k-character); opacity: .45; }
 .tl-seg.tone-place { fill: var(--k-place); opacity: .3; }
@@ -895,7 +913,11 @@ svg.timeline:active { cursor: grabbing; }
 .tl-tick-mark { stroke: var(--accent); stroke-width: 2.5; }
 .tl-mark.told .tl-tick-mark { stroke-dasharray: 2 2; }
 .tl-span { fill: var(--k-event); opacity: .3; }
-.tl-label { fill: var(--text); }
+/* names keep a halo in the Timeline's colour so a leader or a band behind them never cuts through */
+.tl-label { fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.tl-cluster-label { fill: var(--muted); }
+.tl-leader { stroke: var(--muted); stroke-width: 1; opacity: .45; }
+.tl-leader.dim { opacity: .12; }
 .tl-cluster-dot { fill: var(--surface); stroke: var(--k-event); stroke-width: 2; }
 .tl-cluster-count { fill: var(--text); font-size: 10px; font-weight: 600; pointer-events: none; }
 .tl-mark.dim, .tl-cluster.dim { opacity: .25; }

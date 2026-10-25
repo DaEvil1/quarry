@@ -2,9 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { useCards } from "../world/cards";
-import { holdsCount, shapePath, type ChartState, type Laid, type Layout } from "../world/chart";
+import { holdsCount, placeChartLabels, shapePath, type ChartState, type Laid, type Layout } from "../world/chart";
 import { ERA_COLOURS } from "../world/eras";
 import { hideCard, showCard } from "../world/hovercard";
+import { fitText, textWidth } from "../world/textwidth";
 
 // The chart drawn (docs/SPEC.md §13.7): each place as its shape, nested in its container, with its name; routes as
 // lines above the shapes; borders across containers as a short thick mark; who controls a place as a shade in the
@@ -272,10 +273,43 @@ const stripes = computed(() => {
 const shade = (d: Drawn) => (d.control.length > 1 ? `url(#stripe-${d.control.map((f) => colourOf.value.get(f)).join("-")})` : undefined);
 const dots = (d: Drawn) => {
   const n = d.here.length;
-  return d.here.map((id, i) => ({ id, name: cards.byId.get(id)?.name ?? "", x: (i - (n - 1) / 2) * 9, y: d.container ? d.l.r - 12 : d.l.r * 0.35 }));
+  return d.here.map((id, i) => ({ id, name: cards.byId.get(id)?.name ?? "", x: (i - (n - 1) / 2) * 9, y: d.container ? d.l.r - 7 : d.l.r * 0.35 }));
 };
 // names stay about 11 px on screen at any zoom
-const fontFor = (_d: Drawn) => 11.5 / scale.value;
+const NAME_PX = 11.5;
+const NAME_FONT = `600 ${NAME_PX}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+const nameOf = (d: Drawn) => (d.folded ? `${d.name} · ${d.count} ${d.count === 1 ? "place" : "places"}` : d.name);
+/** what is on screen, in chart units: the view box widened to the drawing's shape (preserveAspectRatio meet) */
+const visibleBox = computed(() => {
+  const k = scale.value;
+  const w = width.value / k;
+  const h = props.height / k;
+  const b = box.value;
+  return { x: b.x + b.w / 2 - w / 2, y: b.y + b.h / 2 - h / 2, w, h };
+});
+/** each name where it crosses no outline, route, border, dot or other name (world/chart.ts placeChartLabels) */
+const labels = computed(() => {
+  const k = scale.value;
+  const parentOf = (id: string) => {
+    let p = props.state?.places.get(id)?.parent ?? null;
+    while (p && !at.value.has(p)) p = props.state?.places.get(p)?.parent ?? null;
+    return p ?? undefined;
+  };
+  const placed = placeChartLabels(
+    drawn.value.map((d) => ({ id: d.id, x: d.x, y: d.y, shape: d.shape as never, r: d.l.r, open: d.container, w: textWidth(nameOf(d), NAME_FONT) / k, h: NAME_PX / k, parent: parentOf(d.id),
+      shorten: (maxW: number) => {
+        const text = fitText(nameOf(d), maxW * k, NAME_FONT);
+        return text.length > 5 ? { text, w: textWidth(text, NAME_FONT) / k } : null;
+      } })),
+    {
+      circles: drawn.value.flatMap((d) => dots(d).map((w) => ({ x: d.x + w.x, y: d.y + w.y, r: 4 }))),
+      segments: [...routes.value, ...borderMarks.value],
+      view: visibleBox.value,
+    },
+  );
+  const byId = new Map(drawn.value.map((d) => [d.id, d]));
+  return placed.filter((p) => !p.hidden).map((p) => ({ ...p, d: byId.get(p.id)! }));
+});
 
 // ---- the editor's card on resting, as of the chosen point ----
 function enter(e: PointerEvent, id: string) {
@@ -331,13 +365,12 @@ function enter(e: PointerEvent, id: string) {
         <path class="chart-shape" :d="d.d" />
         <path v-if="d.control.length === 1" class="chart-control" :class="`era-${colourOf.get(d.control[0]!)}`" :d="d.d" data-testid="chart-control" :data-faction="d.control[0]" />
         <path v-else-if="d.control.length > 1" class="chart-control striped" :d="d.d" :fill="shade(d)" data-testid="chart-control" :data-faction="d.control.join(',')" />
-        <text class="chart-name" :y="d.container ? -d.l.r + 4 + fontFor(d) : d.folded ? 4 : d.l.r + fontFor(d) + 2" text-anchor="middle" :style="{ fontSize: `${fontFor(d)}px` }">
-          {{ d.folded ? `${d.name} · ${d.count} ${d.count === 1 ? "place" : "places"}` : d.name }}
-        </text>
         <circle v-for="w in dots(d)" :key="w.id" class="chart-here" :cx="w.x" :cy="w.y" r="3.2" data-testid="chart-here" :data-who="w.name"><title>{{ w.name }}</title></circle>
       </g>
       <line v-for="b in borderMarks" :key="b.key" class="chart-border" :x1="b.x1" :y1="b.y1" :x2="b.x2" :y2="b.y2" data-testid="chart-border" />
       <line v-for="r in routes" :key="r.key" class="chart-route" :class="[r.kind, { planned: r.planned }]" :x1="r.x1" :y1="r.y1" :x2="r.x2" :y2="r.y2" :data-testid="`chart-${r.kind}`"><title>{{ r.title }}</title></line>
+      <!-- names above everything, each where it crosses nothing -->
+      <text v-for="lb in labels" :key="`n-${lb.id}`" class="chart-name" :x="lb.x" :y="lb.y" :text-anchor="lb.anchor" :style="{ fontSize: `${NAME_PX / scale}px` }" data-testid="chart-name" :data-place="lb.id" :data-name="lb.d.name">{{ lb.text ?? nameOf(lb.d) }}</text>
     </svg>
     <div v-if="legend.length" class="chart-legend small" data-testid="chart-legend">
       <span v-for="f in legend" :key="f.id" class="chart-key"><span class="chart-swatch" :class="`era-${f.colour}`" />{{ f.name }}</span>

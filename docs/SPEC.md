@@ -101,7 +101,7 @@ Entities are world-level, so mentions are computed across every project in the w
 
 1. It tokenises the text and matches every entity name and alias in the world, case-sensitively on the initial capital and on word boundaries. The match tolerates the suffixes `s`, `'s` and `’s` (so "Varrens" and "Varren’s" both match Varren) and multi-word names ("Old Harbour", "Iron Vale").
 2. It writes the matches to `mentions` (`exact` or `alias`).
-3. It flags a **near miss** when a capitalised word of at least 5 letters is no known name but is one edit away from a word of an entity's name or alias (two edits for words of 7 letters or more; a swapped pair of letters counts as one edit), and is not in `name_ignores`. A word that is part of any name, or differs from one only in capitals, is never flagged. A typo such as "Varen" for Varren would be flagged.
+3. It flags a **near miss** when a capitalised word of at least 5 letters is no known name but is one edit away from a word of an entity's name or alias (two edits for words of 7 letters or more; a swapped pair of letters counts as one edit), and is not in `name_ignores`. The word must be read as a name is: a word that is a name, alias or first name by itself counts anywhere, but a word of a longer name only with the rest of that name around it ("the Lock Yeras", not "Fears" alone for *The Lock Years*). A word that is part of any name, or differs from one only in capitals, is never flagged. A typo such as "Varen" for Varren would be flagged.
 
 Wherever a text is shown (inbox, triage, and the editor from phase 4), near misses get a wavy underline. Clicking one offers **Replace with…** (in this text), **another spelling** (adds it as an alias) or **Not a typo**. The **Name check** page lists every near miss in the world, grouped by word, with the same fixes applied everywhere at once. Names in texts link to their bible page.
 
@@ -1324,6 +1324,12 @@ its era. What it has to do:
   transform, and the clusters are worked out again only when the zoom crosses a step, so no more than a few hundred
   marks are drawn at any zoom. Budget, as for typing (DECISIONS, 2026-10-22): pan and zoom at 60 frames a second with
   3,000 items on the desk, no frame over 50 ms at 4× slower CPU, and the first drawing within a second.
+- **Names are never cut off or drawn over one another.** A mark's name stands beside it in the lowest of a few rows
+  above the lane's line where it fits (a higher row with a thin leader down to its mark), to the left of the mark near
+  the right edge, and shortened with "…" only where no row holds it whole; what can't be named is read from its card.
+  A cluster is named by its breakdown. Era names have a strip of their own above the axis numbers (outer eras, then
+  those nested in them), and an axis number that would be cut at an edge is left out. What is outside time is listed
+  under the Timeline; a lane says only how many of its own are ("1 outside time", named on hover).
 - **On the phone**, the same axis: pinch to zoom, drag to pan, lanes stacked and scrolling down, the overview on top.
 - **By keyboard**, arrow keys move from mark to mark, and the *In this span* list reaches everything shown.
 - Drawn in the browser, plain SVG, no library, as the graph and the family tree are, from the cards, the graph's
@@ -1747,6 +1753,11 @@ the end of the story (or as of the chosen point, §13.7.4).
     small dots on its shape, named on hover.
 - **Zoom and pan** as on the Timeline (§13.2.6). **Semantic zoom**: zoomed out, a container shows its name and how
   many places it holds (`Iron Vale · 14 places`); zooming in reveals its contents and their names, level by level.
+  **Names** are drawn above every shape and line and never cross an outline, a route, a border mark, someone's dot or
+  another name: a container's inside along its top where its outline leaves room, any other place's below it, else
+  above, to the right or to the left, inside its container. Where nothing holds the whole name it is shortened, and
+  where nothing at all is clear it is left to the place's card rather than drawn over another name. A place with
+  nothing inside keeps a line's room between it and its container's outline for its name.
 - **Hover cards** use the same component as the editor's (WORLD-MODEL.md §5): the one-liner, facts as of the chosen
   point, the closest relationships. **Click** opens the place.
 - **Filters**, kept in the address: by type (show or hide each), by depth (*down to*: lands · settlements · buildings
