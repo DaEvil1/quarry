@@ -135,19 +135,27 @@ function lineAround(text: string, at: number): string {
 const around = (text: string, from: number, to: number) => text.slice(Math.max(0, from - 12), to + 12).replace(/\s+/g, " ").trim().toLowerCase();
 
 export function analyse(input: AnalyseInput): Finding[] {
-  const text = input.journal ? input.text : storyText(input.text);
+  // choice lines settle shared names (docs/SPEC.md §14.10); they name nobody, in a journal entry too
+  const choices = input.matcher.choices(input.text);
+  const text = input.journal
+    ? choices.reduce((t, c) => t.slice(0, c.start) + " ".repeat(c.end - c.start) + t.slice(c.end), input.text)
+    : storyText(input.text);
   const layout = new Layout(text);
   const out: Finding[] = [];
   const keep = (f: Finding) => {
     if (!input.resolved.has(`${f.rule}|${f.key}`)) out.push(f);
   };
-  const hits: Hit[] = [];
+  const scanned: Hit[] = [];
   for (let i = 0; i < layout.lineStarts.length; i++) {
     const start = layout.lineStarts[i]!;
     const end = i + 1 < layout.lineStarts.length ? layout.lineStarts[i + 1]! - 1 : text.length;
-    hits.push(...input.matcher.scanLine(text.slice(start, end), start, true));
+    scanned.push(...input.matcher.scanLine(text.slice(start, end), start, true));
   }
-  const names = hits.filter((h) => h.kind !== "near_miss");
+  const hits = input.matcher.resolve(scanned, choices);
+  // a shared name nothing settles names nobody here: no connections, no Continuity (it still isn't a new name)
+  const names = hits
+    .filter((h) => h.kind === "exact" || h.kind === "alias")
+    .flatMap((h) => [h, ...(h.chosen?.slice(1) ?? []).map((id) => ({ ...h, entityId: id }))]);
   // which characters of the text belong to a name (a lookup per word, not a search through every name)
   const nameMask = new Uint8Array(text.length + 1);
   for (const h of hits) nameMask.fill(1, h.start, h.end);
@@ -377,7 +385,10 @@ export function analyse(input: AnalyseInput): Finding[] {
       message: `${m.kind === "tk" ? "TK" : "??"}: ${lineAround(text, m.from)}` });
   }
   MARGIN.lastIndex = 0;
+  const isChoice = new Set(choices.map((c) => c.start));
   for (let m = input.journal ? null : MARGIN.exec(input.text); m; m = MARGIN.exec(input.text)) {
+    // a choice line says who a shared name means: not a note to come back to
+    if (isChoice.has(m.index)) continue;
     const note = m[0].replace(/^[ \t]*%%\s*/, "");
     keep({ editor: "looseEnds", rule: "margin", key: note.toLowerCase(), from: m.index, to: m.index + m[0].length, message: note || "(an empty margin note)" });
   }

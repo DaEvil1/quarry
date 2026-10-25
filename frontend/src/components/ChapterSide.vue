@@ -8,6 +8,7 @@ import type { Era } from "../world/eras";
 import type { Unit } from "../world/when";
 import InlineText from "./InlineText.vue";
 import TimeField from "./TimeField.vue";
+import { castOf } from "../world/cast";
 
 // The chapter tab of the companion panel: summary and status, point of view, changes since a checkpoint, the names
 // in the chapter, cuts from it, harvest notes and chapter actions. Its own component so that typing (word count,
@@ -41,16 +42,9 @@ const emit = defineEmits<{
   since: [label: string];
 }>();
 
-const inChapter = computed(() => {
-  const counts = new Map<string, { id: string; name: string; kind: string | undefined; count: number }>();
-  for (const m of props.chapter.mentions) {
-    if (m.kind === "near_miss") continue;
-    const c = counts.get(m.entity_id) ?? { id: m.entity_id, name: m.entity_name, kind: m.entity_kind, count: 0 };
-    c.count++;
-    counts.set(m.entity_id, c);
-  }
-  return [...counts.values()].sort((a, b) => b.count - a.count);
-});
+// shared names nothing settles are listed once, with their claimants (docs/SPEC.md §14.10)
+const cast = computed(() => castOf(props.chapter.mentions));
+const inChapter = computed(() => cast.value.named);
 const nearMissCount = computed(() => props.chapter.mentions.filter((m) => m.kind === "near_miss").length);
 const characters = computed(() => props.names.filter((n) => n.kind === "character"));
 const experimentFrom = ref<"copy" | "scratch">("copy");
@@ -106,7 +100,12 @@ const open = ref<string | null>(null);
           <span v-if="placeOf.get(e.id)" class="small at" :class="`k-${placeOf.get(e.id)!.kind}`">at <span class="kname">{{ placeOf.get(e.id)!.name }}</span></span>
           <span class="muted small">×{{ e.count }}</span>
         </li>
-        <li v-if="!inChapter.length" class="muted small">No names from the bible yet.</li>
+        <li v-for="u in cast.unsettled" :key="`${u.form}|${u.claimants.map((c) => c.id).join()}`" data-testid="cast-unsettled" :title="`Not settled: ${u.claimants.map((c) => c.name).join(' or ')}`">
+          <span class="muted">{{ u.form }}?</span>{{ " " }}
+          <template v-for="(c, i) in u.claimants" :key="c.id"><span v-if="i" class="muted"> · </span><RouterLink class="kname" :class="c.kind ? `k-${c.kind}` : ''" :to="{ name: 'entity', params: { world: props.world, id: c.id } }">{{ u.short[i] }}</RouterLink></template>
+          <span class="muted small">×{{ u.count }}</span>
+        </li>
+        <li v-if="!inChapter.length && !cast.unsettled.length" class="muted small">No names from the bible yet.</li>
       </ul>
       <p v-if="nearMissCount" class="small">
         <RouterLink :to="{ name: 'names', params: { world: props.world } }">{{ nearMissCount }} possible misspelling(s)</RouterLink>

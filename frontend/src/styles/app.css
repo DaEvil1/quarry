@@ -316,6 +316,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 0 4px; border-radius: 
 .mention { color: inherit; text-decoration: underline dotted color-mix(in srgb, var(--accent) 60%, transparent); text-underline-offset: 3px; }
 .mention:visited { color: inherit; }
 .mention:hover { color: var(--accent); }
+.mention-shared { color: var(--muted); text-decoration: underline dotted color-mix(in srgb, var(--muted) 50%, transparent); text-underline-offset: 3px; cursor: help; }
 .near-miss-wrap { position: relative; display: inline; }
 .near-miss { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
   text-decoration: underline wavy var(--warn); text-decoration-skip-ink: none; text-underline-offset: 3px; }
@@ -513,6 +514,7 @@ main:has(.chapter-page) { max-width: none; padding: 0; }
 .qcard-facts dd { margin: 0; }
 .qcard-rels { list-style: none; margin: 0; padding: 0; font-size: 12.5px; color: var(--muted); }
 .qcard-rels .qname { color: var(--k); font-weight: 500; }
+.qcard .qlink { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
 .qcard-standing { font-style: italic; }
 .qstrip { padding: 4px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; max-width: min(560px, 92vw); }
 .qstrip-q { padding: 0 6px; color: var(--muted); }
@@ -763,6 +765,7 @@ g:hover > .word-up { fill: color-mix(in srgb, var(--accent) 75%, var(--text)); }
 .strip-cell.s1 .box { background: color-mix(in srgb, var(--k, var(--accent)) 30%, transparent); }
 .strip-cell.s2 .box { background: color-mix(in srgb, var(--k, var(--accent)) 62%, transparent); }
 .strip-cell.s3 .box { background: var(--k, var(--accent)); }
+.strip-cell.faint .box { border-style: dashed; background: color-mix(in srgb, var(--k, var(--accent)) 10%, transparent); }
 .strip-cell .pov { height: 3px; margin-top: 2px; border-radius: 2px; }
 .strip-cell .pov.on { background: var(--text); }
 .strip-cell .bracket { position: relative; height: 14px; }
@@ -986,3 +989,4 @@ svg.chart:active { cursor: grabbing; }
 .tl-arrow-edge { font-size: 11px; fill: var(--accent); cursor: pointer; }
 .kept-card { position: absolute; right: 12px; top: 12px; max-width: 320px; z-index: 5; }
 .timeline-wrap { position: relative; }
+.faint-row { opacity: 0.75; }

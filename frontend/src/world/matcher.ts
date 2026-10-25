@@ -16,8 +16,8 @@ export interface Hit {
   /** the entry's kind (character, place, …); for a shared name, the claimants' kind, or "name" when they differ */
   entityKind: string;
   matched: string;
-  /** a shared name: its form (lowercase, the key of its choice lines) and everyone claiming it */
-  shared?: { key: string; ids: string[] };
+  /** a shared name: its key (lowercase, as choice lines are matched), its form as written, and everyone claiming it */
+  shared?: { key: string; ids: string[]; form: string };
   /** a shared name a choice line settled: the entries chosen (a mention of each) */
   chosen?: string[];
 }
@@ -239,8 +239,8 @@ export class Matcher {
 
   /** Settle shared names by the choice lines before them (positions in the same document). */
   resolve(hits: Hit[], choices: Choice[]): Hit[] {
-    const settled = choices.filter((c) => c.ids === null || c.ids.length).sort((a, b) => a.end - b.end);
     if (!hits.some((h) => h.shared)) return hits;
+    const settled = choices.filter((c) => c.ids === null || c.ids.length).sort((a, b) => a.end - b.end);
     return hits.map((h) => {
       if (!h.shared) return h;
       let choice: Choice | undefined;
@@ -275,7 +275,7 @@ export class Matcher {
       re.lastIndex = 0;
       for (let m = re.exec(text); m; m = re.exec(text)) {
         const owners = table.get(lower ? m[1].toLowerCase() : m[1]);
-        if (owners) raw.push([m.index, m.index + m[0].length, owners, m[0], m[1].toLowerCase()]);
+        if (owners) raw.push([m.index, m.index + m[0].length, owners, m[0], m[1]]);
       }
     }
     // overlapping matches: the longer one wins; the same span in both lists: everyone claiming it
@@ -318,7 +318,7 @@ export class Matcher {
       const kinds = new Set(ids.map((o) => this.kindOf(o)));
       out.push({
         start: start + offset, end: end + offset, entityId: id, kind: "ambiguous",
-        entityKind: kinds.size === 1 ? this.kindOf(id) : "name", matched, shared: { key, ids },
+        entityKind: kinds.size === 1 ? this.kindOf(id) : "name", matched, shared: { key: key.toLowerCase(), ids, form: key },
       });
     }
     if (nearMisses && this.owner.size) {

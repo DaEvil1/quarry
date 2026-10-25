@@ -17,14 +17,16 @@ const props = defineProps<{
   /** "as of": the strip stays in book order, and dims what is later on the clock */
   asOf: At | null;
   indexOf?: IndexOf;
+  /** chapter id -> uses of a name it shares that nothing settles (docs/SPEC.md §14.10) */
+  unsettled?: Map<string, number>;
 }>();
 
-const strip = computed(() => mentionStrip(props.timeline, props.counts, props.entityId, props.asOf, props.indexOf));
+const strip = computed(() => mentionStrip(props.timeline, props.counts, props.entityId, props.asOf, props.indexOf, props.unsettled));
 const several = computed(() => strip.value.rows.length > 1);
 const inGap = (n: number) => strip.value.gaps.find((g) => g.from <= n && n <= g.to);
 const tip = ref("");
 const tell = (c: StripCell) =>
-  `${c.n}. ${c.chapter.title}${several.value ? ` (${c.chapter.project_name})` : ""} · ${c.count ? `named ${c.count === 1 ? "once" : `${c.count} times`}` : "not named"}${c.pov ? " · point of view" : ""}`;
+  `${c.n}. ${c.chapter.title}${several.value ? ` (${c.chapter.project_name})` : ""} · ${c.count ? `named ${c.count === 1 ? "once" : `${c.count} times`}` : "not named"}${c.unsettled ? ` · ${c.unsettled} unsettled` : ""}${c.pov ? " · point of view" : ""}`;
 
 // a long press on a phone shows what resting on it shows with a mouse
 let pressed = 0;
@@ -57,7 +59,7 @@ function click(e: MouseEvent) {
           v-for="c in row.cells"
           :key="c.chapter.id"
           class="strip-cell"
-          :class="[`s${c.step}`, { later: c.later, asof: c.asOf, gap: inGap(c.n) }]"
+          :class="[`s${c.step}`, { later: c.later, asof: c.asOf, gap: inGap(c.n), faint: !c.count && c.unsettled > 0 }]"
           :to="{ name: 'chapter', params: { world: props.world, id: c.chapter.id } }"
           :title="tell(c)"
           :aria-label="tell(c)"

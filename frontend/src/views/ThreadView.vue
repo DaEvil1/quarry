@@ -12,7 +12,7 @@ import type { EntityRef } from "../types";
 import { useCards } from "../world/cards";
 import { asIfAccepted } from "../world/asif";
 import { planningCount, planningReading, type PlanningKind } from "../world/planning";
-import { segments, thread, threadCount, type Gap, type Para, type ThreadChapter } from "../world/thread";
+import { segments, thread, threadCount, unsettledLine, type Gap, type Para, type ThreadChapter } from "../world/thread";
 import NotFoundView from "./NotFoundView.vue";
 
 // Reading one entry's thread (docs/SPEC.md §11.4): every paragraph (or chapter) that names it, in story order across
@@ -159,11 +159,13 @@ const paraClass = (p: Para) => ({ margin: p.margin, hit: p.hit });
         </div>
         <template v-if="inPlanning">
           <h1 v-if="ready" data-testid="planning-count">{{ planningHeading }}</h1>
+          <p v-if="ready && planningRead.counts.unsettled" class="small muted" data-testid="planning-unsettled">{{ unsettledLine(planningRead.counts.unsettled) }}</p>
           <h1 v-else>Reading…</h1>
           <p v-if="planningOffline" class="small muted" data-testid="planning-offline">Items and decisions need the network.</p>
         </template>
         <template v-else>
           <h1 v-if="ready" data-testid="thread-count">{{ heading }}</h1>
+          <p v-if="ready && reading.unsettled" class="small muted" data-testid="thread-unsettled">{{ unsettledLine(reading.unsettled) }}</p>
           <h1 v-else>Reading…</h1>
           <p v-if="!synced" class="small muted" data-testid="thread-offline">Offline: read from the chapters kept on this device.</p>
         </template>
