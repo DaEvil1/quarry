@@ -5,7 +5,7 @@ import { readLastUsed, writeLastUsed } from "../lastUsed";
 import { DEFAULT_PREFS, PREFS_KEY, readPrefs, usePrefs } from "../prefs";
 import { router } from "../router";
 import type { World } from "../types";
-import { perform, sleep, waitFor, type Step, type Tour } from "../guide/engine";
+import { bringIntoView, find, perform, sleep, waitFor, type Step, type Tour } from "../guide/engine";
 import { TOURS } from "../guide/tours";
 import { useSession } from "./session";
 
@@ -21,6 +21,9 @@ const SPEED_KEY = "quarry.guide.speed";
  * doing every step and waiting for what each expects. Only the e2e run sets it (on the device), to keep CI quick.
  */
 const PACE_KEY = "quarry.guide.pace";
+/** when the page is dimmed around what a step points at: while watching (the default), always, or never */
+const SPOT_KEY = "quarry.guide.spotlight";
+export type Spotlight = "watching" | "always" | "never";
 /** where a walkthrough had got to on this tab, so a reload can carry on */
 const AT_KEY = "quarry.guide.at";
 
@@ -120,6 +123,11 @@ export const useGuide = defineStore("guide", {
     instant: readJson<string>(local(), PACE_KEY, "") === "instant",
     /** the caption folded to its title line, to see what it covers */
     folded: false,
+    spotlight: readJson<Spotlight>(local(), SPOT_KEY, "watching"),
+    /** the step's target is in view and settled: its ring and caption show */
+    shown: true,
+    /** what the next step will use, if it is already on the page: the caption keeps clear of it */
+    upcoming: null as HTMLElement | null,
     /** the phone's address, when it is open */
     phone: null as string | null,
     /** the element the step points at, on the page or in the phone */
@@ -210,6 +218,10 @@ export const useGuide = defineStore("guide", {
       await del("/api/guide/sandbox").catch(() => undefined);
     },
 
+    setSpotlight(v: Spotlight) {
+      this.spotlight = v;
+      writeJson(local(), SPOT_KEY, v);
+    },
     setSpeed(v: number) {
       this.speed = v;
       writeJson(local(), SPEED_KEY, v);
@@ -220,6 +232,15 @@ export const useGuide = defineStore("guide", {
     /** On to the next step: watched, without waiting; tried, doing this one for the writer. */
     next() {
       advance?.("next");
+    },
+
+    /** The element the next step will use, when it is on this page already (not after an address or the phone). */
+    nextTarget(): HTMLElement | null {
+      const now = this.step;
+      const next = this.tour?.steps[this.index + 1];
+      if (!now || !next?.target || next.go || next.phone !== undefined || (next.in ?? "desk") !== (now.in ?? "desk")) return null;
+      const d = this.doc();
+      return d ? find(d, next.target) : null;
     },
 
     doc(): Document | null {
@@ -245,6 +266,7 @@ export const useGuide = defineStore("guide", {
         leave();
         writeJson(session(), AT_KEY, null);
         this.finished = true;
+        this.shown = true;
         this.target = null;
         this.pointer = null;
       }
@@ -253,6 +275,8 @@ export const useGuide = defineStore("guide", {
     async play(step: Step, stopped: () => boolean) {
       const w = this.sandbox!.slug;
       this.target = null;
+      this.upcoming = null;
+      this.shown = false;
       // the pointer shows only while a step acts, so it never points somewhere the caption isn't about
       this.pointer = null;
       leave();
@@ -261,9 +285,13 @@ export const useGuide = defineStore("guide", {
       const doc = () => this.doc();
       const el = step.target ? await waitFor(doc, step.target, 15_000, stopped) : null;
       if (stopped()) return;
-      this.target = el;
       if (step.target && !el) this.missed.push(`${this.index + 1}: ${step.target.css} ${step.target.text ?? ""}`.trim());
-      if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      // scrolled into view first; the ring and the caption show once it has settled
+      if (el) await bringIntoView(el, { smooth: !this.instant, stopped });
+      if (stopped()) return;
+      this.target = el;
+      this.upcoming = this.nextTarget();
+      this.shown = true;
 
       // wait for the writer (tried), or for the time to read the caption (watched); Next cuts either short
       const cleanups: (() => void)[] = [];
