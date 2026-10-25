@@ -1,20 +1,41 @@
 // Finding the world's names in text, in the browser, exactly as the server does (backend/src/quarry/mentions.py):
 // names and other names on word boundaries with plural and possessive endings; capitals optional per entry; a
 // character's first name (computed by the server); "not in this sense" phrases; and capitalised words one edit
-// away from a name (two for long words, a swapped pair counting as one) as likely misspellings.
+// away from a name (two for long words, a swapped pair counting as one) as likely misspellings. A name two entries
+// claim is shared (docs/SPEC.md §14.10): ambiguous until a choice line, `%% Isolde: Isolde Marr`, settles it.
 
 import type { Card } from "./cards";
 
 export interface Hit {
   start: number;
   end: number;
+  /** for a shared name: the first claimant, or the first one chosen */
   entityId: string;
-  /** exact | alias | near_miss */
-  kind: "exact" | "alias" | "near_miss";
-  /** the entry's kind (character, place, …) */
+  /** exact | alias | near_miss; ambiguous for a shared name nothing has settled */
+  kind: "exact" | "alias" | "near_miss" | "ambiguous";
+  /** the entry's kind (character, place, …); for a shared name, the claimants' kind, or "name" when they differ */
   entityKind: string;
   matched: string;
+  /** a shared name: its form (lowercase, the key of its choice lines) and everyone claiming it */
+  shared?: { key: string; ids: string[] };
+  /** a shared name a choice line settled: the entries chosen (a mention of each) */
+  chosen?: string[];
 }
+
+/** A choice line: from `end` on, the shared name `key` means `ids`, or nobody in particular (null). A line whose
+ * words single out no claimant has no ids ([]) and changes nothing. */
+export interface Choice {
+  start: number;
+  end: number;
+  key: string;
+  ids: string[] | null;
+  /** everyone claiming the name, for offering them */
+  owners: string[];
+}
+
+/** `%% Isolde: Isolde Marr`, `%% Isolde: Marr, Senn`, `%% Isolde: ?` (as on the server) */
+const CHOICE = /^[ \t]*%%[ \t]*([^:\n]*[^:\s])[ \t]*:[ \t]*([^\n]*?)[ \t]*$/gm;
+const MARGIN = /^[ \t]*%%[^\n]*/gm;
 
 const SUFFIX = "(?:'s|’s|s)?";
 const WORD = /(?<![\p{L}\p{N}_'’-])\p{L}[\p{L}\p{N}]*(?:['’-][\p{L}\p{N}]+)*/gu;
@@ -59,9 +80,13 @@ export function articleForms(name: string): string[] {
   return [name];
 }
 
+type Owner = [string, Hit["kind"]];
+
 export class Matcher {
-  private exact = new Map<string, [string, Hit["kind"]]>();
-  private loose = new Map<string, [string, Hit["kind"]]>();
+  /** every form, with the entries claiming it in the order met (a shared name has several) */
+  private exact = new Map<string, Owner[]>();
+  private loose = new Map<string, Owner[]>();
+  private names = new Map<string, string>();
   private exactRe: RegExp | null;
   private looseRe: RegExp | null;
   private exclusions = new Map<string, string[]>();
@@ -79,19 +104,31 @@ export class Matcher {
   private lineCache = new Map<string, Hit[]>();
 
   constructor(cards: Card[], ignored: Iterable<string> = []) {
+    const claim = (table: Map<string, Owner[]>, form: string, id: string, kind: Hit["kind"]) => {
+      const owners = table.get(form);
+      if (!owners) table.set(form, [[id, kind]]);
+      else if (!owners.some(([o]) => o === id)) owners.push([id, kind]);
+    };
     for (const c of cards) {
       this.kinds.set(c.id, c.kind);
+      this.names.set(c.id, c.name);
       const forms: [string, Hit["kind"]][] = [[c.name, "exact"], ...c.aliases.map((a) => [a, "alias"] as [string, Hit["kind"]])];
       if (c.first_name) forms.push([c.first_name, "alias"]);
       for (const [raw, kind] of forms) {
         const f = raw.trim();
         if (!f) continue;
         if (c.match_case) {
-          for (const v of articleForms(f)) if (!this.exact.has(v)) this.exact.set(v, [c.id, kind]);
-        } else if (!this.loose.has(f.toLowerCase())) this.loose.set(f.toLowerCase(), [c.id, kind]);
+          for (const v of articleForms(f)) claim(this.exact, v, c.id, kind);
+        } else claim(this.loose, f.toLowerCase(), c.id, kind);
       }
       const ex = c.exclusions.map((x) => x.toLowerCase()).filter(Boolean);
       if (ex.length) this.exclusions.set(c.id, ex);
+    }
+    // an entry's own name is never shared: where it is also someone's other name or first name, the name wins
+    for (const table of [this.exact, this.loose]) {
+      for (const [form, owners] of table) {
+        if (owners.length > 1 && owners.some(([, k]) => k === "exact")) table.set(form, owners.filter(([, k]) => k === "exact"));
+      }
     }
     const alternation = (forms: Iterable<string>, flags: string) => {
       const list = [...forms].sort((a, b) => b.length - a.length);
@@ -101,7 +138,7 @@ export class Matcher {
     };
     this.exactRe = alternation(this.exact.keys(), "gu");
     this.looseRe = alternation(this.loose.keys(), "giu");
-    for (const [f, [id]] of [...this.exact, ...this.loose]) {
+    for (const [f, [[id]]] of [...this.exact, ...this.loose]) {
       for (const w of f.match(WORD) ?? []) {
         this.knownLower.add(w.toLowerCase());
         if (w.length >= NEAR_MIN) {
@@ -164,37 +201,125 @@ export class Matcher {
     return this.kinds.get(id) ?? "other";
   }
 
-  /** Names (and likely misspellings) in `text`; `offset` is added to every position. */
+  /** The entries a form (as written, without an ending) means, from both lists. */
+  claimants(form: string): Owner[] {
+    const owners = [...(this.exact.get(form) ?? [])];
+    for (const o of this.loose.get(form.toLowerCase()) ?? []) if (!owners.some(([id]) => id === o[0])) owners.push(o);
+    return owners;
+  }
+
+  /** The choice lines in a text: margin-note lines that start with a shared name and a colon. */
+  choices(text: string, offset = 0): Choice[] {
+    const out: Choice[] = [];
+    CHOICE.lastIndex = 0;
+    for (let m = CHOICE.exec(text); m; m = CHOICE.exec(text)) {
+      const owners = this.claimants(m[1]).map(([id]) => id);
+      if (owners.length < 2) continue;
+      const words = m[2].split(",").map((w) => w.trim()).filter(Boolean);
+      const at = { start: m.index + offset, end: m.index + m[0].length + offset, key: m[1].toLowerCase(), owners };
+      if (words.length === 1 && words[0] === "?") {
+        out.push({ ...at, ids: null });
+        continue;
+      }
+      let chosen: string[] = [];
+      for (const w of words) {
+        const lw = w.toLowerCase();
+        let match = owners.filter((o) => this.names.get(o)!.toLowerCase() === lw);
+        if (!match.length) match = owners.filter((o) => (this.names.get(o)!.match(WORD) ?? []).some((x) => x.toLowerCase() === lw));
+        if (match.length !== 1) {
+          chosen = [];
+          break;
+        }
+        if (!chosen.includes(match[0])) chosen.push(match[0]);
+      }
+      out.push({ ...at, ids: chosen });
+    }
+    return out;
+  }
+
+  /** Settle shared names by the choice lines before them (positions in the same document). */
+  resolve(hits: Hit[], choices: Choice[]): Hit[] {
+    const settled = choices.filter((c) => c.ids === null || c.ids.length).sort((a, b) => a.end - b.end);
+    if (!hits.some((h) => h.shared)) return hits;
+    return hits.map((h) => {
+      if (!h.shared) return h;
+      let choice: Choice | undefined;
+      for (const c of settled) {
+        if (c.end > h.start) break;
+        if (c.key === h.shared.key) choice = c;
+      }
+      const ids = choice?.ids?.filter((id) => h.shared!.ids.includes(id)) ?? [];
+      if (!ids.length) return h.kind === "ambiguous" && !h.chosen ? h : { ...h, kind: "ambiguous", entityId: h.shared.ids[0], chosen: undefined };
+      return { ...h, kind: "alias", entityId: ids[0], entityKind: this.kindOf(ids[0]), chosen: ids };
+    });
+  }
+
+  /** The mentions in a whole stored text, exactly as the server stores them: a chapter without its margin notes and a
+   * journal entry without its choice lines, both following their choice lines; anything else as it is. */
+  scanSource(text: string, source: string, nearMisses = true): Hit[] {
+    if (source !== "chapter" && source !== "journal") return this.scan(text, 0, nearMisses);
+    const choices = this.choices(text);
+    const blank = (s: string) => " ".repeat(s.length);
+    const story = source === "chapter"
+      ? text.replace(MARGIN, blank)
+      : choices.reduce((t, c) => t.slice(0, c.start) + blank(t.slice(c.start, c.end)) + t.slice(c.end), text);
+    return this.resolve(this.scan(story, 0, nearMisses), choices);
+  }
+
+  /** Names (and likely misspellings) in `text`; `offset` is added to every position. A shared name comes back
+   * ambiguous, with its claimants; `resolve` settles it by the choice lines. */
   scan(text: string, offset = 0, nearMisses = true): Hit[] {
-    const raw: [number, number, string, Hit["kind"], string][] = [];
+    const raw: [number, number, Owner[], string, string][] = [];
     for (const [re, table, lower] of [[this.exactRe, this.exact, false], [this.looseRe, this.loose, true]] as const) {
       if (!re) continue;
       re.lastIndex = 0;
       for (let m = re.exec(text); m; m = re.exec(text)) {
-        const hit = table.get(lower ? m[1].toLowerCase() : m[1]);
-        if (hit) raw.push([m.index, m.index + m[0].length, hit[0], hit[1], m[0]]);
+        const owners = table.get(lower ? m[1].toLowerCase() : m[1]);
+        if (owners) raw.push([m.index, m.index + m[0].length, owners, m[0], m[1].toLowerCase()]);
       }
     }
-    // overlapping matches: the longer one wins
+    // overlapping matches: the longer one wins; the same span in both lists: everyone claiming it
     raw.sort((a, b) => a[0] - b[0] || b[1] - b[0] - (a[1] - a[0]));
-    const out: Hit[] = [];
+    const spans: [number, number, Owner[], string, string][] = [];
     const taken: [number, number][] = [];
     const lowerText = text.toLowerCase();
     const excludedSpans = new Map<string, [number, number][]>();
-    for (const [start, end, id, kind, matched] of raw) {
-      if (taken.length && start < taken[taken.length - 1][1]) continue;
+    const excluded = (id: string, start: number, end: number) => {
       const phrases = this.exclusions.get(id);
-      if (phrases) {
-        let spans = excludedSpans.get(id);
-        if (!spans) {
-          spans = [];
-          for (const ph of phrases) for (let i = lowerText.indexOf(ph); i >= 0; i = lowerText.indexOf(ph, i + 1)) spans.push([i, i + ph.length]);
-          excludedSpans.set(id, spans);
-        }
-        if (spans.some(([s, e]) => s <= start && end <= e)) continue;
+      if (!phrases) return false;
+      let spans = excludedSpans.get(id);
+      if (!spans) {
+        spans = [];
+        for (const ph of phrases) for (let i = lowerText.indexOf(ph); i >= 0; i = lowerText.indexOf(ph, i + 1)) spans.push([i, i + ph.length]);
+        excludedSpans.set(id, spans);
       }
+      return spans.some(([s, e]) => s <= start && end <= e);
+    };
+    for (const [start, end, all, matched, key] of raw) {
+      const owners = all.filter(([id]) => !excluded(id, start, end));
+      if (!owners.length) continue;
+      const last = spans[spans.length - 1];
+      if (last && last[0] === start && last[1] === end) {
+        for (const o of owners) if (!last[2].some(([id]) => id === o[0])) last[2].push(o);
+        continue;
+      }
+      if (taken.length && start < taken[taken.length - 1][1]) continue;
       taken.push([start, end]);
-      out.push({ start: start + offset, end: end + offset, entityId: id, kind, entityKind: this.kindOf(id), matched });
+      spans.push([start, end, [...owners], matched, key]);
+    }
+    const out: Hit[] = [];
+    for (const [start, end, owners, matched, key] of spans) {
+      const [id, kind] = owners[0];
+      if (owners.length === 1) {
+        out.push({ start: start + offset, end: end + offset, entityId: id, kind, entityKind: this.kindOf(id), matched });
+        continue;
+      }
+      const ids = owners.map(([o]) => o);
+      const kinds = new Set(ids.map((o) => this.kindOf(o)));
+      out.push({
+        start: start + offset, end: end + offset, entityId: id, kind: "ambiguous",
+        entityKind: kinds.size === 1 ? this.kindOf(id) : "name", matched, shared: { key, ids },
+      });
     }
     if (nearMisses && this.owner.size) {
       WORD.lastIndex = 0;
