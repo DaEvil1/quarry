@@ -1,15 +1,19 @@
 <script setup lang="ts">
 // The Guide's layer over the page while a walkthrough runs (docs/SPEC.md §15): a ring round what the step is about,
 // a pointer that moves before a watched click, the caption in a corner where it covers no prose, and the phone when a
-// step happens on one. It never takes focus and lets every click through to the page.
+// step happens on one. It never takes focus (its buttons don't either, so a field being typed in stays open) and lets
+// every other click through to the page.
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import { hint } from "../guide/engine";
-import { useGuide } from "../stores/guide";
+import { SPEEDS, useGuide } from "../stores/guide";
 
 const guide = useGuide();
 const ring = ref<{ left: number; top: number; width: number; height: number } | null>(null);
 const frame = ref<HTMLIFrameElement | null>(null);
+const card = ref<HTMLElement | null>(null);
+/** the caption moves to the top when what it points at is under it */
+const up = ref(false);
 
 let raf = 0;
 function track() {
@@ -18,6 +22,16 @@ function track() {
     const r = el.getBoundingClientRect();
     const off = guide.step?.in === "phone" && frame.value ? frame.value.getBoundingClientRect() : { left: 0, top: 0 };
     ring.value = { left: off.left + r.left - 4, top: off.top + r.top - 4, width: r.width + 8, height: r.height + 8 };
+    const c = card.value?.getBoundingClientRect();
+    if (c && c.height) {
+      // the card's corner, wherever it sits now: does the ring reach into it?
+      const g = ring.value;
+      const bottom = window.innerHeight - 16;
+      const overlaps = (top: number) =>
+        g.left < c.right && g.left + g.width > c.left && g.top < top + c.height && g.top + g.height > top;
+      if (!up.value && overlaps(bottom - c.height)) up.value = true;
+      else if (up.value && overlaps(16) && !overlaps(bottom - c.height)) up.value = false;
+    }
   } else {
     ring.value = null;
   }
@@ -37,10 +51,11 @@ onBeforeUnmount(() => cancelAnimationFrame(raf));
 const position = computed(() => (guide.finished ? "done" : `${guide.index + 1} of ${guide.tour?.steps.length ?? 0}`));
 const yourTurn = computed(() => (guide.mode === "try" && guide.step?.act ? hint(guide.step.act) : ""));
 const nextLabel = computed(() => (guide.mode === "try" && guide.step?.act ? "Do it for me" : "Next"));
+const speedLabel = (v: number) => `${v}×`;
 </script>
 
 <template>
-  <div v-if="guide.active" class="guide-layer" data-testid="guide">
+  <div v-if="guide.active" class="guide-layer" data-testid="guide" :style="{ '--guide-speed': guide.speed }">
 
     <div v-if="guide.phone" class="guide-phone" data-testid="guide-phone">
       <div class="guide-phone-notch" />
@@ -60,33 +75,54 @@ const nextLabel = computed(() => (guide.mode === "try" && guide.step?.act ? "Do 
     >
       <path d="M3 2l15 8.5-6.5 1.6L8.6 19z" />
     </svg>
-    <aside class="guide-card" :class="{ left: !!guide.phone }" role="status" aria-live="polite">
+    <aside ref="card" class="guide-card" :class="{ left: !!guide.phone, up }" role="status" aria-live="polite">
       <div class="guide-card-head">
         <span class="pill accent">Sandbox</span>
         <strong class="grow">{{ guide.tour?.title }}</strong>
         <span class="muted small">{{ position }}</span>
+        <button
+          type="button"
+          class="icon-btn"
+          @mousedown.prevent
+          :aria-label="guide.folded ? 'Show the caption' : 'Fold the caption'"
+          data-testid="guide-fold"
+          @click="guide.folded = !guide.folded"
+        >
+          {{ guide.folded ? "▴" : "▾" }}
+        </button>
       </div>
-      <template v-if="!guide.finished">
+      <template v-if="guide.folded" />
+      <template v-else-if="!guide.finished">
         <p class="guide-say">{{ guide.step?.say }}</p>
         <p v-if="yourTurn" class="guide-turn small">{{ yourTurn }}</p>
       </template>
       <template v-else>
         <p class="guide-say" data-testid="guide-finished">
-          That's the walkthrough. Look around the sandbox as long as you like; ending it deletes the sandbox and
-          everything done in it.
+          That's the walkthrough. The sandbox stays for you to look around in, until the next walkthrough replaces it
+          or you delete it from the Guide page.
         </p>
         <p v-if="guide.missed.length" class="small guide-missed" data-testid="guide-missed">
           Some steps couldn't find their place (the app has changed since this walkthrough was written):
           {{ guide.missed.join("; ") }}
         </p>
       </template>
-      <div class="actions">
-        <button v-if="guide.mode === 'watch' && !guide.finished" type="button" class="btn btn-sm" data-testid="guide-pause" @click="guide.pause()">
+      <div v-if="!guide.folded" class="actions">
+        <button v-if="guide.mode === 'watch' && !guide.finished" type="button" class="btn btn-sm" data-testid="guide-pause" @mousedown.prevent @click="guide.pause()">
           {{ guide.paused ? "Play" : "Pause" }}
         </button>
-        <button v-if="!guide.finished" type="button" class="btn btn-sm btn-primary" data-testid="guide-next" @click="guide.next()">{{ nextLabel }}</button>
+        <button v-if="!guide.finished" type="button" class="btn btn-sm btn-primary" data-testid="guide-next" @mousedown.prevent @click="guide.next()">{{ nextLabel }}</button>
         <span class="spacer" />
-        <button type="button" class="btn btn-sm" data-testid="guide-end" @click="guide.end()">End</button>
+        <select
+          v-if="guide.mode === 'watch' && !guide.finished"
+          class="filter guide-speed"
+          aria-label="Speed"
+          data-testid="guide-speed"
+          :value="guide.speed"
+          @change="guide.setSpeed(Number(($event.target as HTMLSelectElement).value))"
+        >
+          <option v-for="v in SPEEDS" :key="v" :value="v">{{ speedLabel(v) }}</option>
+        </select>
+        <button type="button" class="btn btn-sm" data-testid="guide-end" @mousedown.prevent @click="guide.stop()">{{ guide.finished ? "Close" : "End" }}</button>
       </div>
     </aside>
   </div>
@@ -108,7 +144,7 @@ const nextLabel = computed(() => (guide.mode === "try" && guide.step?.act ? "Do 
 }
 .guide-pointer {
   position: fixed;
-  transition: left 0.55s ease-in-out, top 0.55s ease-in-out, transform 0.1s;
+  transition: left calc(0.55s / var(--guide-speed, 1)) ease-in-out, top calc(0.55s / var(--guide-speed, 1)) ease-in-out, transform 0.1s;
   filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5));
 }
 .guide-pointer path {
@@ -132,6 +168,14 @@ const nextLabel = computed(() => (guide.mode === "try" && guide.step?.act ? "Do 
   border-radius: var(--radius);
   box-shadow: 0 8px 28px rgb(0 0 0 / 0.28);
   padding: 12px 14px;
+}
+.guide-card.up {
+  bottom: auto;
+  top: 16px;
+}
+.guide-speed {
+  width: auto;
+  padding: 2px 6px;
 }
 .guide-card.left {
   /* beside the phone, not over it */

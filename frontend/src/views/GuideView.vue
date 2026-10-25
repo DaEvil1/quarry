@@ -3,17 +3,23 @@
 // world. Watch one play itself, or try it with each step waiting for you. Nothing here runs unless asked.
 import { computed } from "vue";
 
-import { LATER, TOURS } from "../guide/tours";
+import { TOURS } from "../guide/tours";
 import { useGuide } from "../stores/guide";
 import { useSession } from "../stores/session";
 
 const guide = useGuide();
 const session = useSession();
-const leftover = computed(() => !guide.active && session.worlds.some((w) => w.sandbox));
+const sandbox = computed(() => session.worlds.find((w) => w.sandbox));
+const resumable = computed(() => {
+  const at = guide.resumable;
+  const tour = at && TOURS.find((t) => t.id === at.tour);
+  return tour && sandbox.value?.slug === at.slug ? { title: tour.title, step: at.index + 1 } : null;
+});
 const doneOn = (id: string) => {
   const at = guide.done[id];
   return at ? new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "";
 };
+const minutes = computed(() => TOURS.reduce((n, t) => n + t.minutes, 0));
 </script>
 
 <template>
@@ -21,22 +27,29 @@ const doneOn = (id: string) => {
     <div>
       <h1>Guide</h1>
       <p class="muted">
-        Short walkthroughs of what Quarry can do, each a few minutes. Every walkthrough runs in a sandbox: a fresh copy
-        of the demo world, made when it starts and deleted when it ends. Your own worlds are never touched.
+        {{ TOURS.length }} short walkthroughs of what Quarry can do, about {{ minutes }} minutes in all. Watch one play
+        itself, then try it, each step waiting for you. Every walkthrough runs in a sandbox: a fresh copy of the demo
+        world, made when it starts. Your own worlds are never touched.
       </p>
     </div>
   </div>
 
   <div v-if="guide.preparing" class="notice" role="status" data-testid="guide-preparing">Making a fresh copy of the demo world…</div>
   <div v-if="guide.error" class="notice error" role="alert">{{ guide.error }}</div>
-  <div v-if="leftover" class="notice warn" data-testid="guide-leftover">
-    A sandbox from an earlier walkthrough is still there.
-    <button type="button" class="linkish" @click="guide.clear()">Delete it</button>
+  <div v-if="resumable && !guide.active" class="notice accent" data-testid="guide-resume">
+    You were at step {{ resumable.step }} of “{{ resumable.title }}”.
+    <button type="button" class="linkish" @click="guide.resume()">Carry on</button>
+  </div>
+  <div v-if="sandbox && !guide.active" class="notice small" data-testid="guide-sandbox">
+    The sandbox from your last walkthrough is still there, as it was left.
+    <RouterLink :to="{ name: 'world', params: { world: sandbox.slug } }">Open it</RouterLink> ·
+    <button type="button" class="linkish" data-testid="guide-delete-sandbox" @click="guide.clear()">Delete it</button>
   </div>
 
   <ul class="guide-list">
-    <li v-for="t in TOURS" :key="t.id" class="card guide-tour" :data-testid="`guide-tour-${t.id}`">
+    <li v-for="(t, i) in TOURS" :key="t.id" class="card guide-tour" :data-testid="`guide-tour-${t.id}`">
       <div class="card-head">
+        <span class="muted small guide-no">{{ i + 1 }}</span>
         <h3 class="grow">{{ t.title }}</h3>
         <span v-if="doneOn(t.id)" class="pill ok small">Seen {{ doneOn(t.id) }}</span>
         <span class="muted small">{{ t.minutes }} min</span>
@@ -51,13 +64,6 @@ const doneOn = (id: string) => {
       </div>
     </li>
   </ul>
-
-  <h2 class="guide-later-head">Still to write</h2>
-  <ul class="rows guide-later">
-    <li v-for="l in LATER" :key="l.title">
-      <strong>{{ l.title }}</strong> <span class="muted small">· {{ l.covers }}</span>
-    </li>
-  </ul>
 </template>
 
 <style scoped>
@@ -69,17 +75,18 @@ const doneOn = (id: string) => {
   gap: 12px;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 }
+.guide-tour {
+  display: flex;
+  flex-direction: column;
+}
 .guide-tour p {
   margin: 4px 0 10px;
 }
 .guide-tour .actions {
-  margin-top: 12px;
+  margin-top: auto;
+  padding-top: 12px;
 }
-.guide-later-head {
-  margin-top: 28px;
-  font-size: 1rem;
-}
-.guide-later li {
-  padding: 6px 0;
+.guide-no {
+  min-width: 1.2em;
 }
 </style>

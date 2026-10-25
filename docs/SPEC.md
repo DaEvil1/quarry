@@ -1766,7 +1766,7 @@ the end of the story (or as of the chosen point, §13.7.4).
 - **Smooth** at a few hundred places: the same budget as the graph's.
 - **From the Timeline**: brushing a span there drives the chart's *as of* (§13.7.5).
 - **Not a drawn map.** The chart doesn't replace an uploaded map image with pinned places, which stays on the later
-  list (WORLD-MODEL.md §6; §15).
+  list (WORLD-MODEL.md §6; §16).
 
 **Data:**
 
@@ -2562,7 +2562,126 @@ canon, with *Make it canon here* (§14.1.2); cause arrows show on hover and can 
 *Include planned* starts (§14.9); two build phases (§14.12), with shared names added after them as a third (§14.10,
 §14.12); and a shared name is settled by a visible margin-note line in the text (§14.10).
 
-## 15. Out of scope (for now)
+## 15. The Guide: learning Quarry by watching, then doing
+
+Quarry grew fast, and much of it is only found by someone who already knows it is there. The Guide shows it the way
+Thomas learns: seeing a feature used on a real story, then doing it himself. It is a page of short walkthroughs, each a
+few minutes, each played on the real app against a copy of the demo world, with a caption saying what is happening
+and why a writer would want it.
+
+The Guide is opt-in and stays out of the way. Nothing runs, pops up or is suggested unless a walkthrough is started
+from the Guide page. A walkthrough never takes focus from what is being typed, never covers the prose with its caption,
+and its captions are written by hand: no AI writes, reads or judges anything (§1).
+
+### 15.1 Watch, then try
+
+The Guide page (`/guide`, linked from the nav's foot and from Settings on the phone) lists the walkthroughs in the
+order a writer would meet the features, each with its length, what it covers, when it was last seen on this device,
+and two buttons:
+
+- **Watch.** The steps do themselves. A pointer moves to what the step is about and presses it, typing goes a letter
+  at a time, and a ring shows what the caption is about, dimming the rest a little. **Pause**, **Next** and a speed of
+  0.5×, 0.75×, 1×, 1.5× or 2× (kept per device) are on the caption.
+- **Try it yourself.** The same steps, each waiting for the writer. The ring shows where; the caption says what to
+  do ("Shift-click the highlighted button", "Select the highlighted paragraph"); the walkthrough moves on when it sees
+  it done, by the click itself or by what appears after. **Do it for me** does the step instead.
+
+The caption sits in the bottom right corner, beside the prose, and moves to the top when what it points at is under
+it; it can be folded to its title line. Its buttons never take focus, so a field the walkthrough is typing in stays
+open. **End** stops a walkthrough at any step.
+
+A walkthrough runs with the default writing settings (the panel open, Focus mode off, Drafting, asking for a note
+for next time), so its steps find what they point at whatever this device is set to. The writer's own settings are
+kept aside, untouched, and come back when it stops, or at the next load if the tab was closed in the middle. A reload in the middle of one offers
+**Carry on** on the Guide page, from the step it had reached, in the same sandbox.
+
+### 15.2 The sandbox
+
+A walkthrough changes things: it records an event, accepts an experiment, closes an item. It never does so in the
+writer's own worlds, or in a demo world loaded to explore.
+
+- Starting a walkthrough makes a **sandbox**: a fresh copy of the demo world, made by the same code as *Load the demo
+  world* (the Restore path, about three seconds), named "The Ninefold Delta (guide sandbox)" at `/w/guide-sandbox`.
+  Every walkthrough starts from that known state, so its steps can rely on what the demo plants.
+- There is **at most one** sandbox. The next walkthrough replaces it, with everything done in it.
+- When a walkthrough ends, the sandbox **stays**, as it was left, to look around in. The Guide page and a quiet notice
+  on the sandbox's own pages offer **Delete it**.
+- It is a world like any other, listed in the switcher by its name, but Quarry never reopens in it: the last world
+  used, which "/" and the installed app's Capture open, stays the writer's own. It gets no offline copy.
+- Deleting or replacing it also takes out what it left on the device: its keys in local storage and its entries in
+  the per-world ones (the capture choice, the Timeline's filters, the last place used).
+
+### 15.3 Steps, and keeping them true
+
+A walkthrough is a list of steps, written once, that both buttons play. A step says one or two sentences, may open an
+address in the sandbox, points at an element on the page (the same data-testids and labels the end-to-end tests use,
+narrowed by its text), may do one thing to it (click, shift-click, rest the pointer on it, type into a field, choose
+from a list by its value or the words it shows, press a key with Ctrl (Cmd on a Mac), Shift or Alt, or in the editor select a passage, put the cursor after some words
+or type at it), and may wait for what that brings up. Nothing in the views knows about the Guide.
+
+The app changes; a walkthrough must not quietly drift from it. A step that can't find what it points at, or what it
+waits for, is skipped and named on the walkthrough's last card. The end-to-end run plays every walkthrough with *Do it
+for me* on each step and fails if any step was skipped, so a renamed button or a moved panel breaks the build, not the
+lesson. The walkthroughs run one after another on a shard of their own.
+
+### 15.4 The phone in a frame
+
+Some features are about the phone and the desk together: a spark captured on the bus and sorted at the desk. A step
+can open the phone: a phone-shaped frame beside the page holding Quarry itself at phone width (the same address, the
+phone's layout and tab bar), and point at and act on what is inside it as on the page. The caption moves beside it.
+Quarry may therefore be framed by its own pages (`frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`); no other site
+can frame it. On a real phone the frame fills the screen.
+
+### 15.5 Videos
+
+The same run can record each walkthrough, watched at 1×, as a video: a workflow started by hand (*guide videos*)
+keeps them as a download on the run for 30 days. Nothing is committed, so they take no room in the repository; the
+Guide itself doesn't need them.
+
+### 15.6 The walkthroughs
+
+Thirteen walkthroughs, about 48 minutes in all, in the order the Guide lists them. Each names what it does in the
+sandbox, and what it only points at (a download, a file picker, a confirmation, a drag), where doing it would leave the
+app or the sandbox.
+
+| # | Walkthrough | Min | What it does |
+|---|---|---|---|
+| 1 | Getting back in | 3 | The front page: the premise, *Where you left off* (with the Journal's note under "1 more"), *Lately*, the latest decisions, open questions and the ?? count. *Continue* into chapter 3 at "Tamsin opens the compass…"; a paragraph written and left, so the note for next time is asked and the front page shows it first; the *Writing* and *Planning* focus reordering the nav. |
+| 2 | A spark on the phone, sorted at the desk | 2 | In the phone frame, a spark captured for The Ferryman's Daughter; at the desk the inbox, closing it with a decision, Triage's keys, and the Decisions log. |
+| 3 | Writing a chapter with the companion | 4 | Chapter 2's names coloured by kind; the Proofreader: Alt+Enter removes "the the", F8 steps to "Oscar" and replaces it with Oskar Vey; Continuity's Mountain Fires before the Flood. Chapter 3's margin note, Connections (Pell and Brother Cade), the Archivist ("Rook" twice, added as a character), Loose ends, and a thought stashed with Ctrl+Shift+S. Points at Drafting and Revising. |
+| 4 | The bible | 4 | The characters table and Tamsin Vey's page (pronunciation, other names, the mentions strip, first appearance); Corin Dray, only in Ash Season's bible; Moss the dog not matched in "Moss grew"; the name check (Tamsen, Oscar); Pell renamed, the old name kept; the Labels page's expected *type* missing on the Mountain Fires, and a label holding several values. |
+| 5 | Facts and relationships from the prose | 4 | A fact recorded from a passage of The Crossing, with its evidence on Tamsin's page; her two occupations; *As of* year 411, before Saltreach; the family tree with Corin worked out as her cousin and Wenna the ancestor; Where everyone is. |
+| 6 | Species and roles | 3 | The species (human, dog, marsh-wight, native to the delta); the characters table by species; Brother Cade, a marsh-wight who appears human; the Warden-Captain held one at a time; Harl Brenner's roles; the clash in Checks, settled with *End … before …*. |
+| 7 | Story time and the Timeline | 4 | When chapters are set; "The compass argument begins" recorded from a passage of chapter 3 in year 392 and its *Told in*; the Timeline's eras, folds and the book; the Lock Years and the Ash Summers chosen; the Mountain Fires' backwards cause arrow; *Told* and *History*; Checks reading the clock. |
+| 8 | Revising | 4 | Summaries and status pills; word history; find and replace, Oscar to Oskar, previewed, replaced and undone; a checkpoint "before the cuts" (Ctrl+S) and the changes since it while Revising; a line cut with Ctrl+Shift+X, in the chapter's cuts and Salvage, and put back; the Brass Compass read in story order. Points at unticking a hit. |
+| 9 | Restructuring with experiments | 4 | Ash Season's experiment and *Read as if accepted*; a new one over chapters 3–4 from copies; *Accept*, the review and a harvest note; *Undo* on the note; the old chapters in Salvage. |
+| 10 | Planning in the Journal | 5 | Loose ends (Hesper's age ??), the entries and their *since* counts; "What the Wardens want" in the editor with the world tools and the Wardens' planned age on their card; a fact recorded as planned; a question from a passage; Hesper's trade planned in "The first map" (2014) and canon in "The Cartographer", and her planning reading; *Include planned* turning Brother Cade's planned death into a finding. |
+| 11 | The chart | 4 | The delta as a land holding Carrow Ferry, Greywater and Marrow Locks, the Outer Sound and the Salt Flats; shapes from types; Greywater pinned and Carrow Ferry placed automatically; the dyke road and the sea route; control shades; Marrow Locks' card; *As of* The Crossing and What the River Kept moving Tamsin's dot; from the Timeline with 412–413 brushed, the scrubber. Points at pins (pinning is a drag). |
+| 12 | Names shared by two entries | 4 | "The Cartographer"'s bare "Linnet", its shared card, the same on the phone; *Sorrel* writing a choice line; the Dray and "?" lines; the chapter's unsettled names; Linnet Sorrel's *Not settled*; the Ninefold Delta, a place that is also a character. |
+| 13 | Keeping it safe | 3 | Autosave and History, an older revision restored and the one before it kept; the delete section of World settings, which needs the name typed (opened, then cancelled). Points at Export and Restore (a download, a file picker), the offline copy, passkeys and recovery codes (new codes ask to confirm). |
+
+The demo world (backend/src/quarry/demo.py) is the walkthroughs' material: a walkthrough uses what it plants and adds
+what it shows being made (an event from a passage, a cut, a checkpoint, a rename) itself, so the demo needs nothing
+new for them.
+
+### 15.7 Data model, in one place
+
+- `worlds.sandbox` (boolean, default false; migration 0017): the Guide's copy of the demo world. Deleting the world
+  deletes everything in it, as for any world.
+- `POST /api/guide/sandbox` deletes the writer's sandbox and makes a fresh one; `DELETE /api/guide/sandbox` deletes it.
+  A world's answer says whether it is a sandbox.
+- On the device: which walkthroughs were seen and when, the speed, and the writer's own writing settings while a
+  walkthrough runs (local storage, `quarry.guide*`); the step a walkthrough had reached (session storage, for *Carry
+  on*).
+
+### 15.8 Decisions
+
+Thomas's answers (DECISIONS.md, 2026-10-25): the Guide's pages may frame each other (§15.4); the sandbox stays after a
+walkthrough until the next one or *Delete it* (§15.2); watching has speed controls down to 0.5× (§15.1); videos are
+made by hand into a short-lived download, not kept in the repository (§15.5); and every walkthrough below is written
+and built at once.
+
+## 16. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -2583,7 +2702,7 @@ canon, with *Make it canon here* (§14.1.2); cause arrows show on hover and can 
   - calendars, or packs of real history: time stays a sortable number (§13.1.1);
   - a soundtrack feature: the share target already records where a link came from.
 
-## 16. Open questions
+## 17. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?

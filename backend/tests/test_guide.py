@@ -1,19 +1,12 @@
-"""The Guide's sandbox (docs/SPEC.md §15): a fresh copy of the demo world per walkthrough, one at a time, marked so
-the app can hide it, and gone when the walkthrough ends; the writer's own worlds are never touched."""
+"""The Guide's sandbox (docs/SPEC.md §15): a fresh copy of the demo world per walkthrough, one at a time, marked as
+such, kept until the next walkthrough replaces it or it is deleted; the writer's own worlds are never touched."""
 
 from __future__ import annotations
-
-from datetime import UTC, datetime, timedelta
-
-from sqlalchemy import select, update
-
-from quarry.api.guide import drop_stale_sandboxes
-from quarry.models import World
 
 from .conftest import Client
 
 
-def test_sandbox_is_a_demo_copy_one_at_a_time(signed_in: Client, db):
+def test_sandbox_is_a_demo_copy_one_at_a_time(signed_in: Client):
     own = signed_in.post("/api/worlds", json={"name": "The Grey Coast"}).json()
     demo = signed_in.post("/api/worlds/demo").json()
 
@@ -37,16 +30,7 @@ def test_sandbox_is_a_demo_copy_one_at_a_time(signed_in: Client, db):
     assert set(worlds) == {own["slug"], demo["slug"], "guide-sandbox"}
     assert not worlds[own["slug"]]["sandbox"] and not worlds[demo["slug"]]["sandbox"]
 
-    # ending it deletes it, and only it
+    # deleting it deletes it, and only it
     assert signed_in.delete("/api/guide/sandbox").status_code == 204
     assert {w["slug"] for w in signed_in.get("/api/me").json()["worlds"]} == {own["slug"], demo["slug"]}
     assert signed_in.delete("/api/guide/sandbox").status_code == 204
-
-
-def test_stale_sandboxes_go_at_startup(signed_in: Client, db):
-    signed_in.post("/api/guide/sandbox")
-    db.execute(update(World).where(World.sandbox.is_(True)).values(created_at=datetime.now(UTC) - timedelta(hours=13)))
-    db.commit()
-    signed_in.post("/api/worlds", json={"name": "The Grey Coast"})
-    assert drop_stale_sandboxes(db) == 1
-    assert db.scalars(select(World.slug)).all() == ["the-grey-coast"]

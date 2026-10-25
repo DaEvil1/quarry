@@ -27,10 +27,12 @@ export default defineConfig({
     { name: "chain", testMatch: chain, dependencies: ["setup"], workers: 1, use: chromium },
     // each loads the demo world, under the same name: one at a time
     { name: "demo", testMatch: demo, dependencies: ["setup"], workers: 1, use: chromium },
+    // the Guide's walkthroughs, one sandbox at a time (each replaces the last): one after another
+    { name: "guide", testMatch: "guide.spec.ts", dependencies: ["setup"], workers: 1, use: chromium },
     // each builds a world of its own
     {
       name: "own",
-      testIgnore: [/\/phase1\.spec\.ts$/, chain, demo, /\/update\.spec\.ts$/],
+      testIgnore: [/\/phase1\.spec\.ts$/, chain, demo, /\/guide\.spec\.ts$/, /\/update\.spec\.ts$/],
       dependencies: ["setup"],
       use: chromium,
     },
@@ -38,7 +40,7 @@ export default defineConfig({
     {
       name: "update",
       testMatch: "update.spec.ts",
-      dependencies: process.env.E2E_SHARD ? ["setup"] : ["chain", "demo", "own"],
+      dependencies: process.env.E2E_SHARD ? ["setup"] : ["chain", "demo", "guide", "own"],
       use: chromium,
     },
   ],

@@ -8,6 +8,7 @@ import { syncWorld } from "../offline";
 import { ENTITY_KINDS } from "../types";
 import { useCards } from "../world/cards";
 import { useOutbox } from "../stores/outbox";
+import { restoreWritingPrefs, useGuide } from "../stores/guide";
 import { useSession } from "../stores/session";
 import GuideOverlay from "./GuideOverlay.vue";
 import Icon from "./Icon.vue";
@@ -15,6 +16,9 @@ import UpdateBar from "./UpdateBar.vue";
 import WorldSwitcher from "./WorldSwitcher.vue";
 
 const session = useSession();
+const guide = useGuide();
+// a walkthrough left in the middle (a closed tab) gives back the writer's own writing settings
+restoreWritingPrefs();
 const cards = useCards();
 // the kinds of things this world has, for the nav (characters and places always, the rest once they exist)
 const kinds = computed(() =>
@@ -39,7 +43,8 @@ const world = computed(() => {
 watch(
   [world, projectSlug],
   ([w, p]) => {
-    if (w && worldSlug.value) writeLastUsed({ world: w.slug, project: p && session.project(w.slug, p) ? p : undefined });
+    // a Guide sandbox is never where Quarry reopens: the writer's own world stays the last one used
+    if (w && worldSlug.value && !w.sandbox) writeLastUsed({ world: w.slug, project: p && session.project(w.slug, p) ? p : undefined });
   },
   { immediate: true },
 );
@@ -64,7 +69,7 @@ watch(
     if (!w) return;
     void session.refreshCounts(w.slug);
     void session.refreshNearMisses(w.slug);
-    // a Guide sandbox is deleted when its walkthrough ends: no offline copy
+    // a Guide sandbox is thrown away by the next walkthrough: no offline copy
     if (!w.sandbox) void syncWorld(w.slug).catch(() => undefined);
     void cards.load(w.slug);
   },
@@ -204,6 +209,11 @@ async function signOut() {
     <main :class="`page-${route.meta.width ?? 'read'}`">
       <div class="page">
       <UpdateBar />
+      <div v-if="world?.sandbox && worldSlug && !guide.active" class="notice small" data-testid="sandbox-notice">
+        This is the Guide's sandbox, a copy of the demo world. The next walkthrough replaces it.
+        <RouterLink :to="{ name: 'guide' }">Guide</RouterLink> ·
+        <button type="button" class="linkish" @click="guide.clear()">Delete it</button>
+      </div>
       <div v-if="offline" class="notice offline" role="status" data-testid="offline">
         Offline. Captures and cuts are kept on this device and sync when you're back.
         <template v-if="outbox.waiting"> {{ outbox.waiting }} waiting.</template>

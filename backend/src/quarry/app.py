@@ -136,17 +136,6 @@ def rescan_mentions() -> None:
         log.info("worked out the mentions again in %d world(s)", n)
 
 
-def drop_stale_sandboxes() -> None:
-    """The Guide's sandboxes left behind by a walkthrough that was never ended (docs/SPEC.md §15)."""
-    from .api.guide import drop_stale_sandboxes as drop
-    from .db import session_factory
-
-    with session_factory()() as db:
-        n = drop(db)
-    if n:
-        log.info("deleted %d guide sandbox(es) left behind", n)
-
-
 def _mount_frontend(app: FastAPI) -> None:
     """Serve the built frontend: real files as they are, any other path gets index.html (client-side routes)."""
     root = get_settings().web_path.resolve()
@@ -175,7 +164,6 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
         if run_bootstrap and s.migrate_on_start:
             run_migrations()
             rescan_mentions()
-            drop_stale_sandboxes()
         yield
 
     app = FastAPI(title="Quarry", version=__version__, lifespan=lifespan,
