@@ -1,6 +1,7 @@
 # The Guide's walkthroughs as videos (docs/SPEC.md §15): each watched at normal speed in a fresh Quarry and recorded,
-# then kept as a workflow artifact for 30 days. Run by hand (Actions › guide videos › Run workflow); nothing is
-# committed, so the videos take no room in the repository.
+# squeezed with VP9 (about 1.5 MB a minute, some 70 MB for all of them), then kept as a workflow artifact for 30
+# days. Run by hand (Actions › guide videos › Run workflow); nothing is committed, so the videos take no room in the
+# repository.
 name: guide videos
 
 on:
@@ -53,8 +54,16 @@ jobs:
           (QUARRY_WEB_DIR="$PWD/dist" quarry serve > server.log 2>&1 &)
           for i in $(seq 1 30); do curl -sf http://localhost:8767/healthz && break; sleep 1; done
           npx playwright test --project=guide || (tail -50 server.log; exit 1)
+      # Playwright records at a high bitrate; screen video squeezes six times smaller with no visible loss
+      - name: compress
+        working-directory: frontend/guide-videos
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          mkdir small
+          for f in *.webm; do ffmpeg -hide_banner -loglevel error -i "$f" -c:v libvpx-vp9 -crf 42 -b:v 0 -row-mt 1 -deadline good -cpu-used 4 -an "small/$f"; done
+          du -sh small
       - uses: actions/upload-artifact@v4
         with:
           name: guide-videos
-          path: frontend/guide-videos/*.webm
+          path: frontend/guide-videos/small/*.webm
           retention-days: 30

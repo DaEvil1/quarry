@@ -2635,7 +2635,7 @@ can frame it. On a real phone the frame fills the screen.
 ### 15.5 Videos
 
 The same run can record each walkthrough, watched at 1×, as a video: a workflow started by hand (*guide videos*)
-keeps them as a download on the run for 30 days. Nothing is committed, so they take no room in the repository; the
+squeezes them (about 1.5 MB a minute, some 70 MB in all) and keeps them as a download on the run for 30 days. Nothing is committed, so they take no room in the repository; the
 Guide itself doesn't need them.
 
 ### 15.6 The walkthroughs

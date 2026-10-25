@@ -247,6 +247,8 @@ export const useGuide = defineStore("guide", {
     async play(step: Step, stopped: () => boolean) {
       const w = this.sandbox!.slug;
       this.target = null;
+      // the pointer shows only while a step acts, so it never points somewhere the caption isn't about
+      this.pointer = null;
       leave();
       if (step.phone !== undefined) this.phone = step.phone ? step.phone.replace("{w}", w) : null;
       if (step.go) await router.push(step.go.replace("{w}", w));
