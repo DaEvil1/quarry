@@ -37,6 +37,7 @@ from ..models import (
     Resolution,
     RetireReview,
     SessionNote,
+    Telling,
     User,
     World,
 )
@@ -445,8 +446,19 @@ def ties(db: Session, world: World, chapter_ids: list[uuid.UUID], drafts: list[C
         if n.note.strip():
             add("note", n.user_id, "note", n.chapter_id, f"The note for next time: {n.note[:200]}", [],
                 ["keep", "move", "drop"])
-    rows.sort(key=lambda r: (r["chapter"]["title"], ["fact", "relationship", "presence", "link", "note"].index(r["kind"]),
-                             r["text"]))
+    # events that happen in the chapters, and tellings recorded from them (docs/SPEC.md §13.2)
+    for ev in db.scalars(select(Entity).where(Entity.world_id == world.id, Entity.time_chapter_id.in_(ids))):
+        x = clock.get(ev.time_chapter_id)
+        keep = (f"will be set in {time_text(unit, units, x.set_time, None, None, x.set_approx)}"
+                if x is not None and x.set_time is not None and not x.early else "will be not placed yet")
+        add("event", ev.id, "happens", ev.time_chapter_id, f"{ev.name} happens in it", [ev], ["keep", "move", "drop"],
+            keep_text=keep)
+    for t in db.scalars(select(Telling).where(Telling.world_id == world.id, Telling.chapter_id.in_(ids))):
+        ev = entities.get(t.event_id)
+        add("telling", t.id, "telling", t.chapter_id, f"Told: {ev.name if ev else '?'}", [ev],
+            ["keep", "move", "drop"], evidence=t.passage)
+    kinds = ["fact", "relationship", "presence", "link", "note", "event", "telling"]
+    rows.sort(key=lambda r: (r["chapter"]["title"], kinds.index(r["kind"]), r["text"]))
     return rows
 
 
@@ -503,6 +515,7 @@ def _load(model: Any, data: dict) -> Any:
 
 
 MODELS = {"fact": Fact, "relationship": Relationship}
+EVENT_FIELDS = ("time_chapter_id", "time_at", "time_end", "time_label", "time_approx", "outside_time")
 BOUND_FIELDS = ("from_chapter_id", "from_time", "from_approx", "until_chapter_id", "until_time", "until_approx")
 
 
@@ -602,8 +615,32 @@ def apply_review(db: Session, world: World, user: User, chapter_ids: list[uuid.U
             else:
                 db.add(SessionNote(chapter_id=to, user_id=n.user_id, note=n.note, cursor=0))
             db.delete(n)
+        elif kind == "event":
+            ev = db.get(Entity, uuid.UUID(row["id"]))
+            if ev is None:
+                continue
+            before = {k: _json(getattr(ev, k)) for k in EVENT_FIELDS}
+            if c.action == "move":
+                ev.time_chapter_id = target(c, row)
+            else:
+                # keep: it takes the chapter's set time, or becomes not placed yet
+                x = clock.get(cid)
+                ev.time_chapter_id = None
+                if x is not None and x.set_time is not None and not x.early:
+                    ev.time_at, ev.time_approx = x.set_time, x.set_approx
+            ev.version += 1
+            ev.updated_by = user.id
+            changes.append({**base, "before": before, "version": ev.version})
+        elif kind == "telling" and c.action == "move":
+            t = db.get(Telling, uuid.UUID(row["id"]))
+            if t is None:
+                continue
+            to = target(c, row)
+            changes.append({**base, "before": {"chapter_id": str(t.chapter_id)}, "after": {"chapter_id": str(to)}})
+            t.chapter_id = to
         else:
-            # keep: nothing changes (evidence, "is at", the link and the note stay pointing at the chapter, in Salvage)
+            # keep: nothing changes (evidence, "is at", the link, the note and a telling stay pointing at the chapter,
+            # in Salvage)
             changes.append({**base})
     db.flush()
     for row, c in drops:
@@ -633,6 +670,19 @@ def apply_review(db: Session, world: World, user: User, chapter_ids: list[uuid.U
             if n is not None:
                 changes.append({**base, "before": _row(n)})
                 db.delete(n)
+        elif kind == "event":
+            # an event that happened in the chapter is kept, not placed yet
+            ev = db.get(Entity, uuid.UUID(row["id"]))
+            if ev is not None:
+                before = {k: _json(getattr(ev, k)) for k in EVENT_FIELDS}
+                ev.time_chapter_id = None
+                ev.version += 1
+                changes.append({**base, "before": before, "version": ev.version})
+        elif kind == "telling":
+            t = db.get(Telling, uuid.UUID(row["id"]))
+            if t is not None:
+                changes.append({**base, "before": _row(t)})
+                db.delete(t)
         db.flush()
     # each changed fact or relationship: its version after the whole review, so Undo leaves one changed since
     for ch in changes:
@@ -654,7 +704,7 @@ def undo_changes(db: Session, changes: list[dict], user: User, only_chapter: str
         if only_chapter and ch.get("chapter_id") != only_chapter:
             continue
         kind, action = ch["kind"], ch["action"]
-        if action == "keep" and kind not in MODELS:
+        if action == "keep" and kind not in MODELS and kind != "event":
             continue
         if kind in MODELS:
             model = MODELS[kind]
@@ -704,6 +754,27 @@ def undo_changes(db: Session, changes: list[dict], user: User, only_chapter: str
             if db.get(ItemLink, old) is None:
                 db.add(ItemLink(item_id=old[0], target_table="chapter", target_id=old[2]))
                 done += 1
+        elif kind == "event":
+            ev = db.get(Entity, uuid.UUID(ch["id"]))
+            if ev is None or ev.version != ch.get("version"):
+                skipped += 1
+                continue
+            for k, v in (ch.get("before") or {}).items():
+                setattr(ev, k, uuid.UUID(v) if v and k.endswith("_id") else v)
+            ev.version += 1
+            done += 1
+        elif kind == "telling":
+            if action == "drop":
+                if db.get(Telling, uuid.UUID(ch["id"])) is None:
+                    db.add(_load(Telling, ch["before"]))
+                    done += 1
+                continue
+            t = db.get(Telling, uuid.UUID(ch["id"]))
+            if t is None or str(t.chapter_id) != ch["after"]["chapter_id"]:
+                skipped += 1
+                continue
+            t.chapter_id = uuid.UUID(ch["before"]["chapter_id"])
+            done += 1
         elif kind == "note":
             if action == "move":
                 to = (uuid.UUID(ch["after"]["chapter_id"]), uuid.UUID(ch["id"]))
@@ -1025,6 +1096,20 @@ def evidence_retired(db: Session, world: World) -> list[dict]:
         a, b = entities.get(r.a_id), entities.get(r.b_id)
         t = types.get(r.type_id)
         add("relationship", r, [a, b], f"“{a.name if a else '?'} {t.label if t else '?'} {b.name if b else '?'}”")
+    # a telling recorded from a retired chapter (docs/SPEC.md §13.2.3)
+    for tl in db.scalars(select(Telling).where(Telling.world_id == world.id, Telling.chapter_id.in_(retired))):
+        ev = entities.get(tl.event_id)
+        ch = retired[tl.chapter_id]
+        key = f"telling:{tl.id}"
+        if key in dismissed:
+            continue
+        passage = tl.passage.strip()
+        found = [{"id": str(c.id), "title": c.title, "state": c.state} for c in living if passage in c.body]
+        out.append({"rule": "evidence_retired", "key": key, "kind": "telling", "id": str(tl.id),
+                    "message": f"The telling of {ev.name if ev else 'an event'} is a passage in a retired chapter, "
+                               f"“{ch.title}”.",
+                    "chapter": {"id": str(ch.id), "title": ch.title}, "passage": passage,
+                    "entities": [r for r in (ref(ev),) if r], "found": found})
     return out
 
 
@@ -1035,7 +1120,7 @@ def list_evidence_retired(slug: str, user: User = Depends(current_user), db: Ses
 
 
 class ReanchorIn(BaseModel):
-    kind: Literal["fact", "relationship"]
+    kind: Literal["fact", "relationship", "telling"]
     id: uuid.UUID
     chapter_id: uuid.UUID
 
@@ -1044,6 +1129,13 @@ class ReanchorIn(BaseModel):
 def re_anchor(slug: str, body: ReanchorIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     """Re-anchor: the evidence points at another chapter (one where its passage is found, usually)."""
     world, _ = member_world(db, user, slug)
+    if body.kind == "telling":
+        t = db.get(Telling, body.id)
+        if t is None or t.world_id != world.id:
+            raise HTTPException(404, "No such telling.")
+        t.chapter_id = _chapter(db, world, body.chapter_id).id
+        db.commit()
+        return {"id": str(t.id), "chapter_id": str(t.chapter_id)}
     obj = db.get(MODELS[body.kind], body.id)
     if obj is None or obj.world_id != world.id:
         raise HTTPException(404, "No such fact or relationship.")

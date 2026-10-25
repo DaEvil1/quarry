@@ -402,6 +402,9 @@ def add_fact(slug: str, entity_id: uuid.UUID, body: FactIn, user: User = Depends
     db.add(f)
     db.flush()
     prompt = label_prompt(db, world, e, label, had_it)
+    from .history import assign_era_colour
+
+    assign_era_colour(db, world, e)
     db.commit()
     out = fact_out(f)
     out.prompt = prompt
@@ -439,6 +442,12 @@ def update_fact(slug: str, fact_id: uuid.UUID, body: FactUpdate, user: User = De
     check_span(db, world, f)
     f.version += 1
     f.updated_by = user.id
+    db.flush()
+    from .history import assign_era_colour
+
+    e = db.get(Entity, f.entity_id)
+    if e is not None:
+        assign_era_colour(db, world, e)
     db.commit()
     return fact_out(f)
 
@@ -644,12 +653,24 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
         relations.setdefault(r.b.id, []).append({"label": r.reverse_label or r.label,
                                                  "other": r.a.model_dump(mode="json"), "standing": r.standing, **span,
                                                  **role})
-    return [{"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases),
-             "first_name": firsts.get(e.id), "match_case": e.match_case, "exclusions": list(e.exclusions),
-             "summary": e.summary, "facts": facts.get(e.id, []), "relations": card_relations(e, relations.get(e.id, [])),
-             "labels": sorted(labels.get(e.id, ())), "project": projects.get(e.project_id) if e.project_id else None,
-             "gender": e.gender}
-            for e in entities]
+    from .history import event_when
+
+    out = []
+    for e in entities:
+        card = {"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases),
+                "first_name": firsts.get(e.id), "match_case": e.match_case, "exclusions": list(e.exclusions),
+                "summary": e.summary, "facts": facts.get(e.id, []), "relations": card_relations(e, relations.get(e.id, [])),
+                "labels": sorted(labels.get(e.id, ())), "project": projects.get(e.project_id) if e.project_id else None,
+                "gender": e.gender}
+        # an event's "when" and an era's colour, so a time's era is found on the device (docs/SPEC.md §13.2.1)
+        if e.kind == "event":
+            when = event_when(e)
+            if when:
+                card["when"] = when
+            if e.era_colour:
+                card["era_colour"] = e.era_colour
+        out.append(card)
+    return out
 
 
 def card_times(x) -> dict:  # type: ignore[no-untyped-def]
@@ -679,8 +700,9 @@ def card_relations(e: Entity, rels: list[dict]) -> list[dict]:
     outward form, and who possesses them), so the word beside the name follows "as of" offline too."""
     out = rels[:16]
     if e.kind == "character":
+        # and every event: a birth or a death event is how an age is worked out (docs/SPEC.md §13.2.4)
         out += [r for r in rels[16:] if (r["other"]["kind"] == "species" and SPECIES_RE.match(r["label"].strip()))
-                or POSSESSED_RE.match(r["label"].strip())]
+                or POSSESSED_RE.match(r["label"].strip()) or r["other"]["kind"] == "event"]
     return out
 
 

@@ -52,6 +52,8 @@ GENDERS = ("female", "male", "nonbinary")
 # how a chapter is told, when not in the present of the story (docs/SPEC.md §13.1.2)
 TOLD_AS = ("flashback", "tale")
 INSERT_SIDES = ("before", "after")
+# an era's colour (docs/SPEC.md §13.2.1): one of eight that work in both themes, each a pair of tokens
+ERA_COLOURS = ("amber", "moss", "teal", "sky", "indigo", "plum", "rose", "rust")
 
 
 def _time() -> Mapped[float | None]:
@@ -249,6 +251,10 @@ class Entity(Base):
     __table_args__ = (
         CheckConstraint(_in("kind", ENTITY_KINDS), name="ck_entities_kind"),
         CheckConstraint(_in("gender", GENDERS), name="ck_entities_gender"),
+        CheckConstraint(_in("era_colour", ERA_COLOURS), name="ck_entities_era_colour"),
+        CheckConstraint("NOT outside_time OR time_at IS NULL", name="ck_entities_outside_time"),
+        CheckConstraint("time_chapter_id IS NULL OR (time_at IS NULL AND NOT outside_time)",
+                        name="ck_entities_time_chapter"),
     )
 
     id: Mapped[uuid.UUID] = _id()
@@ -270,6 +276,17 @@ class Entity(Base):
                                                   server_default="{}")
     # characters only (kept, unused, if the kind changes): female, male, nonbinary, or NULL for not set
     gender: Mapped[str | None] = mapped_column(String(20))
+    # events (kept, unused, if the kind changes): when it happens (docs/SPEC.md §13.2.1): in a chapter (following its
+    # time), a time, outside time, or none of them (not placed yet)
+    time_at: Mapped[float | None] = _time()
+    time_end: Mapped[float | None] = _time()
+    time_label: Mapped[str | None] = mapped_column(String(200))
+    time_approx: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    outside_time: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    time_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL",
+                                                                        use_alter=True))
+    # an era's colour (an event whose type is "era")
+    era_colour: Mapped[str | None] = mapped_column(String(20))
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -673,5 +690,21 @@ class RetireReview(Base):
     world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
     chapter_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
     changes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+
+class Telling(Base):
+    """A passage that tells of an event (docs/SPEC.md §13.2.3): recorded from the prose with "Record as event". Names
+    inside it don't count as appearing (telling of the dead is history)."""
+
+    __tablename__ = "tellings"
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=False,
+                                                index=True)
+    chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"), index=True)
+    passage: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()

@@ -10,7 +10,9 @@ the texts as they are now.
                                                       one-at-a-time roles (roles), the unit of time (time_unit,
                                                       time_units)
     <world>/Bible/<Kind>/<Name>.md                    id, name, kind, aliases, project (its level; null for the
-                                                      world), gender (when set); the notes
+                                                      world), gender (when set), an event's when (a chapter id, a
+                                                      time, or "outside"), an era's colour, an event's tellings
+                                                      (chapter and passage); the notes
     <world>/Journal/<date> <title> (<id>).md          id, date, title, project
     <world>/Decisions.md                              one line per decision
     <world>/Planning/<status>/<date> <text> (<id>).md items for the whole world
@@ -64,6 +66,7 @@ from ..models import (
     RelationType,
     Relationship,
     Role,
+    Telling,
     User,
     World,
     WorldMember,
@@ -247,6 +250,9 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             rels[r.a_id][-1]["role"] = r.role
         rels[r.a_id][-1].update(_bound_meta(r))
 
+    tellings: dict[uuid.UUID, list[dict]] = defaultdict(list)
+    for t in db.scalars(select(Telling).where(Telling.world_id == world.id).order_by(Telling.created_at)):
+        tellings[t.event_id].append({"chapter": str(t.chapter_id) if t.chapter_id else None, "passage": t.passage})
     presence: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for p in db.scalars(select(Presence).where(Presence.world_id == world.id).order_by(Presence.created_at)):
         presence[p.entity_id].append({"chapter": str(p.chapter_id), "place": str(p.place_id),
@@ -264,6 +270,18 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             meta["relationships"] = rels[e.id]
         if presence.get(e.id):
             meta["is_at"] = presence[e.id]
+        # an event's when (docs/SPEC.md §13.2.1), kept whatever the kind is now, an era's colour and the tellings
+        if e.outside_time:
+            meta["when"] = "outside"
+        elif e.time_chapter_id:
+            meta["when"] = str(e.time_chapter_id)
+        elif e.time_at is not None:
+            meta["when"] = {"at": float(e.time_at), "end": float(e.time_end) if e.time_end is not None else None,
+                            "label": e.time_label, "approx": e.time_approx}
+        if e.era_colour:
+            meta["colour"] = e.era_colour
+        if tellings.get(e.id):
+            meta["tellings"] = tellings[e.id]
         files[f"{root}/Bible/{KIND_FOLDERS[e.kind]}/{_safe(e.name)}.md"] = _doc(meta, e.body)
 
     for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id).order_by(JournalEntry.entry_date)):
@@ -640,6 +658,25 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                                 evidence=r.get("evidence"), note=r.get("note"), role=clean_role(r.get("role")),
                                 established_in_chapter_id=chapter(r.get("established_in")),
                                 **_spans_in(r, chapter), created_by=user.id, updated_by=user.id))
+
+    # events' when, eras' colours and tellings, relinked to the chapters by id
+    colours = ("amber", "moss", "teal", "sky", "indigo", "plum", "rose", "rust")
+    for e, meta in world_model:
+        when = meta.get("when")
+        if when == "outside":
+            e.outside_time = True
+        elif isinstance(when, dict) and _num(when.get("at")) is not None:
+            e.time_at, e.time_end = _num(when.get("at")), _num(when.get("end"))
+            e.time_label = " ".join(str(when.get("label") or "").split()) or None
+            e.time_approx = when.get("approx") is True
+        elif isinstance(when, str) and chapter(when):
+            e.time_chapter_id = chapter(when)
+        if meta.get("colour") in colours:
+            e.era_colour = meta["colour"]
+        for t in meta.get("tellings") or []:
+            if isinstance(t, dict) and str(t.get("passage") or "").strip():
+                db.add(Telling(world_id=world.id, event_id=e.id, chapter_id=chapter(t.get("chapter")),
+                               passage=str(t["passage"]), created_by=user.id))
 
     for e, meta in world_model:
         for p in meta.get("is_at") or []:

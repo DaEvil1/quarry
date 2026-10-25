@@ -22,6 +22,10 @@ Season a year on, with a short tale set forty years before, in which Oskar (reco
 without a finding. Some of the family have births, so ages show (and Pell's age disagrees with his, planted). Two
 chapters of Ash Season have an experiment across them, and the retired prologue still has a fact tied to it, with its
 evidence passage in it.
+
+For history and the Timeline (docs/SPEC.md §13.2) it has a few events of history (the raising of the locks, recorded
+from a passage of chapter 3 with its telling; the spring flood Agathe drowned in), two eras in their colours (the Lock
+Years, and the Ash Summers nested in them), the Flood of Lanterns happening in a chapter, and a prophecy outside time.
 """
 
 from __future__ import annotations
@@ -313,7 +317,7 @@ BIBLE: list[dict] = [
         "body": _p(""),
     },
     {
-        "id": "flood", "name": "The Flood of Lanterns", "kind": "event", "aliases": ["the Flood"],
+        "id": "flood", "name": "The Flood of Lanterns", "kind": "event", "aliases": ["the Flood"], "when": "b1-c2",
         "summary": "The spring festival at the first high tide, when the delta floods and lanterns are set adrift.",
         "facts": [{"label": "type", "value": "festival"},
                   {"label": "when", "value": "every spring, at the first high tide"},
@@ -327,7 +331,47 @@ BIBLE: list[dict] = [
     {
         # no type yet, though every event is expected to have one: the Archivist asks for it
         "id": "fires", "name": "The Mountain Fires", "kind": "event", "aliases": ["the mountains burned"],
+        "when": {"at": 413},
         "summary": "The summer the mountains burned and the ash came down the river for a month.",
+        "body": _p(""),
+    },
+    # history: two eras (one nested in the other), the raising of the locks (told in chapter 3), a death, a prophecy
+    {
+        "id": "lock-years", "name": "The Lock Years", "kind": "event", "when": {"at": 380}, "colour": "teal",
+        "summary": "Everything since the River Wardens raised the locks.",
+        "facts": [{"label": "type", "value": "era"}],
+        "body": _p(""),
+    },
+    {
+        "id": "ash-summers", "name": "The Ash Summers", "kind": "event", "when": {"at": 410, "end": 414},
+        "colour": "rust", "summary": "The years the mountains kept burning.",
+        "facts": [{"label": "type", "value": "era"}],
+        "body": _p(""),
+    },
+    {
+        "id": "raising", "name": "The Raising of the Locks", "kind": "event", "when": {"at": 380, "approx": True},
+        "summary": "The River Wardens close the lower delta with the great locks.",
+        "facts": [{"label": "type", "value": "founding"}],
+        "relationships": [
+            {"type": "involved", "type_kinds": ["event", "*"], "to": "wardens", "established_in": "b1-c3"},
+            {"type": "happened at", "type_kinds": ["event", "place"], "to": "marrow-locks", "established_in": "b1-c3"},
+        ],
+        "tellings": [{"chapter": "b1-c3", "passage": "Brother Cade said the River Wardens raised Marrow Locks the year "
+                      "his own teacher was born, and that the Ninefold Delta has never forgiven them."}],
+        "body": _p(""),
+    },
+    {
+        "id": "spring-flood", "name": "The Spring Flood", "kind": "event", "when": {"at": 390},
+        "summary": "The flood that took Agathe Vey and the old ferry house.",
+        "facts": [{"label": "type", "value": "death"}],
+        "relationships": [{"type": "involved", "type_kinds": ["event", "*"], "to": "agathe"},
+                          {"type": "happened at", "type_kinds": ["event", "place"], "to": "carrow-ferry"}],
+        "body": _p(""),
+    },
+    {
+        "id": "opening", "name": "The Opening of the Hand", "kind": "event", "when": "outside",
+        "summary": "What the delta folk say will come: the nine channels opening again, and the locks drowned.",
+        "facts": [{"label": "type", "value": "prophecy"}],
         "body": _p(""),
     },
     {
@@ -421,6 +465,8 @@ CHAPTERS: list[dict] = [
             "Marrow Locks, and towed it back without a word and without asking to be paid. Pell said that was "
             "how you knew Rook was frightened of something.",
             "%% Should Pell already know about the compass here? Check against chapter 1.",
+            "Brother Cade said the River Wardens raised Marrow Locks the year his own teacher was born, and that the "
+            "Ninefold Delta has never forgiven them.",
             "Brother Cade took Tamsin to Saltreach Abbey at low tide, across the causeway where the monks had "
             "been stranded. Pell walked with Brother Cade the whole way, asking him whether the dead could hear "
             "bells, and Brother Cade answered every question as if it were a serious one.",
@@ -631,6 +677,9 @@ def demo_files() -> dict[str, str]:
         if e.get("is_at"):
             meta["is_at"] = [{"chapter": p["chapter"], "place": p["place"], "place_name": names[p["place"]],
                               "note": p.get("note")} for p in e["is_at"]]
+        for k in ("when", "colour", "tellings"):
+            if e.get(k):
+                meta[k] = e[k]
         files[f"{ROOT}/Bible/{KIND_FOLDERS[e['kind']]}/{e['name']}.md"] = _doc(meta, e.get("body", ""))
 
     folders = {p["name"]: f"{ROOT}/Projects/{p['name'].replace(chr(39), '')}" for p in PROJECTS}

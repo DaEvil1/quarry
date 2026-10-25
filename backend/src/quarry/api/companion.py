@@ -104,12 +104,19 @@ def checks(db: Session, world: World) -> list[dict]:
     index = {c.id: i for i, (c, _) in enumerate(order)}
     chapter = {c.id: c for c, _ in order}
     entities = {e.id: e for e in db.scalars(select(Entity).where(Entity.world_id == world.id))}
-    # how often each entry is named in each chapter of the story (margin notes excluded when mentions were stored)
+    # how often each entry is named in each chapter of the story (margin notes excluded when mentions were stored),
+    # and how often outside the passages told as events: telling of the dead is history, not an appearance
+    from .history import passage_spans
+
+    told, _ = passage_spans(db, world, chapter)
     named: dict[uuid.UUID, Counter] = defaultdict(Counter)
+    appears: dict[uuid.UUID, Counter] = defaultdict(Counter)
     if order:
         for m in db.scalars(select(Mention).where(Mention.source_table == "chapter", Mention.source_id.in_(list(index)),
                                                   Mention.kind != "near_miss")):
             named[m.entity_id][m.source_id] += 1
+            if not any(a <= m.start < b for a, b in told.get(m.source_id, ())):
+                appears[m.entity_id][m.source_id] += 1
     facts = [f for f in db.scalars(select(Fact).where(Fact.world_id == world.id, Fact.standing == "canon"))
              if not f.outside_time]
     out: list[dict] = []
@@ -153,7 +160,7 @@ def checks(db: Session, world: World) -> list[dict]:
         since = when(f.from_chapter_id, f.from_time, f.from_approx)
         # named after being recorded dead, on the clock
         if DEAD_RE.search(f.value) or DEAD_RE.search(f.label):
-            for ch_id, n in named[e.id].items():
+            for ch_id, n in appears[e.id].items():
                 if side_of_start(f, ch_id) == 1:
                     add("dead_mentioned", f"{e.id}:{ch_id}",
                         f"{e.name} is named in {_q(chapter[ch_id].title)}{f' ({n}×)' if n > 1 else ''}, after being "
@@ -334,12 +341,14 @@ def checks(db: Session, world: World) -> list[dict]:
                     end={"id": str(x.id), "name": hx.name},
                     before={"id": str(y.id), "name": hy.name} if (y.from_chapter_id or y.from_time is not None) else None)
 
-    # a computed age that disagrees with an "age" fact (docs/SPEC.md §13.2.4): canon facts, chapters on the clock
+    # a computed age that disagrees with an "age" fact (docs/SPEC.md §13.2.4): canon facts, chapters on the clock; a
+    # birth is a "born" fact or a canon birth event they are related to
+    births = life_events(db, world, clock, entities, rels, "birth")
     for e in entities.values():
         if e.kind != "character":
             continue
         mine = [f for f in facts if f.entity_id == e.id]
-        born = birth_of(clock, mine)
+        born = birth_of(clock, mine) or births.get(e.id)
         if born is None:
             continue
         b, b_approx, born_fact = born
@@ -370,6 +379,28 @@ def checks(db: Session, world: World) -> list[dict]:
     out.sort(key=lambda x: (x["_at"], x["rule"], x["message"]))
     for x in out:
         del x["_at"]
+    return out
+
+
+def life_events(db: Session, world: World, clock: Clock, entities: dict, rels: list[Relationship],
+                kind: str) -> dict[uuid.UUID, tuple[float, bool, Entity]]:
+    """Per character, the time of a canon birth (or death) event they are related to: an event whose canon type is
+    "birth" (or "death"), placed in time."""
+    from .history import event_time
+
+    typed = {f.entity_id for f in db.scalars(select(Fact).where(Fact.world_id == world.id, Fact.standing == "canon"))
+             if " ".join(f.label.split()).lower() == "type" and " ".join(f.value.split()).lower() == kind}
+    out: dict[uuid.UUID, tuple[float, bool, Entity]] = {}
+    for r in rels:
+        if r.standing != "canon":
+            continue
+        for ev_id, who_id in ((r.a_id, r.b_id), (r.b_id, r.a_id)):
+            ev, who = entities.get(ev_id), entities.get(who_id)
+            if ev is None or who is None or ev.id not in typed or who.kind != "character" or who.id in out:
+                continue
+            t, approx = event_time(ev, clock)
+            if t is not None:
+                out[who.id] = (t, approx, ev)
     return out
 
 

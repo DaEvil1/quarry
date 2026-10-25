@@ -19,6 +19,7 @@ from .api import (
     companion,
     decisions,
     demo,
+    history,
     items,
     journal,
     labels,
@@ -162,5 +163,6 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.include_router(companion.router)
     app.include_router(revising.router)
     app.include_router(labels.router)
+    app.include_router(history.router)
     _mount_frontend(app)
     return app
