@@ -141,42 +141,98 @@ const keep = (m: Mark) => (cutoff.value === null || m.t < cutoff.value) && (!era
 // ---- geometry ----
 const wrap = ref<HTMLElement | null>(null);
 const W = ref(900);
-const OVERVIEW_H = 34;
+const OVERVIEW_H = 44;
 /** the axis: a strip of era names (a row for the outer eras, one for those nested in them), then the ticks */
-const ERA_ROW = 14;
+const ERA_ROW = 16;
 const ERA_H = 2 * ERA_ROW + 2;
-const AXIS_H = ERA_H + 26;
-const FOLDED_H = 20;
-const TOP = OVERVIEW_H + AXIS_H + 8;
-/** names stand in rows above a lane's line; the events lane has three, the others two */
-const ROW_H = 14;
+const AXIS_H = ERA_H + 30;
+const FOLDED_H = 24;
+const TOP = OVERVIEW_H + AXIS_H + 10;
+/** names stand in rows above a lane's line; the events lane has four, the others three */
+const ROW_H = 18;
 const FONT = '11.5px system-ui, -apple-system, "Segoe UI", sans-serif';
 const TITLE_FONT = `600 ${FONT}`;
-const rowsOf = (l: Lane) => (l.kind === "events" ? 3 : 2);
+const rowsOf = (l: Lane) => (l.kind === "events" ? 4 : 3);
 /** a lane's own bars (places, roles, nested eras) sit under its title, above the names */
-const headOf = (l: Lane) => (l.kind === "events" || l.kind === "book" ? 14 : 26);
-const heightOf = (l: Lane) => headOf(l) + rowsOf(l) * ROW_H + 16;
+const headOf = (l: Lane) => (l.kind === "events" || l.kind === "book" ? 20 : 32);
+const heightOf = (l: Lane) => headOf(l) + rowsOf(l) * ROW_H + 24;
+/** with few lanes, the open ones grow (up to MAX_GROW each) so the Timeline fills the window's height; a height
+ * dragged with the handle below it (kept per device) is used instead, with no cap */
+const MAX_GROW = 80;
+const roomY = ref(0);
+const HEIGHT_KEY = "timeline-height";
+function readHeight(): number | null {
+  try {
+    const n = Number(localStorage.getItem(HEIGHT_KEY));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+const chosenH = ref<number | null>(readHeight());
+const naturalH = computed(() => TOP + lanes.value.reduce((n, l) => n + (folded.value.has(l.key) ? FOLDED_H : heightOf(l)), 0) + 10);
 const laneY = computed(() => {
+  const open = lanes.value.filter((l) => !folded.value.has(l.key)).length;
+  const room = (chosenH.value ?? roomY.value) - naturalH.value;
+  const grow = open ? Math.max(0, chosenH.value ? room / open : Math.min(MAX_GROW, room / open)) : 0;
   const ys: number[] = [];
   const hs: number[] = [];
   let y = TOP;
   for (const l of lanes.value) {
     ys.push(y);
-    const h = folded.value.has(l.key) ? FOLDED_H : heightOf(l);
+    const h = folded.value.has(l.key) ? FOLDED_H : Math.round(heightOf(l) + grow);
     hs.push(h);
     y += h;
   }
   return { ys, hs, height: y + 10 };
 });
 let ro: ResizeObserver | null = null;
+// the height left in the window below the Timeline's top, less a strip so what follows it still peeks in
+function measureRoom() {
+  const el = wrap.value;
+  if (el) roomY.value = Math.max(0, window.innerHeight - (el.getBoundingClientRect().top + window.scrollY) - 60);
+}
 onMounted(() => {
   const el = wrap.value;
   if (!el) return;
   W.value = el.clientWidth || 900;
+  measureRoom();
   ro = new ResizeObserver(() => (W.value = el.clientWidth || W.value));
   ro.observe(el);
+  window.addEventListener("resize", measureRoom);
 });
-onBeforeUnmount(() => ro?.disconnect());
+onBeforeUnmount(() => {
+  ro?.disconnect();
+  window.removeEventListener("resize", measureRoom);
+});
+
+// the handle under the Timeline: drag to choose its height (never less than its lanes need), double-click to go back
+// to filling the window
+let resizing: { y: number; h: number } | null = null;
+function startResize(e: PointerEvent) {
+  resizing = { y: e.clientY, h: laneY.value.height };
+  (e.target as HTMLElement).setPointerCapture(e.pointerId);
+}
+function moveResize(e: PointerEvent) {
+  if (resizing) chosenH.value = Math.max(naturalH.value, Math.round(resizing.h + e.clientY - resizing.y));
+}
+function endResize() {
+  if (!resizing) return;
+  resizing = null;
+  try {
+    if (chosenH.value) localStorage.setItem(HEIGHT_KEY, String(chosenH.value));
+  } catch {
+    /* storage unavailable: it lasts until the page closes */
+  }
+}
+function resetHeight() {
+  chosenH.value = null;
+  try {
+    localStorage.removeItem(HEIGHT_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 // ---- zoom and pan: a scale (px per unit) and an offset (px); the axis is worked out again as the scale changes ----
 const k = ref(1);
@@ -240,7 +296,8 @@ const labelSpots = computed(() =>
     if (far.value || !l || folded.value.has(l.key)) return items.map(() => null);
     return placeLabels(
       items.map((o) => ({ x: o.x, text: o.item.mark ? o.item.mark.label : o.item.cluster!.breakdown, pad: o.item.cluster ? 14 : 7 })),
-      { rows: rowsOf(l), width: W.value, measure: (t) => textWidth(t, FONT), fit: (t, room) => fitText(t, room, FONT) },
+      // a lane grown taller (filling the window, or dragged) gives its names more rows rather than empty space
+      { rows: Math.max(rowsOf(l), Math.floor((laneY.value.hs[li]! - headOf(l) - 24) / ROW_H)), width: W.value, measure: (t) => textWidth(t, FONT), fit: (t, room) => fitText(t, room, FONT) },
     );
   }),
 );
@@ -905,6 +962,21 @@ void nextTick;
             <text v-for="e in a.edges" :key="e.name" class="tl-arrow-edge" :x="e.x < W / 2 ? 6 : W - 6" :y="e.y - 12" :text-anchor="e.x < W / 2 ? 'start' : 'end'" data-testid="arrow-edge" @click="panTo(e.t)">{{ e.x < W / 2 ? "← " : "" }}{{ e.name }}{{ e.x < W / 2 ? "" : " →" }}</text>
           </g>
         </svg>
+        <div
+          v-if="visibleTimes.length"
+          class="tl-resize"
+          :class="{ chosen: chosenH }"
+          role="separator"
+          aria-orientation="horizontal"
+          :aria-label="chosenH ? 'Drag to resize the Timeline; double-click to fit the window' : 'Drag to resize the Timeline'"
+          :title="chosenH ? 'Drag to resize · double-click to fit the window again' : 'Drag to resize'"
+          data-testid="timeline-resize"
+          @pointerdown.prevent="startResize"
+          @pointermove="moveResize"
+          @pointerup="endResize"
+          @pointercancel="endResize"
+          @dblclick="resetHeight"
+        ></div>
         <div v-if="keptCard" class="qcard kept-card" data-testid="kept-card">
           <div class="qcard-head">
             <strong>{{ keptCard.name }}</strong>
