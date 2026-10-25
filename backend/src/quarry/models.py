@@ -47,13 +47,18 @@ CHAPTER_STATES = ("current", "experiment", "retired")
 REVISION_REASONS = ("autosnap", "checkpoint", "state", "restore", "conflict", "start")
 # the statuses every project starts with (renamed, added, removed and ordered per project)
 STARTING_STATUSES = ("raw", "rewritten", "polished")
-REVISION_DOCS = ("chapter",)
+# documents with revisions: chapters, and journal entries since they moved onto the editor (docs/SPEC.md §14.1.1)
+REVISION_DOCS = ("chapter", "journal")
 MENTION_KINDS = ("exact", "alias", "near_miss")
+# what an item can be linked to: a bible entry, or the chapter or journal entry (with the passage) it came from
+ITEM_LINK_TARGETS = ("entity", "chapter", "journal")
 # a character's gender, read by the family tree for its words; NULL is "not set"
 GENDERS = ("female", "male", "nonbinary")
 # how a chapter is told, when not in the present of the story (docs/SPEC.md §13.1.2)
 TOLD_AS = ("flashback", "tale")
 INSERT_SIDES = ("before", "after")
+# what a world is being worked on as now, per person (docs/SPEC.md §14.9)
+FOCUSES = ("writing", "planning")
 # an era's colour (docs/SPEC.md §13.2.1): one of eight that work in both themes, each a pair of tokens
 ERA_COLOURS = ("amber", "moss", "teal", "sky", "indigo", "plum", "rose", "rust")
 
@@ -103,6 +108,8 @@ class World(Base):
     time_units: Mapped[str] = mapped_column(String(40), nullable=False, default="years", server_default="years")
     # the chart's settings (docs/SPEC.md §13.7.2): {"shapes": {"duchy": "hexagon"}}, shapes for the world's own types
     chart: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    # one optional line: what this world is about (docs/SPEC.md §14.4), up to 300 characters
+    premise: Mapped[str | None] = mapped_column(String(300))
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
@@ -115,12 +122,15 @@ class World(Base):
 
 class WorldMember(Base):
     __tablename__ = "world_members"
-    __table_args__ = (CheckConstraint(_in("role", MEMBER_ROLES), name="ck_world_members_role"),)
+    __table_args__ = (CheckConstraint(_in("role", MEMBER_ROLES), name="ck_world_members_role"),
+                      CheckConstraint(_in("focus", FOCUSES), name="ck_world_members_focus"))
 
     world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True,
                                                index=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="owner")
+    # what is up front for this person: writing (the default) or planning (docs/SPEC.md §14.9)
+    focus: Mapped[str] = mapped_column(String(20), nullable=False, default="writing", server_default="writing")
     created_at: Mapped[datetime] = _created()
 
 
@@ -291,6 +301,9 @@ class Entity(Base):
                                                                         use_alter=True))
     # an era's colour (an event whose type is "era")
     era_colour: Mapped[str | None] = mapped_column(String(20))
+    # the kinds it is as well, in the order added; never the main kind (docs/SPEC.md §14.8)
+    also_kinds: Mapped[list[str]] = mapped_column(ARRAY(String(20)), nullable=False, default=list,
+                                                  server_default="{}")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -303,14 +316,17 @@ Index("uq_entities_world_name", Entity.world_id, func.lower(Entity.name), unique
 
 
 class ItemLink(Base):
-    """An item tagged with what it is about: a bible entry or a chapter."""
+    """An item tagged with what it is about: a bible entry, or the chapter or journal entry it came from, with the
+    passage it was made from (docs/SPEC.md §14.3)."""
 
     __tablename__ = "item_links"
-    __table_args__ = (CheckConstraint("target_table IN ('entity', 'chapter')", name="ck_item_links_target"),)
+    __table_args__ = (CheckConstraint(_in("target_table", ITEM_LINK_TARGETS), name="ck_item_links_target"),)
 
     item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
     target_table: Mapped[str] = mapped_column(String(20), primary_key=True)
     target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True)
+    # for a chapter or journal entry: the passage the item was made from
+    passage: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _created()
 
 
@@ -514,6 +530,11 @@ class Fact(Base):
     established_in_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id",
                                                                                   ondelete="SET NULL"))
     evidence: Mapped[str | None] = mapped_column(Text)
+    # where it was planned (docs/SPEC.md §14.1.2): a journal entry and the passage it was worked out in. Never a place
+    # in the story: it bounds nothing, and the checks never read it
+    planned_in_journal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("journal.id", ondelete="SET NULL"),
+                                                                    index=True)
+    planned_evidence: Mapped[str | None] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -585,6 +606,11 @@ class Relationship(Base):
     established_in_chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id",
                                                                                   ondelete="SET NULL"))
     evidence: Mapped[str | None] = mapped_column(Text)
+    # where it was planned (docs/SPEC.md §14.1.2): a journal entry and the passage it was worked out in. Never a place
+    # in the story: it bounds nothing, and the checks never read it
+    planned_in_journal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("journal.id", ondelete="SET NULL"),
+                                                                    index=True)
+    planned_evidence: Mapped[str | None] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
     # the A side's role in the B side's group (for a type with a role): free text, time-bounded with the relationship
     role: Mapped[str | None] = mapped_column(String(100))
@@ -672,6 +698,19 @@ class SessionNote(Base):
     updated_at: Mapped[datetime] = _updated()
 
 
+class JournalNote(Base):
+    """Getting back into a journal entry (docs/SPEC.md §14.4): where the writer stopped and the note they left for next
+    time, as for a chapter (session_notes)."""
+
+    __tablename__ = "journal_notes"
+
+    journal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("journal.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cursor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = _updated()
+
+
 class ExperimentRange(Base):
     """The current chapters an experiment would replace, in order (docs/SPEC.md §13.6.1). None for one that only
     adds; one for a single-chapter experiment."""
@@ -700,15 +739,18 @@ class RetireReview(Base):
 
 class Telling(Base):
     """A passage that tells of an event (docs/SPEC.md §13.2.3): recorded from the prose with "Record as event". Names
-    inside it don't count as appearing (telling of the dead is history)."""
+    inside it don't count as appearing (telling of the dead is history). Recorded from a journal entry instead, it is
+    a note (docs/SPEC.md §14.1.2): "Noted in", never a telling, and never a place in the story."""
 
     __tablename__ = "tellings"
+    __table_args__ = (CheckConstraint("chapter_id IS NULL OR journal_id IS NULL", name="ck_tellings_source"),)
 
     id: Mapped[uuid.UUID] = _id()
     world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=False,
                                                 index=True)
     chapter_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chapters.id", ondelete="SET NULL"), index=True)
+    journal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("journal.id", ondelete="SET NULL"), index=True)
     passage: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()

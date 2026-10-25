@@ -22,7 +22,9 @@ export const recordEvent = (
   body: {
     event_id?: string;
     name?: string;
-    chapter_id: string;
+    /** from a chapter, or from a journal entry (then the passage is a note, docs/SPEC.md §14.1.2) */
+    chapter_id?: string;
+    journal_id?: string;
     passage: string;
     taking: { entity_id: string; role: "involved" | "place" }[];
     when?: { time_at: number; time_approx: boolean } | null;
@@ -35,6 +37,8 @@ export const deleteTelling = (world: string, id: string) => del(`${base(world)}/
 export interface Chronology {
   presence: { entity_id: string; place_id: string; chapter_id: string }[];
   tellings: { id: string; event_id: string; chapter_id: string | null; passage: string }[];
+  /** how often each event is noted in the Journal (notes are never tellings) */
+  notes?: Record<string, number>;
 }
 export const chronology = (world: string) => get<Chronology>(`${base(world)}/chronology`);
 

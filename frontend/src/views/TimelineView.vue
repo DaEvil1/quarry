@@ -13,6 +13,7 @@ import { useCards } from "../world/cards";
 import { eraAt, type Era } from "../world/eras";
 import type { GraphData } from "../world/graph";
 import { hideCard, showCard } from "../world/hovercard";
+import { arrowPath, causeLinks, linksOf } from "../world/causes";
 import {
   buildLanes,
   buildModel,
@@ -422,7 +423,9 @@ function wheel(e: WheelEvent) {
 }
 function key(e: KeyboardEvent) {
   if (e.key === "Escape") {
-    if (focus.value) focus.value = null;
+    // kept arrows go first, before a brushed span is cleared (docs/SPEC.md §14.7)
+    if (kept.value) letGo();
+    else if (focus.value) focus.value = null;
     else clearBrush();
     return;
   }
@@ -515,9 +518,11 @@ function enter(e: PointerEvent, it: Item) {
   const el = e.currentTarget as HTMLElement;
   const custom = cardFor(it);
   if (!custom && it.mark?.entity) {
-    // the same card as the editor's, as of that time
+    // the same card as the editor's, as of that time; an event's shows its cause arrows while it shows
     const t = it.mark.t;
-    showCard(el, cards.asOf(cards.byId.get(it.mark.entity), { time: t }), () => openItem(it), 350, (kind, label) => cards.several(kind, label));
+    const ev = it.mark.kind === "event" ? it.mark.entity : null;
+    if (ev) hoverEv.value = ev;
+    showCard(el, cards.asOf(cards.byId.get(it.mark.entity), { time: t }), () => openItem(it), 350, (kind, label) => cards.several(kind, label), ev ? () => arrowChips(ev) : undefined);
   } else if (custom) showCustom(el, custom);
 }
 let customShown: HTMLElement | null = null;
@@ -542,7 +547,84 @@ function hideCustom() {
 function leave() {
   hideCard();
   hideCustom();
+  hoverEv.value = null;
 }
+
+// ---- cause arrows (docs/SPEC.md §14.7): an event's causes and effects while its card shows, or kept ----
+const links = computed(() => (graph.value ? causeLinks(graph.value) : []));
+const hoverEv = ref<string | null>(null);
+const kept = computed(() => (typeof route.query.keep === "string" ? route.query.keep : null));
+const whole = computed(() => route.query.chain === "1");
+const activeEv = computed(() => kept.value ?? hoverEv.value);
+const keepArrows = (id: string, chain = false) => setQuery({ keep: id, chain: chain ? "1" : undefined });
+const letGo = () => setQuery({ keep: undefined, chain: undefined });
+/** On an event's card: keep its arrows, or follow the whole chain (which keeps them too). */
+function arrowChips(id: string): HTMLElement | null {
+  if (!links.value.some((l) => l.cause === id || l.effect === id)) return null;
+  const row = document.createElement("div");
+  row.className = "qrow";
+  for (const [label, chain] of [["Keep arrows", false], ["Whole chain", true]] as const) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "qchip";
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      hideCard(true);
+      keepArrows(id, chain);
+    });
+    row.append(b);
+  }
+  return row;
+}
+const eventsLane = computed(() => Math.max(0, lanes.value.findIndex((l) => l.kind === "events")));
+/** Where an event is drawn now: its mark, the cluster it is in, the outside-time strip, or (off screen) the edge. */
+function placeOf(id: string): { x: number; y: number; edge?: string; t?: number } | null {
+  for (let li = 0; li < shown.value.length; li++) {
+    for (const o of shown.value[li]!) {
+      const it = o.item;
+      if ((it.mark?.kind === "event" && it.mark.entity === id) || it.cluster?.marks.some((m) => m.kind === "event" && m.entity === id)) {
+        return { x: o.x, y: laneY.value.ys[li]! + LANE_H - 10 };
+      }
+    }
+  }
+  const y = (laneY.value.ys[eventsLane.value] ?? 0) + LANE_H - 10;
+  if (model.value.outside.some((o) => o.entity === id)) return { x: W.value - 30, y: (laneY.value.ys[eventsLane.value] ?? 0) + 14 };
+  const m = model.value.marks.find((x) => x.id === `ev:${id}`);
+  if (!m) return null;
+  const x = X(m.t);
+  return { x: Math.max(4, Math.min(W.value - 4, x)), y, edge: x < 0 || x > W.value ? (cards.byId.get(id)?.name ?? "") : undefined, t: m.t };
+}
+const timeOf = (id: string) => model.value.marks.find((x) => x.id === `ev:${id}`)?.t;
+const arrows = computed(() => {
+  const id = activeEv.value;
+  if (!id || view.value === "told") return [];
+  return linksOf(links.value, id, whole.value || !!(kept.value && whole.value))
+    .filter(({ link }) => standings.value.has(link.standing))
+    .flatMap(({ link, depth }) => {
+      const a = placeOf(link.cause);
+      const b = placeOf(link.effect);
+      if (!a || !b) return [];
+      const ta = timeOf(link.cause);
+      const tb = timeOf(link.effect);
+      return [{
+        key: link.id, d: arrowPath(a.x, a.y, b.x, b.y), dashed: link.standing !== "canon", opacity: Math.max(0.3, 1 - 0.22 * (depth - 1)),
+        before: ta !== undefined && tb !== undefined && tb < ta, mid: { x: (a.x + b.x) / 2, y: Math.min(a.y, b.y) - Math.min(70, 18 + Math.abs(b.x - a.x) / 6) / 2 },
+        edges: [a, b].filter((p) => p.edge).map((p) => ({ x: p.x, y: p.y, name: p.edge!, t: p.t! })),
+        from: cards.byId.get(link.cause)?.name ?? "", to: cards.byId.get(link.effect)?.name ?? "",
+      }];
+    });
+});
+/** The kept event's card: its name and the linked events not placed yet ("led to: the Second Flood (not placed yet)"). */
+const keptCard = computed(() => {
+  const id = kept.value;
+  if (!id) return null;
+  const notPlaced = linksOf(links.value, id, false)
+    .map(({ link }) => ({ other: link.cause === id ? link.effect : link.cause, reads: link.cause === id ? link.reads : "followed from" }))
+    .filter((x) => !model.value.marks.some((m) => m.id === `ev:${x.other}`) && !model.value.outside.some((o) => o.entity === x.other))
+    .map((x) => ({ ...x, name: cards.byId.get(x.other)?.name ?? "" }));
+  return { name: cards.byId.get(id)?.name ?? "", notPlaced };
+});
+const panTo = (t: number) => (offset.value += X(t) - W.value / 2);
 onBeforeUnmount(leave);
 // a long-press on the phone shows the card, as resting does
 let press = 0;
@@ -762,7 +844,37 @@ void nextTick;
             </g>
             <text v-if="l.outside.length && !folded.has(l.key)" class="tl-lane-outside" :x="W - 6" y="11" text-anchor="end" data-testid="lane-outside">outside time: {{ laneOutside(l) }}</text>
           </g>
+
+          <!-- cause arrows (docs/SPEC.md §14.7): from cause to effect, curving above; planned and rumoured dashed -->
+          <g v-if="arrows.length" class="tl-arrows" pointer-events="none">
+            <defs>
+              <marker id="tl-arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" class="tl-arrowhead" />
+              </marker>
+            </defs>
+            <g v-for="a in arrows" :key="a.key" :opacity="a.opacity" data-testid="cause-arrow" :data-from="a.from" :data-to="a.to" :data-dashed="a.dashed ? 'yes' : 'no'">
+              <path :d="a.d" class="tl-arrow" :class="{ dashed: a.dashed, before: a.before }" marker-end="url(#tl-arrowhead)" />
+              <text v-if="a.before" class="tl-arrow-note" :x="a.mid.x" :y="a.mid.y" text-anchor="middle" data-testid="before-cause">before its cause</text>
+            </g>
+          </g>
+          <g v-for="a in arrows" :key="`e-${a.key}`">
+            <text v-for="e in a.edges" :key="e.name" class="tl-arrow-edge" :x="e.x < W / 2 ? 6 : W - 6" :y="e.y - 12" :text-anchor="e.x < W / 2 ? 'start' : 'end'" data-testid="arrow-edge" @click="panTo(e.t)">{{ e.x < W / 2 ? "← " : "" }}{{ e.name }}{{ e.x < W / 2 ? "" : " →" }}</text>
+          </g>
         </svg>
+        <div v-if="keptCard" class="qcard kept-card" data-testid="kept-card">
+          <div class="qcard-head">
+            <strong>{{ keptCard.name }}</strong>
+            <button type="button" class="chip-x" aria-label="Let the arrows go" data-testid="let-go" @click="letGo">×</button>
+          </div>
+          <div class="qrow">
+            <button v-if="!whole" type="button" class="qchip" @click="keepArrows(kept!, true)">Whole chain</button>
+            <button v-else type="button" class="qchip" @click="keepArrows(kept!, false)">Direct causes only</button>
+          </div>
+          <div v-for="x in keptCard.notPlaced" :key="x.other" class="qcard-also">
+            {{ x.reads }}: {{ x.name }} (not placed yet) ·
+            <RouterLink :to="{ name: 'entity', params: { world: world!.slug, id: x.other } }">When…</RouterLink>
+          </div>
+        </div>
         <p v-else-if="cards.world === worldSlug" class="empty" data-testid="timeline-empty">
           {{ view === "history" ? "No history yet: nothing is set before the book." : "Nothing has a time yet. Give an event a time on its page, or a chapter on the manuscript list." }}
         </p>
@@ -846,7 +958,7 @@ void nextTick;
       <template v-if="told.notInBook.length">
         <h2 class="small muted">Not in the book yet</h2>
         <ul class="plain-list inline">
-          <li v-for="e in told.notInBook" :key="e.id"><RouterLink class="kname k-event" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink></li>
+          <li v-for="e in told.notInBook" :key="e.id"><RouterLink class="kname k-event" :to="{ name: 'entity', params: { world: world.slug, id: e.id } }">{{ e.name }}</RouterLink><span v-if="chron?.notes?.[e.id]" class="muted small" data-testid="noted-count"> · noted in the Journal {{ chron.notes[e.id] === 1 ? "once" : `${chron.notes[e.id]} times` }}</span></li>
         </ul>
       </template>
     </section>

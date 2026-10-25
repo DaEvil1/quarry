@@ -62,6 +62,8 @@ test("create a world with a first project", async () => {
 test("add, reorder and rename", async () => {
   await page.locator(".nav").getByRole("link", { name: "Overview" }).click();
   await expect(page.getByRole("heading", { name: "The Grey Coast" })).toBeVisible();
+  // the front page (docs/SPEC.md §14.4): New project opens the form in place
+  await page.getByTestId("new-project").click();
   await page.getByLabel("Name", { exact: true }).fill("Ebb Tide");
   await page.getByRole("button", { name: "Add project" }).click();
   const rows = page.locator("ul.rows > li");
@@ -71,11 +73,14 @@ test("add, reorder and rename", async () => {
   // the nav follows the new order
   await expect(page.locator(".nav nav a[href*='/p/']").first()).toContainText("Ebb Tide");
 
+  // rename on World settings
+  await page.getByTestId("world-settings").click();
   await page.getByRole("button", { name: "Rename" }).click();
   await page.getByLabel("Name", { exact: true }).first().fill("The Grey Shore");
   await page.getByLabel("Address").fill("grey-shore");
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page).toHaveURL(/\/w\/grey-shore$/);
+  await expect(page).toHaveURL(/\/w\/grey-shore\/settings$/);
+  await page.locator(".nav").getByRole("link", { name: "Overview" }).click();
   await expect(page.getByRole("heading", { name: "The Grey Shore" })).toBeVisible();
   await expect(page.getByTestId("world-switcher").first()).toContainText("The Grey Shore");
 });

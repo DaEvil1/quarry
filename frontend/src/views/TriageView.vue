@@ -5,6 +5,7 @@ import { useRoute } from "vue-router";
 import { get } from "../api";
 import { entityNames, linkItem, unlinkItem } from "../bible";
 import EntityPicker from "../components/EntityPicker.vue";
+import ItemOrigin from "../components/ItemOrigin.vue";
 import MentionText from "../components/MentionText.vue";
 import ProjectFilter from "../components/ProjectFilter.vue";
 import UndoToast from "../components/UndoToast.vue";
@@ -288,6 +289,7 @@ const promptLabel = computed(() =>
           @fixed="reloadCurrent"
         />
       </p>
+      <ItemOrigin v-if="item.origin" :world="world.slug" :origin="item.origin" />
 
       <div class="chips triage-tags">
         <span v-for="t in item.entities" :key="t.id" class="chip static tag">

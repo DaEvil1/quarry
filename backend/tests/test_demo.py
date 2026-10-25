@@ -43,14 +43,45 @@ def test_demo_world(signed_in: Client):
     assert signed_in.get(f"{W}/graph?co=true").json()["cooccurrence"]
 
     # planning, and what an export doesn't carry
-    assert len(signed_in.get(f"{W}/items?status=all").json()) == 8
+    assert len(signed_in.get(f"{W}/items?status=all").json()) == 10
     tagged = {e["name"] for d in signed_in.get(f"{W}/decisions").json() for e in d["entities"]}
     assert tagged == {"Oskar Vey", "The Brass Compass", "Tamsin Vey", "Hesper Quill"}
-    assert len(signed_in.get(f"{W}/journal").json()) == 2
+    journal = {j["title"]: j for j in signed_in.get(f"{W}/journal").json()}
+    assert list(journal) == ["Ash as a clock", "Why a ferry?", "Loose threads", "What the Wardens want", "The first map"]
     third = book["chapters"][2]["id"]
-    assert [i["body"] for i in signed_in.get(f"{W}/chapters/{third}/items").json()] == [
-        "How many lanterns does the abbey set out for its own dead?"]
+    assert [(i["body"].split("\n")[0], i["passage"]) for i in signed_in.get(f"{W}/chapters/{third}/items").json()] == [
+        ("How far upriver do the locks reach?", "Brother Cade said the River Wardens raised Marrow Locks"),
+        ("How many lanterns does the abbey set out for its own dead?", None)]
     assert signed_in.get(f"{W}/chapters/{third}/session-note").json()["note"].startswith("Tamsin opens the compass")
+
+    # planning before writing (docs/SPEC.md §14.1–§14.3): planned in the Journal, a note, a fact made canon, items
+    # made from passages, and "??" markers
+    wardens_entry = journal["What the Wardens want"]["id"]
+    wardens = signed_in.get(f"{W}/entities/{entities['The River Wardens']['id']}").json()
+    age = next(f for f in wardens["facts"] if f["label"] == "age")
+    assert (age["standing"], age["planned_in_journal_id"]) == ("planned", wardens_entry)
+    assert wardens["journal_entries"][wardens_entry]["date"] == "2019-03-02"
+    toll = signed_in.get(f"{W}/entities/{entities['The First Toll']['id']}").json()
+    assert toll["tellings"] == [] and toll["notes"][0]["journal"]["id"] == wardens_entry
+    assert [(r["standing"], r["planned_in_journal_id"]) for r in toll["relationships"]] == [("planned", wardens_entry)]
+    hesper = signed_in.get(f"{W}/entities/{entities['Hesper Quill']['id']}").json()
+    trade = next(f for f in hesper["facts"] if f["label"] == "trade")
+    assert trade["standing"] == "canon" and trade["established_in_chapter_id"] and trade["planned_in_journal_id"]
+    parked = next(i for i in signed_in.get(f"{W}/items?status=deferred").json() if i["origin"])
+    assert (parked["kind"], parked["origin"]["id"]) == ("spark", wardens_entry)
+    assert "??" in journal["Loose threads"]["body"]
+
+    # getting back in and checking (docs/SPEC.md §14.4–§14.9)
+    front = signed_in.get(f"{W}/front").json()
+    assert front["premise"].startswith("A ferry-girl")
+    assert ("journal", "Settle Hesper's age before chapter two of Ash Season") in [(n["source"], n["note"]) for n in front["notes"]]
+    assert signed_in.get(f"{W}/journal/{journal['The first map']['id']}/since").json()["decisions"] >= 1
+    planned = {(c["rule"], c["planned"], (c["chapter"] or {}).get("title")) for c in signed_in.get(f"{W}/checks", params={"planned": 1}).json()}
+    assert ("dead_mentioned", True, "Ash Season") in planned
+    assert not any(c["rule"] == "dead_mentioned" and "Cade" in c["message"] for c in signed_in.get(f"{W}/checks").json())
+    assert ("cause_after_effect", "Lanterns on the Water") in rules
+    delta = next(e for e in signed_in.get(f"{W}/entities", params={"kind": "character"}).json() if e["name"] == "The Ninefold Delta")
+    assert (delta["kind"], delta["also_kinds"]) == ("place", ["character"])
 
     # revising: summaries and statuses, a cut, and a few days of word history (and nothing for the day it loaded)
     assert all(c["summary"] and c["status"] for c in book["chapters"])

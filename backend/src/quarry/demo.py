@@ -26,6 +26,16 @@ evidence passage in it.
 For history and the Timeline (docs/SPEC.md §13.2) it has a few events of history (the raising of the locks, recorded
 from a passage of chapter 3 with its telling; the spring flood Agathe drowned in), two eras in their colours (the Lock
 Years, and the Ash Summers nested in them), the Flood of Lanterns happening in a chapter, and a prophecy outside time.
+
+For planning before writing (docs/SPEC.md §14.1–§14.3) its Journal goes back years: an entry of 2019, "What the
+Wardens want", with a fact on the Wardens and an event (the First Toll) recorded from it as planned, the event's
+passage kept as a note; an entry of 2021 with "??" markers; Hesper's trade, planned in an entry of 2014 and made canon
+in "The Cartographer"; a question made from a passage of chapter 3; and a spark parked from the Journal.
+
+For getting back in and checking (docs/SPEC.md §14.4–§14.9) it has a premise, a note for next time left in a journal
+entry, an old entry with decisions and changes since, Brother Cade's death planned (a finding once "Include planned" is on),
+four events joined by "caused" and "followed from" (the Mountain Fires placed after the Flood of Lanterns they caused,
+which is a finding), and the Ninefold Delta, a place that is also a character.
 """
 
 from __future__ import annotations
@@ -37,12 +47,13 @@ from sqlalchemy.orm import Session
 
 from .api.manuscript import words
 from .api.transfer import FORMAT, KIND_FOLDERS, _doc, restore_files
-from .models import Chapter, Item, ItemLink, Project, Revision, SessionNote, User, World
+from .models import Chapter, Item, ItemLink, JournalEntry, JournalNote, Project, Revision, SessionNote, User, World
 from .wordhistory import word_changes
 from .vocabulary import STARTING_TYPES
 
 ROOT = "ninefold-delta-demo"
 NAME = "The Ninefold Delta (demo)"
+PREMISE = "A ferry-girl, a delta of nine channels, and the Wardens who would lock them."
 
 
 def _p(*paragraphs: str) -> str:
@@ -178,7 +189,9 @@ BIBLE: list[dict] = [
     {
         "id": "cade", "name": "Brother Cade", "kind": "character", "gender": "male",
         "summary": "A monk of the Ashen Order at Saltreach Abbey; takes Tamsin in.",
-        "facts": [{"label": "age", "value": "about sixty", "standing": "planned"}],
+        "facts": [{"label": "age", "value": "about sixty", "standing": "planned"},
+                  # planned, not on the page: with Include planned, Ash Season naming him is a finding (§14.6)
+                  {"label": "status", "value": "dead", "standing": "planned", "from": "b1-c3"}],
         "relationships": [
             # he was on the causeway that night
             {"type": "witnessed", "type_kinds": ["character", "event"], "to": "flood"},
@@ -212,6 +225,11 @@ BIBLE: list[dict] = [
         "summary": "A cartographer from Greywater, mapping the delta's shifting channels.",
         # planted: named in book one before she is introduced in book two; and a label that holds several values
         "facts": [{"label": "introduced", "value": "", "from": "b2-c2"},
+                  # planned in the Journal in 2014, then made canon in the chapter that shows it
+                  {"label": "trade", "value": "cartographer", "established_in": "b2-c2",
+                   "evidence": "Hesper Quill had been told the ferry at Carrow Ferry was run by a girl who knew the "
+                               "channels better than any chart.",
+                   "planned_in": "j-map", "planned_evidence": "Hesper Quill, a mapmaker"},
                   {"label": "languages", "value": "Delta speech"},
                   {"label": "languages", "value": "the Greywater chart-cant"}],
         "relationships": [{"type": "lives in", "type_kinds": ["character", "place"], "to": "greywater"}],
@@ -219,7 +237,7 @@ BIBLE: list[dict] = [
     },
     # places
     {
-        "id": "delta", "name": "The Ninefold Delta", "kind": "place", "aliases": ["the delta"],
+        "id": "delta", "name": "The Ninefold Delta", "kind": "place", "aliases": ["the delta"], "also": ["character"],
         "summary": "Nine channels, a thousand islands, and water that never stays where it was put.",
         # the chart (docs/SPEC.md §13.7): a land holding its towns, bordering the sea around an island
         "facts": [{"label": "type", "value": "land"},
@@ -297,7 +315,10 @@ BIBLE: list[dict] = [
     {
         "id": "wardens", "name": "The River Wardens", "kind": "faction", "aliases": ["the Wardens"],
         "summary": "They keep the locks and take the tolls, and believe the river can be ruled.",
-        "facts": [{"label": "motto", "value": "The water answers to the lock."}],
+        "facts": [{"label": "motto", "value": "The water answers to the lock."},
+                  # planned in the Journal (docs/SPEC.md §14.1.2)
+                  {"label": "age", "value": "three hundred years", "standing": "planned", "planned_in": "j-wardens",
+                   "planned_evidence": "The River Wardens have kept the locks for three hundred years"}],
         "relationships": [
             {"type": "controls", "type_kinds": ["faction", "place"], "to": "marrow-locks"},
             {"type": "allied with", "type_kinds": ["faction", "faction"], "to": "ashen-order", "standing": "rumour",
@@ -359,6 +380,9 @@ BIBLE: list[dict] = [
         "id": "fires", "name": "The Mountain Fires", "kind": "event", "aliases": ["the mountains burned"],
         "when": {"at": 413},
         "summary": "The summer the mountains burned and the ash came down the river for a month.",
+        # planted: the fires (413) caused the Flood of Lanterns (412), which comes before them: a finding
+        "relationships": [{"type": "followed from", "type_kinds": ["event", "event"], "to": "spring-flood"},
+                          {"type": "caused", "type_kinds": ["event", "*"], "to": "flood"}],
         "body": _p(""),
     },
     # history: two eras (one nested in the other), the raising of the locks (told in chapter 3), a death, a prophecy
@@ -381,9 +405,23 @@ BIBLE: list[dict] = [
         "relationships": [
             {"type": "involved", "type_kinds": ["event", "*"], "to": "wardens", "established_in": "b1-c3"},
             {"type": "happened at", "type_kinds": ["event", "place"], "to": "marrow-locks", "established_in": "b1-c3"},
+            # cause arrows on the Timeline (docs/SPEC.md §14.7)
+            {"type": "caused", "type_kinds": ["event", "*"], "to": "spring-flood"},
         ],
         "tellings": [{"chapter": "b1-c3", "passage": "Brother Cade said the River Wardens raised Marrow Locks the year "
                       "his own teacher was born, and that the Ninefold Delta has never forgiven them."}],
+        "body": _p(""),
+    },
+    {
+        "id": "first-toll", "name": "The First Toll", "kind": "event",
+        "summary": "The first toll the Wardens took, long before the locks.",
+        "facts": [{"label": "type", "value": "founding"}],
+        "relationships": [{"type": "involved", "type_kinds": ["event", "*"], "to": "wardens", "standing": "planned",
+                           "planned_in": "j-wardens",
+                           "planned_evidence": "The first toll was paid in lanterns, at the mouth of the Outer Sound."}],
+        # recorded from the Journal: a note, not a telling, so it is not in the book yet
+        "notes": [{"journal": "j-wardens",
+                   "passage": "The first toll was paid in lanterns, at the mouth of the Outer Sound."}],
         "body": _p(""),
     },
     {
@@ -641,6 +679,16 @@ ITEMS: list[dict] = [
      "source": "desk", "created_at": "2026-09-30T19:30:00+00:00", "closed_at": "2026-10-01T10:00:00+00:00",
      "closed_note": "Chapter 2. The first chapter needs him alive to give her the compass.", "tags": ["Oskar Vey"],
      "body": "Does Oskar die in chapter 1 or chapter 2?"},
+    # made from a passage of chapter 3 (docs/SPEC.md §14.3.1)
+    {"id": "item-locks", "kind": "question", "status": "open", "project": "the-ferrymans-daughter", "source": "desk",
+     "created_at": "2026-10-09T20:00:00+00:00", "tags": ["Marrow Locks"],
+     "from": {"chapter": "b1-c3"}, "passage": "Brother Cade said the River Wardens raised Marrow Locks",
+     "body": "How far upriver do the locks reach?\n\n> Brother Cade said the River Wardens raised Marrow Locks"},
+    # parked from the Journal: an old idea kept without it waiting in the inbox
+    {"id": "item-lantern-toll", "kind": "spark", "status": "deferred", "project": None, "source": "desk",
+     "created_at": "2026-10-09T20:05:00+00:00", "tags": ["The River Wardens"],
+     "from": {"journal": "j-wardens"}, "passage": "The first toll was paid in lanterns",
+     "body": "> The first toll was paid in lanterns"},
     {"id": "item-experiment", "kind": "experiment", "status": "open", "project": "the-ferrymans-daughter",
      "source": "desk", "created_at": "2026-10-07T21:00:00+00:00", "tags": [],
      "title": "Lanterns on the Water (from the water)",
@@ -659,6 +707,21 @@ DECISIONS = [
 ]
 
 JOURNAL = [
+    # years of planning before the book (docs/SPEC.md §14)
+    {"id": "j-map", "date": "2014-05-11", "title": "The first map", "project": None,
+     "body": _p("Someone has to map the delta, and the map has to be wrong by the time it is finished. Hesper Quill, "
+                "a mapmaker from Greywater, who knows her maps go out of date.",
+                "Ilse Marrow wants the delta mapped so it can be locked.")},
+    {"id": "j-wardens", "date": "2019-03-02", "title": "What the Wardens want", "project": None,
+     "body": _p("The River Wardens have kept the locks for three hundred years, since the Raising of the Locks. Ilse "
+                "Marrow knows the toll is older than the locks; Tamsin doesn't.",
+                "The first toll was paid in lanterns, at the mouth of the Outer Sound. That is why the Flood of "
+                "Lanterns frightens them.")},
+    {"id": "j-loose", "date": "2021-08-14", "title": "Loose threads", "project": "ash-season",
+     "body": _p("Hesper's age ?? maybe forty, maybe older than Ilse.",
+                "Where does Corin sleep when he comes down from Greywater (??)",
+                "???",
+                "The ash should reach Carrow Ferry before Hesper does.")},
     {"id": "j1", "date": "2026-10-02", "title": "Why a ferry?", "project": None,
      "body": _p("A ferry is a story that goes back and forth: the same crossing, a different person every time. "
                 "Tamsin can stay in one place and still meet everyone in the delta.",
@@ -679,6 +742,7 @@ def demo_files() -> dict[str, str]:
         "relation_types": [{"a": a, "b": b, "label": label, "reverse": reverse} for a, b, label, reverse in STARTING_TYPES],
         "fact_labels": FACT_LABELS,
         "roles": ROLES,
+        "premise": PREMISE,
     }, "")
     names = {e["id"]: e["name"] for e in BIBLE}
     for e in BIBLE:
@@ -687,23 +751,28 @@ def demo_files() -> dict[str, str]:
                 "exclusions": e.get("exclusions", []), "project": e.get("project")}
         if e.get("gender"):
             meta["gender"] = e["gender"]
+        if e.get("also"):
+            meta["also"] = e["also"]
         if e.get("facts"):
             meta["facts"] = [{"label": f["label"], "value": f["value"], "standing": f.get("standing", "canon"),
                               "evidence": f.get("evidence"), "note": f.get("note"),
                               "established_in": f.get("established_in"), "from": f.get("from"),
                               "until": f.get("until"),
-                              **{k: f[k] for k in ("from_time", "from_approx", "until_time", "outside_time") if k in f}}
+                              **{k: f[k] for k in ("from_time", "from_approx", "until_time", "outside_time",
+                                                   "planned_in", "planned_evidence") if k in f}}
                              for f in e["facts"]]
         if e.get("relationships"):
             meta["relationships"] = [{"type": r["type"], "type_kinds": r["type_kinds"], "to": r["to"],
                                       "to_name": names[r["to"]], "standing": r.get("standing", "canon"),
                                       "evidence": r.get("evidence"), "note": r.get("note"),
                                       "established_in": r.get("established_in"), "from": r.get("from"),
-                                      "until": r.get("until"), "role": r.get("role")} for r in e["relationships"]]
+                                      "until": r.get("until"), "role": r.get("role"),
+                                      **{k: r[k] for k in ("planned_in", "planned_evidence") if k in r}}
+                                     for r in e["relationships"]]
         if e.get("is_at"):
             meta["is_at"] = [{"chapter": p["chapter"], "place": p["place"], "place_name": names[p["place"]],
                               "note": p.get("note")} for p in e["is_at"]]
-        for k in ("when", "colour", "tellings"):
+        for k in ("when", "colour", "tellings", "notes"):
             if e.get(k):
                 meta[k] = e[k]
         files[f"{ROOT}/Bible/{KIND_FOLDERS[e['kind']]}/{e['name']}.md"] = _doc(meta, e.get("body", ""))
@@ -736,6 +805,9 @@ def demo_files() -> dict[str, str]:
                                       "closed_note", "tags")}
         if i.get("replaces"):
             meta["replaces"] = i["replaces"]
+        for k in ("from", "passage"):
+            if i.get(k):
+                meta[k] = i[k]
         files[f"{folder}/Planning/{i['status']}/{i['id']}.md"] = _doc(meta, i["body"])
 
     lines = ["# Decisions", ""]
@@ -813,5 +885,10 @@ def create_demo(db: Session, user: User) -> World:
     # where the writer stopped last time, with a note for next time
     db.add(SessionNote(chapter_id=third.id, user_id=user.id, note="Tamsin opens the compass in front of Brother Cade",
                        cursor=third.body.find("Home, then.")))
+    # and one in a journal entry (docs/SPEC.md §14.4)
+    loose = db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id,
+                                                  JournalEntry.title == "Loose threads")).one()
+    db.add(JournalNote(journal_id=loose.id, user_id=user.id, note="Settle Hesper's age before chapter two of Ash Season",
+                       cursor=len(loose.body)))
     db.flush()
     return world

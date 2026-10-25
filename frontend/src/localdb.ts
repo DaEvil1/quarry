@@ -1,11 +1,12 @@
 // The browser's own database (IndexedDB via Dexie): captures waiting to be sent, a copy of who is signed in so the
 // app still opens without a network, and the offline copy of the manuscript: every chapter of the worlds opened on
-// this device, the last 30 snapshots of each, and text written but not yet saved.
+// this device, the last 30 snapshots of each, and text written but not yet saved; and the same for journal entries
+// (docs/SPEC.md §14.1.1), with entries made offline waiting to be sent.
 
 import Dexie, { type EntityTable } from "dexie";
 
 import type { Chapter } from "./manuscript";
-import type { ItemKind, Me } from "./types";
+import type { ItemKind, JournalDetail, Me } from "./types";
 
 /** A capture saved on this device that the server has not confirmed yet. */
 export interface PendingCapture {
@@ -19,8 +20,13 @@ export interface PendingCapture {
   capturedAt: string;
   /** bible entries it is tagged with */
   entities?: string[];
-  /** the chapter it was thought of in (a thought stashed while writing) */
+  /** the chapter it was thought of in (a thought stashed while writing), or the journal entry */
   chapterId?: string;
+  journalId?: string;
+  /** made from a selection: the passage (docs/SPEC.md §14.3.1) */
+  passage?: string;
+  /** "Park it": saved as deferred instead of open */
+  status?: "open" | "deferred";
   /** the server refused it (not a network problem); kept so nothing is lost silently */
   error?: string;
 }
@@ -46,9 +52,29 @@ export interface LocalRevision {
   created_at: string;
 }
 
+/** A journal entry kept on this device (docs/SPEC.md §14.1.1). */
+export interface LocalEntry extends JournalDetail {
+  world: string;
+}
+
+/** A journal entry made on this device that the server has not confirmed yet (it waits like a capture). */
+export interface PendingEntry {
+  /** chosen here, so sending it twice still makes one entry */
+  id: string;
+  world: string;
+  entry_date: string;
+  title: string | null;
+  project: string | null;
+  /** the server refused it (not a network problem); kept so nothing is lost silently */
+  error?: string;
+}
+
 /** Text typed on this device that the server hasn't confirmed yet; survives reloads and going offline. */
 export interface Draft {
+  /** the chapter's id, or the journal entry's (see `doc`) */
   chapterId: string;
+  /** a journal entry's text; a chapter's when absent */
+  doc?: "journal";
   world: string;
   title: string;
   body: string;
@@ -61,7 +87,9 @@ export interface Draft {
 export interface PendingRevision {
   id: string;
   world: string;
+  /** the chapter's id, or the journal entry's (see `doc`) */
   chapterId: string;
+  doc?: "journal";
   reason: "restore" | "conflict";
   label: string;
   body: string;
@@ -100,6 +128,8 @@ class LocalDb extends Dexie {
   pendingRevisions!: EntityTable<PendingRevision, "id">;
   pendingCuts!: EntityTable<PendingCut, "id">;
   checkpoints!: EntityTable<KeptCheckpoint, "id">;
+  journal!: EntityTable<LocalEntry, "id">;
+  pendingEntries!: EntityTable<PendingEntry, "id">;
 
   constructor() {
     super("quarry");
@@ -116,6 +146,10 @@ class LocalDb extends Dexie {
     this.version(3).stores({
       pendingCuts: "id, world, cutAt",
       checkpoints: "id, chapterId",
+    });
+    this.version(4).stores({
+      journal: "id, world",
+      pendingEntries: "id, world",
     });
   }
 }

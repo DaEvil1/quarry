@@ -20,6 +20,7 @@ from ..models import (
     Chapter,
     Entity,
     Fact,
+    JournalEntry,
     Presence,
     RelationType,
     Relationship,
@@ -97,9 +98,11 @@ def passage_spans(db: Session, world: World, chapters: dict[uuid.UUID, Chapter])
 
 
 def tellings_of(db: Session, world: World, event_id: uuid.UUID) -> list[dict]:
-    """An event's tellings, for its page (Told in): each passage with its chapter, and whether it can still be found."""
+    """An event's tellings, for its page (Told in): each passage with its chapter, and whether it can still be found.
+    Notes in the Journal are listed apart (`notes_of`)."""
     out = []
-    for t in db.scalars(select(Telling).where(Telling.event_id == event_id).order_by(Telling.created_at)):
+    for t in db.scalars(select(Telling).where(Telling.event_id == event_id, Telling.journal_id.is_(None))
+                        .order_by(Telling.created_at)):
         ch = db.get(Chapter, t.chapter_id) if t.chapter_id else None
         out.append({"id": str(t.id), "passage": t.passage,
                     "chapter": {"id": str(ch.id), "title": ch.title, "state": ch.state} if ch else None,
@@ -108,17 +111,37 @@ def tellings_of(db: Session, world: World, event_id: uuid.UUID) -> list[dict]:
     return out
 
 
+def notes_of(db: Session, world: World, event_id: uuid.UUID) -> list[dict]:
+    """An event's notes in the Journal, for its page (Noted in, docs/SPEC.md §14.1.2): each passage with its entry's
+    date and title, and where it is in the entry now (-1: the passage changed)."""
+    out = []
+    for t in db.scalars(select(Telling).where(Telling.event_id == event_id, Telling.journal_id.is_not(None))
+                        .order_by(Telling.created_at)):
+        j = db.get(JournalEntry, t.journal_id)
+        if j is None:
+            continue
+        out.append({"id": str(t.id), "passage": t.passage,
+                    "journal": {"id": str(j.id), "date": j.entry_date.isoformat(), "title": j.title},
+                    "at": j.body.find(t.passage), "changed": t.passage not in j.body})
+    return out
+
+
 @router.get("/chronology")
 def chronology(slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    """What the Timeline reads besides the cards, the timeline and the graph: every "is at" record and every
-    telling."""
+    """What the Timeline reads besides the cards, the timeline and the graph: every "is at" record, every telling,
+    and how often each event is noted in the Journal (notes are never tellings: the told view doesn't read them)."""
     world, _ = member_world(db, user, slug)
+    notes: dict[str, int] = {}
+    for t in db.scalars(select(Telling).where(Telling.world_id == world.id, Telling.journal_id.is_not(None))):
+        notes[str(t.event_id)] = notes.get(str(t.event_id), 0) + 1
     return {
+        "notes": notes,
         "presence": [{"entity_id": str(p.entity_id), "place_id": str(p.place_id), "chapter_id": str(p.chapter_id)}
                      for p in db.scalars(select(Presence).where(Presence.world_id == world.id))],
         "tellings": [{"id": str(t.id), "event_id": str(t.event_id),
                       "chapter_id": str(t.chapter_id) if t.chapter_id else None, "passage": t.passage}
-                     for t in db.scalars(select(Telling).where(Telling.world_id == world.id)
+                     for t in db.scalars(select(Telling).where(Telling.world_id == world.id,
+                                                               Telling.journal_id.is_(None))
                                          .order_by(Telling.created_at))],
     }
 
@@ -155,7 +178,10 @@ class RecordIn(BaseModel):
     # an existing event, or the name of a new one
     event_id: uuid.UUID | None = None
     name: str | None = Field(default=None, max_length=200)
-    chapter_id: uuid.UUID
+    # recorded from a chapter, or from a journal entry (docs/SPEC.md §14.1.2): then the passage is a note and the
+    # participants are planned, planned in the entry
+    chapter_id: uuid.UUID | None = None
+    journal_id: uuid.UUID | None = None
     passage: str = Field(min_length=1, max_length=20000)
     taking: list[Taking] = Field(default_factory=list, max_length=200)
     when: WhenIn | None = None
@@ -179,9 +205,15 @@ def record_event(slug: str, body: RecordIn, user: User = Depends(current_user), 
     "happened at" types (by label; "linked to" when there are neither), established in this chapter with the passage
     as evidence; an empty time filled. Answers with what it added, for Undo."""
     world, _ = member_world(db, user, slug)
-    ch = db.get(Chapter, body.chapter_id)
-    if ch is None or ch.project_id not in {p.id for p in world.projects}:
+    if (body.chapter_id is None) == (body.journal_id is None):
+        raise HTTPException(422, "Record from a chapter or from a journal entry.")
+    ch = db.get(Chapter, body.chapter_id) if body.chapter_id else None
+    entry = db.get(JournalEntry, body.journal_id) if body.journal_id else None
+    if body.chapter_id is not None and (ch is None or ch.project_id not in {p.id for p in world.projects}):
         raise HTTPException(404, "No such chapter.")
+    if body.journal_id is not None and (entry is None or entry.world_id != world.id):
+        raise HTTPException(404, "No such journal entry.")
+    project_id = ch.project_id if ch is not None else entry.project_id if entry is not None else None
     created = False
     names = None
     if body.event_id is not None:
@@ -195,7 +227,7 @@ def record_event(slug: str, body: RecordIn, user: User = Depends(current_user), 
         if db.scalar(select(Entity.id).where(Entity.world_id == world.id, Entity.name.ilike(name))) is not None:
             raise HTTPException(409, "The bible already has an entry with that name: pick it instead.")
         e = Entity(world_id=world.id, kind="event", name=name, aliases=[], body="", summary="",
-                   project_id=ch.project_id if len(world.projects) > 1 else None, created_by=user.id,
+                   project_id=project_id if len(world.projects) > 1 else None, created_by=user.id,
                    updated_by=user.id)
         names = matcher_for(db, world.id)
         db.add(e)
@@ -213,8 +245,8 @@ def record_event(slug: str, body: RecordIn, user: User = Depends(current_user), 
         e.time_label = None if w.outside_time else (" ".join((w.time_label or "").split()) or None)
         e.time_approx = False if w.outside_time else w.time_approx
         e.version += 1
-    telling = Telling(world_id=world.id, event_id=e.id, chapter_id=ch.id, passage=body.passage.strip(),
-                      created_by=user.id)
+    telling = Telling(world_id=world.id, event_id=e.id, chapter_id=ch.id if ch else None,
+                      journal_id=entry.id if entry else None, passage=body.passage.strip(), created_by=user.id)
     db.add(telling)
     types = list(db.scalars(select(RelationType).where(RelationType.world_id == world.id)
                             .order_by(RelationType.position)))
@@ -235,10 +267,17 @@ def record_event(slug: str, body: RecordIn, user: User = Depends(current_user), 
             continue
         # the event on the type's A side, read either way
         a, b = (e, other) if t.a_kind in ("*", "event") and t.b_kind in ("*", other.kind) else (other, e)
-        r = Relationship(world_id=world.id, type_id=t.id, a_id=a.id, b_id=b.id, standing="canon",
-                         established_in_chapter_id=ch.id, evidence=body.passage.strip()[:5000],
-                         from_approx=False, until_approx=False, outside_time=False, created_by=user.id,
-                         updated_by=user.id)
+        if ch is not None:
+            r = Relationship(world_id=world.id, type_id=t.id, a_id=a.id, b_id=b.id, standing="canon",
+                             established_in_chapter_id=ch.id, evidence=body.passage.strip()[:5000],
+                             from_approx=False, until_approx=False, outside_time=False, created_by=user.id,
+                             updated_by=user.id)
+        else:
+            assert entry is not None
+            r = Relationship(world_id=world.id, type_id=t.id, a_id=a.id, b_id=b.id, standing="planned",
+                             planned_in_journal_id=entry.id, planned_evidence=body.passage.strip()[:5000],
+                             from_approx=False, until_approx=False, outside_time=False, created_by=user.id,
+                             updated_by=user.id)
         db.add(r)
         db.flush()
         related.add(other.id)

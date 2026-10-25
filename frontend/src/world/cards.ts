@@ -20,8 +20,10 @@ export interface Card {
   match_case: boolean;
   exclusions: string[];
   summary: string;
-  /** time bounds and outside time only when set (docs/SPEC.md §13.1.5) */
-  facts: ({ label: string; value: string; from: string | null; until: string | null } & CardTimes)[];
+  /** time bounds and outside time only when set (docs/SPEC.md §13.1.5); `planned` on a card read in the Journal */
+  facts: ({ label: string; value: string; from: string | null; until: string | null; planned?: boolean } & CardTimes)[];
+  /** its planned facts, apart: cards in the Journal show them, marked (docs/SPEC.md §14.1.1) */
+  planned?: ({ label: string; value: string; from: string | null; until: string | null } & CardTimes)[];
   /** with a role in a group, for a type that has one (docs/SPEC.md §13.4) */
   relations: ({ label: string; other: EntityRef; standing: string; from: string | null; until: string | null; role?: string } & CardTimes)[];
   /** the labels of all its facts, whatever their standing, as compared (lower case) */
@@ -29,6 +31,8 @@ export interface Card {
   /** its level: a project's slug, or null for the world */
   project?: string | null;
   gender?: Gender | null;
+  /** the kinds it is as well, in the order added (docs/SPEC.md §14.8) */
+  also_kinds?: EntityKind[];
   /** an event's when (a chapter, a time, or outside time), and an era's colour (docs/SPEC.md §13.2.1) */
   when?: { chapter: string | null; at: number | null; end: number | null; label: string | null; approx: boolean; outside: boolean };
   era_colour?: string;
@@ -93,6 +97,9 @@ interface Kept {
 }
 
 const key = (world: string) => `cards:${world}`;
+
+/** An entry's kinds: the main one first, then the ones added (docs/SPEC.md §14.8). */
+export const kindsOf = (c: Pick<Card, "kind" | "also_kinds">): EntityKind[] => [c.kind, ...(c.also_kinds ?? [])];
 
 export const useCards = defineStore("cards", {
   state: () => ({
@@ -175,10 +182,19 @@ export const useCards = defineStore("cards", {
       for (const x of s.switches) if (x.expected) out.set(x.kind, [...(out.get(x.kind) ?? []), x.label]);
       return (kind: string) => out.get(kind) ?? [];
     },
+    /** counted under each of its kinds (docs/SPEC.md §14.8) */
     counts: (s) => {
       const out: Partial<Record<EntityKind, number>> = {};
-      for (const c of s.cards) out[c.kind] = (out[c.kind] ?? 0) + 1;
+      for (const c of s.cards) for (const k of kindsOf(c)) out[k] = (out[k] ?? 0) + 1;
       return out;
+    },
+    /** does this entry have this kind, main or added? */
+    hasKind(): (id: string, kind: string) => boolean {
+      const byId = this.byId;
+      return (id, kind) => {
+        const c = byId.get(id);
+        return !!c && kindsOf(c).includes(kind as EntityKind);
+      };
     },
   },
   actions: {
@@ -259,6 +275,16 @@ export const useCards = defineStore("cards", {
       // a character's age there, worked out from their birth (docs/SPEC.md §13.2.4)
       const age = typeof at === "number" && card.kind === "character" ? ageAt(card, at, indexOf, this.byId, new Map(this.timeline.map((c) => [c.id, c]))) : "";
       return { ...card, facts, relations: card.relations.filter((r) => holds(span(r), at, indexOf)), ...(age ? { age } : {}) };
+    },
+    /** A card as a journal entry shows it (docs/SPEC.md §14.1.1): as of the end of the story unless a chapter or a
+     * time is chosen, with its planned facts too, marked, since in planning they are often all there is. */
+    inPlanning(card: Card | undefined, at: string | null | { time: number }): Card | undefined {
+      if (!card) return card;
+      const point = at ?? this.endChapter;
+      const read = this.asOf(card, point) ?? card;
+      if (!card.planned?.length) return read;
+      const planned = this.asOf({ ...card, facts: card.planned }, point)?.facts ?? card.planned;
+      return { ...read, facts: [...read.facts, ...planned.map((f) => ({ ...f, planned: true }))] };
     },
     matcher(): Matcher {
       return new Matcher(this.cards, this.ignored);

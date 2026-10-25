@@ -1,15 +1,19 @@
-// The offline copy of the manuscript. When online, each world opened on this device is synced in the background:
-// every chapter, and the last 30 snapshots of each. The chapter page and History fall back to this copy when the
-// server can't be reached, and text typed but not yet saved is kept here as a draft.
+// The offline copy of the manuscript and the Journal. When online, each world opened on this device is synced in the
+// background: every chapter and journal entry, and the last 30 snapshots of each. The chapter and journal pages and
+// History fall back to this copy when the server can't be reached, text typed but not yet saved is kept here as a
+// draft, and a journal entry made offline waits here until it can be sent (docs/SPEC.md §14.1.1).
 
 import { ApiError, get, patch, post, unreachable } from "./api";
 import {
   localDb,
   type Draft,
   type LocalChapter,
+  type LocalEntry,
   type LocalRevision,
+  type PendingEntry,
   type PendingRevision,
 } from "./localdb";
+import type { JournalDetail } from "./types";
 import { countWords } from "./words";
 import type { Chapter, ChapterInfo, Experiment, Manuscript, RevisionInfo } from "./manuscript";
 
@@ -18,8 +22,11 @@ export const LOCAL_REVISIONS = 30;
 interface Pack {
   now: string;
   chapters: Chapter[];
+  /** a chapter's or a journal entry's (chapter_id is the document's id) */
   revisions: (LocalRevision & { chapter_id: string })[];
   chapter_ids: string[];
+  journal?: JournalDetail[];
+  journal_ids?: string[];
 }
 
 const syncedKey = (world: string) => `synced:${world}`;
@@ -56,8 +63,19 @@ export async function syncWorld(world: string): Promise<boolean> {
   try {
     const since = (await localDb.kv.get(syncedKey(world)))?.value as string | undefined;
     const pack = await get<Pack>(`/api/worlds/${encodeURIComponent(world)}/offline${since ? `?since=${encodeURIComponent(since)}` : ""}`);
-    await localDb.transaction("rw", [localDb.chapters, localDb.revisions, localDb.kv], async () => {
+    await sendPendingEntries(world);
+    await localDb.transaction("rw", [localDb.chapters, localDb.revisions, localDb.kv, localDb.journal, localDb.pendingEntries], async () => {
       await localDb.chapters.bulkPut(pack.chapters.map((c) => ({ ...c, world })));
+      await localDb.journal.bulkPut((pack.journal ?? []).map((j) => ({ ...j, world })));
+      if (pack.journal_ids) {
+        // an entry made here and not sent yet isn't on the server's list: it stays
+        const keepEntries = new Set([...pack.journal_ids, ...(await localDb.pendingEntries.where("world").equals(world).primaryKeys())]);
+        const goneEntries = (await localDb.journal.where("world").equals(world).primaryKeys()).filter((id) => !keepEntries.has(id));
+        if (goneEntries.length) {
+          await localDb.journal.bulkDelete(goneEntries);
+          await localDb.revisions.where("chapterId").anyOf(goneEntries).delete();
+        }
+      }
       await localDb.revisions.bulkPut(
         pack.revisions.map(({ chapter_id, ...r }) => ({ ...r, chapterId: chapter_id })),
       );
@@ -93,8 +111,9 @@ export async function localSummary(world: string): Promise<{ chapters: number; r
 }
 
 export async function clearOfflineCopy(): Promise<void> {
-  await localDb.transaction("rw", [localDb.chapters, localDb.revisions, localDb.kv], async () => {
+  await localDb.transaction("rw", [localDb.chapters, localDb.revisions, localDb.kv, localDb.journal], async () => {
     await localDb.chapters.clear();
+    await localDb.journal.clear();
     await localDb.revisions.clear();
     const keys = (await localDb.kv.toCollection().primaryKeys()).filter((k) => String(k).startsWith("synced:"));
     await localDb.kv.bulkDelete(keys);
@@ -216,8 +235,9 @@ export async function dropDraft(chapterId: string, body?: string): Promise<void>
 export async function sendDrafts(world: string): Promise<void> {
   const drafts = await localDb.drafts.where("world").equals(world).toArray();
   for (const d of drafts) {
+    const doc = `/api/worlds/${encodeURIComponent(world)}/${d.doc === "journal" ? "journal" : "chapters"}/${d.chapterId}`;
     try {
-      await patch(`/api/worlds/${encodeURIComponent(world)}/chapters/${d.chapterId}`, {
+      await patch(doc, {
         base_version: d.baseVersion,
         title: d.title || undefined,
         body: d.body,
@@ -226,9 +246,10 @@ export async function sendDrafts(world: string): Promise<void> {
     } catch (e) {
       if (!(e instanceof ApiError) || unreachable(e)) throw e;
       if (e.status === 409) {
-        const current = (e.body as { chapter?: { body: string } } | null)?.chapter;
+        const body = e.body as { chapter?: { body: string }; entry?: { body: string } } | null;
+        const current = body?.chapter ?? body?.entry;
         if (current && current.body !== d.body) {
-          await post(`/api/worlds/${encodeURIComponent(world)}/chapters/${d.chapterId}/revisions`, {
+          await post(`${doc}/revisions`, {
             reason: "conflict",
             label: "Written on this device while another version was saved",
             body: d.body,
@@ -291,7 +312,7 @@ export async function queueRevision(rev: Omit<PendingRevision, "id">): Promise<v
 export async function sendPendingRevisions(): Promise<void> {
   for (const r of await localDb.pendingRevisions.toArray()) {
     try {
-      await post(`/api/worlds/${encodeURIComponent(r.world)}/chapters/${r.chapterId}/revisions`, {
+      await post(`/api/worlds/${encodeURIComponent(r.world)}/${r.doc === "journal" ? "journal" : "chapters"}/${r.chapterId}/revisions`, {
         reason: r.reason,
         label: r.label,
         body: r.body,
@@ -301,6 +322,80 @@ export async function sendPendingRevisions(): Promise<void> {
       if (!(e instanceof ApiError) || unreachable(e)) return;
       // the chapter is gone or the snapshot is refused: nothing more to do with it
       await localDb.pendingRevisions.delete(r.id);
+    }
+  }
+}
+
+// ---- journal entries (docs/SPEC.md §14.1.1) ----
+
+export async function cacheEntry(world: string, entry: JournalDetail): Promise<void> {
+  try {
+    await localDb.journal.put({ ...entry, world });
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export async function localEntry(id: string): Promise<LocalEntry | undefined> {
+  try {
+    return await localDb.journal.get(id);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Every journal entry of a world kept on this device, newest first (for the list, loose ends and the planning
+ * reading offline). */
+export async function localJournal(world: string): Promise<LocalEntry[]> {
+  try {
+    const all = await localDb.journal.where("world").equals(world).toArray();
+    return all.sort((a, b) => b.entry_date.localeCompare(a.entry_date) || b.created_at.localeCompare(a.created_at));
+  } catch {
+    return [];
+  }
+}
+
+/** A new entry made without a connection: kept here with its id and sent when the server can be reached. */
+export async function queueEntry(entry: Omit<PendingEntry, "error">): Promise<LocalEntry> {
+  const now = new Date().toISOString();
+  const local: LocalEntry = {
+    id: entry.id, world: entry.world, entry_date: entry.entry_date, title: entry.title, body: "", project: entry.project,
+    version: 1, words: 0, created_at: now, updated_at: now, mentions: [],
+  };
+  await localDb.transaction("rw", [localDb.pendingEntries, localDb.journal], async () => {
+    await localDb.pendingEntries.put(entry);
+    await localDb.journal.put(local);
+  });
+  return local;
+}
+
+export async function pendingEntry(id: string): Promise<PendingEntry | undefined> {
+  try {
+    return await localDb.pendingEntries.get(id);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Send the entries made on this device while offline (all of a world's, or one). Throws when the server can't be
+ * reached; an entry the server refuses is kept, marked, so nothing is lost silently. */
+export async function sendPendingEntries(world: string, only?: string): Promise<void> {
+  const waiting = only
+    ? [await localDb.pendingEntries.get(only)].filter((x): x is PendingEntry => !!x && x.world === world)
+    : await localDb.pendingEntries.where("world").equals(world).toArray();
+  for (const p of waiting) {
+    if (p.error) continue;
+    try {
+      const made = await post<JournalDetail>(`/api/worlds/${encodeURIComponent(world)}/journal`, {
+        id: p.id, entry_date: p.entry_date, title: p.title, project: p.project, body: "",
+      });
+      await localDb.pendingEntries.delete(p.id);
+      const here = await localDb.journal.get(p.id);
+      // what was typed here waits as a draft on top of version 1; the copy keeps its text until that is sent
+      await localDb.journal.put({ ...made, body: here?.body ?? made.body, world });
+    } catch (e) {
+      if (!(e instanceof ApiError) || unreachable(e)) throw e;
+      await localDb.pendingEntries.put({ ...p, error: e.message });
     }
   }
 }

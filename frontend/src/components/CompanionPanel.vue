@@ -8,12 +8,14 @@ import { ENTITY_KINDS, type EntityKind, type RelationType } from "../types";
 import { EDITORS, type EditorName, type Finding } from "../world/findings";
 
 // The writing companion beside the editor (docs/WORLD-MODEL.md §7): the chapter's own panel (point of view, cast,
-// actions: the default slot) and the five editors, each a tab of rule-based findings with one-click actions.
+// actions: the default slot) and the five editors, each a tab of rule-based findings with one-click actions. In a
+// journal entry (docs/SPEC.md §14.1.1) the first tab is the entry's, and there is no Continuity tab: the checks are
+// about chapters on the clock.
 
 const props = defineProps<{
   findings: Finding[];
   checks: Check[];
-  items: { id: string; title: string | null; body: string }[];
+  items: { id: string; title: string | null; body: string; passage?: string | null }[];
   note: string;
   backIn: { context: string; note: string } | null;
   drafting: boolean;
@@ -22,12 +24,16 @@ const props = defineProps<{
   types: RelationType[];
   world: string;
   actions: PanelActions;
+  /** a journal entry, not a chapter */
+  journal?: boolean;
+  /** Include planned on the Continuity tab (docs/SPEC.md §14.6) */
+  planned?: boolean;
 }>();
-const emit = defineEmits<{ dismissBack: []; tab: [tab: string] }>();
+const emit = defineEmits<{ dismissBack: []; tab: [tab: string]; planned: [on: boolean] }>();
 
 const prefs = usePrefs();
 const tab = ref<"chapter" | EditorName>("chapter");
-const editors = computed(() => EDITORS.filter((e) => prefs.editors[e.name].on));
+const editors = computed(() => EDITORS.filter((e) => prefs.editors[e.name].on && !(props.journal && e.name === "continuity")));
 const byEditor = computed(() => {
   const out = Object.fromEntries(EDITORS.map((e) => [e.name, [] as Finding[]])) as Record<EditorName, Finding[]>;
   for (const f of props.findings) out[f.editor].push(f);
@@ -72,7 +78,7 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
     </div>
 
     <nav class="companion-tabs" aria-label="Companion">
-      <button type="button" :class="{ on: tab === 'chapter' }" @click="pick('chapter')">Chapter</button>
+      <button type="button" :class="{ on: tab === 'chapter' }" @click="pick('chapter')">{{ props.journal ? "Entry" : "Chapter" }}</button>
       <button v-for="e in editors" :key="e.name" type="button" :class="{ on: tab === e.name }" :title="e.about" :data-testid="`tab-${e.name}`" @click="pick(e.name)">
         {{ e.label }}<span v-if="count(e.name)" class="badge dim">{{ count(e.name) }}</span>
       </button>
@@ -87,9 +93,12 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
 
     <!-- Continuity: the checks over recorded data -->
     <section v-else-if="tab === 'continuity'" class="findings" data-testid="findings-continuity">
+      <label class="toggle small" title="Planned facts and relationships count too; rumour never does">
+        <input type="checkbox" :checked="props.planned" data-testid="include-planned" @change="emit('planned', ($event.target as HTMLInputElement).checked)" /> Include planned
+      </label>
       <p v-if="!openChecks.length" class="muted small">Nothing to check in this chapter.</p>
       <div v-for="c in openChecks" :key="c.rule + c.key" class="finding">
-        <div class="small">{{ c.message }}</div>
+        <div class="small">{{ c.message }}<span v-if="c.planned" class="pill" data-testid="planned-tag"> planned</span></div>
         <div class="qrow">
           <button v-for="e in c.entities" :key="e.id" type="button" class="qchip" :class="`k-${e.kind}`" @click="props.actions.open(e)">{{ e.name }}</button>
           <button v-if="c.rule === 'fact_conflict' && c.label && c.kind" type="button" class="qchip" title="The label holds several values at once for this kind" @click="props.actions.several(c.kind, c.label)">Both are true (several values)</button>
@@ -110,9 +119,17 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
       <template v-if="tab === 'looseEnds'">
         <label class="small muted" for="next-note">A note for next time</label>
         <textarea id="next-note" v-model="noteDraft" class="capture-box note-box" rows="2" placeholder="What's next?" @blur="noteDraft !== props.note && props.actions.saveNote(noteDraft)" />
-        <div v-if="props.items.length" class="small muted">Tied to this chapter</div>
-        <div v-for="i in props.items" :key="i.id" class="finding">
-          <RouterLink class="small" :to="{ name: 'item', params: { world: props.world, id: i.id } }">{{ i.title || i.body }}</RouterLink>
+        <div v-if="props.items.length" class="small muted">Tied to this {{ props.journal ? "entry" : "chapter" }}</div>
+        <div
+          v-for="i in props.items"
+          :key="i.id"
+          class="finding"
+          data-testid="loose-item"
+          @mouseenter="i.passage && props.actions.showPassage?.(i.passage)"
+          @mouseleave="i.passage && props.actions.showPassage?.(null)"
+        >
+          <RouterLink class="small" :to="{ name: 'item', params: { world: props.world, id: i.id } }">{{ i.title || i.body.split("\n")[0] }}</RouterLink>
+          <blockquote v-if="i.passage" class="small muted passage-quote">{{ i.passage }}</blockquote>
         </div>
         <button type="button" class="btn btn-sm stash-btn" @click="props.actions.stash()">Stash a thought <kbd>Ctrl Shift S</kbd></button>
       </template>
@@ -178,6 +195,7 @@ const openChecks = computed(() => props.checks.filter((c) => !c.later));
             <input v-model="summaries[f.key]" class="qinput" :placeholder="`${f.a!.name} in one line`" :aria-label="`One line about ${f.a!.name}`" maxlength="300" @keydown.enter.prevent="summaries[f.key] && props.actions.summary(f.a!, summaries[f.key]!)" />
           </template>
 
+          <button v-if="(f.rule === 'tk' || f.rule === 'unsure') && props.actions.question" type="button" class="qchip" @click="props.actions.question(f)">Make a question</button>
           <button v-if="['echo', 'long_sentence', 'doubled', 'where'].includes(f.rule)" type="button" class="qchip quiet" @click="props.actions.resolve(f.rule, f.key, 'intentional')">Leave it</button>
           <button v-if="f.from !== undefined" type="button" class="qchip quiet" @click="props.actions.jump(f)">Go</button>
         </div>

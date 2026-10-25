@@ -71,7 +71,8 @@ def test_name_changes_keep_mentions_as_a_full_rescan_would(world: Client, db, se
         assert world.post(f"{W}/items", json={"body": prose()}).status_code == 201
 
     live: dict[str, dict] = {}
-    ops = ["add", "add", "add", "rename", "alias", "case", "exclude", "kind", "delete", "ignore", "unignore", "body"]
+    ops = ["add", "add", "add", "rename", "alias", "case", "exclude", "kind", "also", "delete", "ignore", "unignore",
+           "body"]
     for step in range(70):
         op = rnd.choice(ops)
         change: dict = {}
@@ -99,6 +100,8 @@ def test_name_changes_keep_mentions_as_a_full_rescan_would(world: Client, db, se
                 "case": {"match_case": not e["match_case"]},
                 "exclude": {"exclusions": [f"{e['name'].split()[0].lower()}'s"]},
                 "kind": {"kind": rnd.choice(["character", "place"])},
+                # a place that is also a character has a first name too
+                "also": {"also_kinds": rnd.choice([[], ["character"], ["faction"]])},
                 "body": {"body": prose()},
             }[op]
             r = world.patch(f"{W}/entities/{eid}", json={"base_version": e["version"], **change})

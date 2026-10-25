@@ -284,6 +284,7 @@ test("12.5 done when: witnessed reads back on the event, pronunciation shows bes
   await page.goto(`${W}/bible/${ids.Varren}`);
   await expect(page.locator('#fact-labels option[value="pronunciation"]')).toHaveCount(1);
   await expect(page.locator('#fact-labels option[value="gender"]')).toHaveCount(0);
+  await page.getByLabel("New fact standing").selectOption("canon");
   await page.getByLabel("New fact label").fill("pronunciation");
   await page.getByLabel("New fact value").fill("VAR-en");
   await page.getByTestId("facts").getByRole("button", { name: "Add", exact: true }).click();
@@ -308,6 +309,7 @@ test("12.5 done when: witnessed reads back on the event, pronunciation shows bes
 test("12.6.1 done when: typing fest as an event's type offers Festival (4) and nothing from the places, and saves that spelling", async () => {
   await entity("Harbour Fete", "event");
   await page.goto(`${W}/bible/${ids["Harbour Fete"]}`);
+  await page.getByLabel("New fact standing").selectOption("canon");
   await page.getByLabel("New fact label").fill("type");
   const value = page.getByLabel("New fact value");
   await value.fill("fest");
@@ -377,6 +379,7 @@ test("12.6.5 done when: common labels are offered, the third use asks once witho
   await fact("Oswin", "eye colour", "brown");
   // the third character: asked once, inline, and the label field keeps the focus
   await page.goto(`${W}/bible/${ids.Mirelle}`);
+  await page.getByLabel("New fact standing").selectOption("canon");
   await page.getByLabel("New fact label").fill("eye colour");
   await page.getByLabel("New fact value").fill("green");
   await page.getByLabel("New fact value").press("Enter");
@@ -394,6 +397,7 @@ test("12.6.5 done when: common labels are offered, the third use asks once witho
   await expect(page.getByTestId("entity-findings")).toHaveCount(0);
   // a fourth doesn't ask again
   await page.goto(`${W}/bible/${ids.Varren}`);
+  await page.getByLabel("New fact standing").selectOption("canon");
   await page.getByLabel("New fact label").fill("eye colour");
   await page.getByLabel("New fact value").fill("green");
   await page.getByLabel("New fact value").press("Enter");
@@ -404,6 +408,7 @@ test("12.6.5 done when: common labels are offered, the third use asks once witho
   await fact("Isolde", "hair", "black");
   await fact("Oswin", "hair", "red");
   await page.goto(`${W}/bible/${ids.Mirelle}`);
+  await page.getByLabel("New fact standing").selectOption("canon");
   await page.getByLabel("New fact label").fill("hair");
   await page.getByLabel("New fact value").fill("fair");
   await page.getByLabel("New fact value").press("Enter");

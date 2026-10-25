@@ -9,6 +9,8 @@ import type { Unit } from "../world/when";
 import EntityPicker from "./EntityPicker.vue";
 import InlineText from "./InlineText.vue";
 import SpanPicker from "./SpanPicker.vue";
+import PlannedIn from "./PlannedIn.vue";
+import { kindsOf, useCards } from "../world/cards";
 
 // An entry's relationships, grouped by how they read from this entry, and adding one: pick who or what, then how. A
 // type with a role ("member of") carries the holder's role in the group, with the roles used on it offered
@@ -24,7 +26,10 @@ const props = defineProps<{
   indexOf: IndexOf;
   unit?: Unit;
   eraOf?: (t: number | null | undefined) => Era | null;
+  /** the journal entries relationships were planned in (docs/SPEC.md §14.1.2) */
+  journalEntries?: Record<string, { id: string; date: string; title: string | null; body: string }>;
 }>();
+const cards = useCards();
 const off = (r: Relationship) => props.asOf !== null && !holds(r, props.asOf, props.indexOf);
 const setSpan = (r: Relationship, span: Span) => run(() => updateRelationship(props.world, r, span));
 const emit = defineEmits<{ changed: []; error: [message: string] }>();
@@ -37,10 +42,16 @@ const groups = computed(() => {
 
 const target = ref<EntityRef | null>(null);
 const choice = ref("");
-const standing = ref<Standing>("canon");
+// added on the entry page, a relationship is planned until it is in the book or marked canon (docs/SPEC.md §14.1.2)
+const standing = ref<Standing>("planned");
 const note = ref("");
 const role = ref("");
-const options = computed(() => (target.value ? typeOptions(props.types, props.entity.kind, target.value.kind) : []));
+// any of each one's kinds (docs/SPEC.md §14.8)
+const kindsOfRef = (r: { id: string; kind: string }) => {
+  const c = cards.byId.get(r.id);
+  return c ? kindsOf(c) : [r.kind];
+};
+const options = computed(() => (target.value ? typeOptions(props.types, [props.entity.kind, ...(props.entity.also_kinds ?? [])], kindsOfRef(target.value)) : []));
 const STANDINGS: Standing[] = ["canon", "planned", "rumour"];
 const chosenType = computed(() => props.types.find((t) => t.id === choice.value.split("|")[0]));
 // the group a new relationship's role is in: the B side
@@ -92,7 +103,7 @@ function add() {
   };
   target.value = null;
   note.value = role.value = "";
-  standing.value = "canon";
+  standing.value = "planned";
   void run(() => addRelationship(props.world, body));
 }
 
@@ -137,6 +148,7 @@ function doChange(r: Relationship) {
             </select>
             <SpanPicker :span="r" :timeline="props.timeline" :unit="props.unit" :era-of="props.eraOf" @save="(sp) => setSpan(r, sp)" />
             <span v-if="r.note" class="muted small">— {{ r.note }}</span>
+            <PlannedIn v-if="r.planned_in_journal_id" :world="props.world" :entry="props.journalEntries?.[r.planned_in_journal_id]" :passage="r.planned_evidence" />
             <button v-if="r.has_role && props.timeline.length && changing !== r.id" type="button" class="linkish small" data-testid="change-role" @click="startChange(r)">Change role from here…</button>
             <form v-if="changing === r.id" class="span-form" data-testid="change-role-form" @submit.prevent="doChange(r)" @keydown.esc.prevent="changing = null">
               <label class="small muted">from
@@ -176,7 +188,7 @@ function doChange(r: Relationship) {
         </select>
         <span class="kname" :class="`k-${target.kind}`">{{ target.name }}</span>
         <input v-if="chosenType?.has_role" v-model="role" class="filter" :list="listId(chosenType.id, chosenGroup)" placeholder="Role (optional)" aria-label="Role" maxlength="100" />
-        <select v-model="standing" class="filter" aria-label="Standing">
+        <select v-model="standing" class="filter" aria-label="New relationship standing">
           <option v-for="s in STANDINGS" :key="s" :value="s">{{ s }}</option>
         </select>
         <input v-model="note" class="filter grow" placeholder="Note (optional)" aria-label="Note" maxlength="5000" />

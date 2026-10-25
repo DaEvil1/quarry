@@ -29,6 +29,7 @@ from ..models import (
     Entity,
     HarvestNote,
     Item,
+    JournalEntry,
     Mention,
     Project,
     Revision,
@@ -536,7 +537,12 @@ def revision(slug: str, revision_id: uuid.UUID, user: User = Depends(current_use
     r = db.get(Revision, revision_id)
     if r is None:
         raise HTTPException(404, "No such revision.")
-    _chapter(db, world, r.doc_id)
+    if r.doc_table == "journal":
+        j = db.get(JournalEntry, r.doc_id)
+        if j is None or j.world_id != world.id:
+            raise HTTPException(404, "No such revision.")
+    else:
+        _chapter(db, world, r.doc_id)
     return {"id": str(r.id), "version": r.version, "title": r.title, "body": r.body, "reason": r.reason,
             "label": r.label, "created_at": r.created_at.isoformat()}
 
@@ -672,18 +678,19 @@ LOCAL_REVISIONS = 30
 @router.get("/offline")
 def offline_pack(slug: str, since: datetime | None = None, user: User = Depends(current_user),
                  db: Session = Depends(get_db)) -> dict:
-    """What a device needs to keep its offline copy of the world's chapters up to date: every chapter changed (or
-    given a new revision) since `since`, with its last 30 revisions, and the ids of all chapters that still exist."""
+    """What a device needs to keep its offline copy of the world's chapters and journal entries up to date: every
+    chapter and entry changed (or given a new revision) since `since`, each with its last 30 revisions, and the ids of
+    all chapters and entries that still exist (docs/SPEC.md §14.1.1)."""
     world, _ = member_world(db, user, slug)
     now = datetime.now(UTC)
     project_ids = [p.id for p in world.projects]
     all_ids = list(db.scalars(select(Chapter.id).where(Chapter.project_id.in_(project_ids)))) if project_ids else []
     q = select(Chapter).where(Chapter.project_id.in_(project_ids)) if project_ids else None
     changed: list[Chapter] = []
+    if since is not None and since.tzinfo is None:
+        since = since.replace(tzinfo=UTC)
     if q is not None:
         if since is not None:
-            if since.tzinfo is None:
-                since = since.replace(tzinfo=UTC)
             fresh = select(Revision.doc_id).where(Revision.doc_table == "chapter", Revision.created_at > since)
             q = q.where(or_(Chapter.updated_at > since, Chapter.id.in_(fresh)))
         changed = list(db.scalars(q))
@@ -695,5 +702,22 @@ def offline_pack(slug: str, since: datetime | None = None, user: User = Depends(
             revisions.append({"id": str(r.id), "chapter_id": str(ch.id), "version": r.version, "title": r.title,
                               "body": r.body, "reason": r.reason, "label": r.label,
                               "words": r.meta.get("words", words(r.body)), "created_at": r.created_at.isoformat()})
+    from .journal import entry_detail, journal_words
+
+    jq = select(JournalEntry).where(JournalEntry.world_id == world.id)
+    if since is not None:
+        fresh = select(Revision.doc_id).where(Revision.doc_table == "journal", Revision.created_at > since)
+        jq = jq.where(or_(JournalEntry.updated_at > since, JournalEntry.id.in_(fresh)))
+    journal = []
+    for j in db.scalars(jq):
+        journal.append(entry_detail(db, world, j).model_dump(mode="json"))
+        for r in db.scalars(select(Revision).where(Revision.doc_table == "journal", Revision.doc_id == j.id)
+                            .order_by(Revision.created_at.desc()).limit(LOCAL_REVISIONS)):
+            revisions.append({"id": str(r.id), "chapter_id": str(j.id), "version": r.version, "title": r.title,
+                              "body": r.body, "reason": r.reason, "label": r.label,
+                              "words": r.meta.get("words", journal_words(r.body)),
+                              "created_at": r.created_at.isoformat()})
+    journal_ids = db.scalars(select(JournalEntry.id).where(JournalEntry.world_id == world.id))
     return {"now": now.isoformat(), "chapters": chapters, "revisions": revisions,
-            "chapter_ids": [str(i) for i in all_ids]}
+            "chapter_ids": [str(i) for i in all_ids], "journal": journal,
+            "journal_ids": [str(i) for i in journal_ids]}

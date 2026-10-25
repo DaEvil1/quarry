@@ -956,3 +956,33 @@ svg.chart:active { cursor: grabbing; }
 .timeline-main.with-chart { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; align-items: start; }
 .timeline-chart .card-head { flex-wrap: wrap; gap: 8px; }
 @media (max-width: 1099px) { .timeline-main.with-chart { grid-template-columns: minmax(0, 1fr); } }
+
+/* planning before writing (docs/SPEC.md §14.1–§14.3) */
+.journal-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; }
+.journal-head .chapter-title { flex: 1 1 20ch; }
+.journal-about { display: flex; gap: 8px; align-items: center; }
+.journal-search { margin: 4px 0 12px; max-width: 32ch; }
+.journal-link { color: inherit; text-decoration: none; display: block; }
+.journal-link:hover h2 { text-decoration: underline; }
+.passage-quote { margin: 4px 0 0; padding-left: 8px; border-left: 2px solid var(--border); font-style: italic; }
+.item-origin { margin: 4px 0; }
+.planned-in { display: block; margin-top: 2px; }
+.rel .planned-in { display: inline; margin-left: 6px; }
+.planning-year { margin: 24px 0 6px; font-size: 1.1rem; color: var(--muted); }
+.planning-gap { text-align: center; margin: 6px 0; }
+.planning-item .prose, .planning-decision .prose { display: block; color: inherit; }
+.since-count { margin-left: 8px; opacity: 0.7; }
+.since-list { margin-top: 6px; }
+.premise { margin: 4px 0 0; color: var(--muted); }
+.front-section h3 { margin: 10px 0 2px; }
+.focus-switch { margin-top: 6px; }
+
+/* cause arrows on the Timeline (docs/SPEC.md §14.7) */
+.tl-arrow { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+.tl-arrow.dashed { stroke-dasharray: 5 4; }
+.tl-arrow.before { stroke: var(--warn); }
+.tl-arrowhead { fill: var(--accent); }
+.tl-arrow-note { font-size: 11px; fill: var(--warn); }
+.tl-arrow-edge { font-size: 11px; fill: var(--accent); cursor: pointer; }
+.kept-card { position: absolute; right: 12px; top: 12px; max-width: 320px; z-index: 5; }
+.timeline-wrap { position: relative; }

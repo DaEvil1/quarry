@@ -46,6 +46,7 @@ test("an entry gets a one-liner, facts and relationships that read both ways", a
   await expect(page.locator(".entry-summary")).toHaveText("Keeps the light at Old Harbour");
 
   const facts = page.getByTestId("facts");
+  await facts.getByLabel("New fact standing").selectOption("canon");
   await facts.getByLabel("New fact label").fill("eye colour");
   await facts.getByLabel("New fact value").fill("grey");
   await facts.getByRole("button", { name: "Add" }).click();
@@ -55,7 +56,8 @@ test("an entry gets a one-liner, facts and relationships that read both ways", a
   async function relate(to: string, reads: string) {
     await rel.getByLabel("Bible entry").fill(to);
     await page.keyboard.press("Enter");
-    await rel.getByLabel("How they're connected").selectOption({ label: reads });
+    await rel.getByLabel("How they\'re connected").selectOption({ label: reads });
+    await rel.getByLabel("New relationship standing").selectOption("canon");
     await rel.getByRole("button", { name: "Add", exact: true }).click();
     await expect(rel.locator("dl")).toContainText(to);
   }

@@ -76,6 +76,9 @@ class WorldOut(BaseModel):
     # what in-world time is counted in (docs/SPEC.md §13.1.1)
     time_unit: str = "year"
     time_units: str = "years"
+    # one optional line about the world (docs/SPEC.md §14.4), and this person's focus in it (§14.9)
+    premise: str | None = None
+    focus: str = "writing"
 
 
 class UserOut(BaseModel):
@@ -101,6 +104,11 @@ class WorldUpdate(BaseModel):
     slug: str | None = Field(default=None, max_length=SLUG_MAX)
     time_unit: str | None = Field(default=None, min_length=1, max_length=40)
     time_units: str | None = Field(default=None, min_length=1, max_length=40)
+    premise: str | None = Field(default=None, max_length=300)
+
+
+class FocusIn(BaseModel):
+    focus: Literal["writing", "planning"]
 
 
 class ProjectIn(BaseModel):
@@ -125,20 +133,26 @@ def _project_out(p: Project) -> ProjectOut:
                       gap_chapters=p.gap_chapters if p.gap_chapters is not None else 5)
 
 
-def _world_out(w: World, role: str) -> WorldOut:
+def _world_out(w: World, role: str, focus: str = "writing") -> WorldOut:
     return WorldOut(id=w.id, name=w.name, slug=w.slug, role=role, projects=[_project_out(p) for p in w.projects],
-                    time_unit=w.time_unit or "year", time_units=w.time_units or "years")
+                    time_unit=w.time_unit or "year", time_units=w.time_units or "years", premise=w.premise,
+                    focus=focus or "writing")
 
 
 def _my_worlds(db: Session, user: User) -> list[WorldOut]:
     rows = db.execute(
-        select(World, WorldMember.role)
+        select(World, WorldMember.role, WorldMember.focus)
         .join(WorldMember, WorldMember.world_id == World.id)
         .where(WorldMember.user_id == user.id)
         .options(selectinload(World.projects))
         .order_by(func.lower(World.name))
     ).all()
-    return [_world_out(w, role) for w, role in rows]
+    return [_world_out(w, role, focus) for w, role, focus in rows]
+
+
+def _focus(db: Session, world: World, user: User) -> str:
+    m = db.get(WorldMember, (world.id, user.id))
+    return m.focus if m else "writing"
 
 
 def member_world(db: Session, user: User, slug: str) -> tuple[World, str]:
@@ -202,7 +216,19 @@ def create_world(body: WorldIn, user: User = Depends(current_user), db: Session 
 @router.get("/worlds/{slug}")
 def get_world(slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> WorldOut:
     w, role = member_world(db, user, slug)
-    return _world_out(w, role)
+    return _world_out(w, role, _focus(db, w, user))
+
+
+@router.put("/worlds/{slug}/focus")
+def set_focus(slug: str, body: FocusIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> WorldOut:
+    """What is up front in this world for this person, Writing or Planning (docs/SPEC.md §14.9): kept on the server so
+    the phone and the desk agree."""
+    w, role = member_world(db, user, slug)
+    m = db.get(WorldMember, (w.id, user.id))
+    assert m is not None
+    m.focus = body.focus
+    db.commit()
+    return _world_out(w, role, m.focus)
 
 
 @router.patch("/worlds/{slug}")
@@ -224,9 +250,11 @@ def update_world(slug: str, body: WorldUpdate, user: User = Depends(current_user
             if not value:
                 raise HTTPException(422, "Give the unit a name.")
             setattr(w, field, value)
+    if "premise" in body.model_fields_set:
+        w.premise = " ".join((body.premise or "").split()) or None
     w.updated_by = user.id
     db.commit()
-    return _world_out(w, role)
+    return _world_out(w, role, _focus(db, w, user))
 
 
 # projects ------------------------------------------------------------------------------------------------------

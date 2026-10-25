@@ -120,7 +120,8 @@ test("13.4 done when: roles show on both pages, Cap offers Captain (2), and a on
   // a new member: typing Cap offers Captain (2)
   await rels.getByPlaceholder("Connect the Lamp Guild to…").fill("Bram");
   await page.keyboard.press("Enter");
-  await rels.getByLabel("How they're connected").selectOption({ label: "has member" });
+  await rels.getByLabel("How they\'re connected").selectOption({ label: "has member" });
+  await rels.getByLabel("New relationship standing").selectOption("canon");
   const role = rels.getByLabel("Role");
   await role.fill("Cap");
   const list = await role.getAttribute("list");
@@ -179,6 +180,7 @@ test("13.5 done when: possessed by on the card, an ancestor drawn as a dashed li
   // a place's type offers the starting values in a world that has never used them
   await entity("the Hollow Court", "place");
   await page.goto(`${W}/bible/${ids["the Hollow Court"]}`);
+  await page.getByLabel("New fact standing").selectOption("canon");
   await page.getByLabel("New fact label").fill("type");
   const value = page.getByLabel("New fact value");
   const list = await value.getAttribute("list");

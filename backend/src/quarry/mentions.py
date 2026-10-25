@@ -64,7 +64,7 @@ def first_name_aliases(entities: Iterable[Entity]) -> dict[uuid.UUID, str]:
     claims: dict[str, list[tuple[uuid.UUID, str]]] = {}
     for e in entities:
         words = [w.strip(",.") for w in e.name.split()]
-        if e.kind != "character" or not e.first_name_alias or len(words) < 2 or words[0].lower() in ARTICLES:
+        if "character" not in [e.kind, *(e.also_kinds or [])] or not e.first_name_alias or len(words) < 2 or words[0].lower() in ARTICLES:
             continue
         while len(words) > 1 and words[0].lower() in TITLES:
             words = words[1:]
@@ -240,11 +240,12 @@ class Matcher:
         return found
 
 
-# everything a matcher is built from, hashed by the database: names, other names, capitals, first names, "not in this
-# sense" phrases and "not a typo" words, in the order the matcher meets them
+# everything a matcher is built from, hashed by the database: kinds (a character's first name), names, other names,
+# capitals, first names, "not in this sense" phrases and "not a typo" words, in the order the matcher meets them
 NAMES_KEY = sql("""
-SELECT md5(coalesce(string_agg(concat_ws(chr(31), id::text, kind, name, array_to_string(aliases, chr(30)),
-                                         match_case::text, first_name_alias::text, array_to_string(exclusions, chr(30))),
+SELECT md5(coalesce(string_agg(concat_ws(chr(31), id::text, kind, array_to_string(also_kinds, chr(30)), name,
+                                         array_to_string(aliases, chr(30)), match_case::text, first_name_alias::text,
+                                         array_to_string(exclusions, chr(30))),
                                chr(29) ORDER BY created_at, id), ''))
     || md5(coalesce((SELECT string_agg(token, chr(29) ORDER BY token) FROM name_ignores WHERE world_id = :w), ''))
 FROM entities WHERE world_id = :w

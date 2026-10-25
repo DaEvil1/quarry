@@ -6,6 +6,7 @@ import { age, closeItem, ItemConflict, reopenItem, undoClose, updateItem } from 
 import { CAPTURE_KINDS, STATUS_LABELS, firstLine, type CloseStatus, type EntityRef, type Item, type World } from "../types";
 import EntityPicker from "./EntityPicker.vue";
 import MentionText from "./MentionText.vue";
+import ItemOrigin from "./ItemOrigin.vue";
 
 const props = defineProps<{ item: Item; world: World; open: boolean }>();
 const emit = defineEmits<{
@@ -153,6 +154,7 @@ const move = (project: string) =>
           @cancel="tagging = false"
         />
         <p v-if="props.item.closed_note" class="muted small">Note: {{ props.item.closed_note }}</p>
+        <ItemOrigin v-if="props.item.origin" :world="props.world.slug" :origin="props.item.origin" />
         <p class="muted small">
           {{ STATUS_LABELS[props.item.status] }}
           <template v-if="props.item.source"> · from {{ props.item.source }}</template>

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..mentions import refresh_source
-from ..models import Chapter, Decision, Entity, Item, ItemLink, Mention, Project, User, World
+from ..models import Chapter, Decision, Entity, Item, ItemLink, JournalEntry, Mention, Project, User, World
 from .deps import current_user
 from .worlds import member_world
 
@@ -69,6 +69,8 @@ class ItemOut(BaseModel):
     entities: list[EntityRef] = []
     # names (and near misses of names) found in the body
     mentions: list[MentionOut] = []
+    # the chapter or journal entry it was made from, with the passage (docs/SPEC.md §14.3.1)
+    origin: dict | None = None
 
 
 class ItemIn(BaseModel):
@@ -81,8 +83,13 @@ class ItemIn(BaseModel):
     captured_at: datetime | None = None
     # bible entries to tag it with (unknown ones are skipped: the phone's list may be older)
     entities: list[uuid.UUID] = Field(default_factory=list, max_length=50)
-    # the chapter it was thought of in (a thought stashed while writing)
+    # the chapter it was thought of in (a thought stashed while writing), or the journal entry; with the passage it
+    # was made from, when made from a selection (docs/SPEC.md §14.3.1)
     chapter_id: uuid.UUID | None = None
+    journal_id: uuid.UUID | None = None
+    passage: str | None = Field(default=None, max_length=BODY_MAX)
+    # "Park it": kept as deferred instead of waiting in the inbox
+    status: Literal["open", "deferred"] = "open"
 
 
 class LinkIn(BaseModel):
@@ -122,13 +129,13 @@ def project_by_slug(world: World, slug: str | None) -> Project | None:
 
 
 def item_out(item: Item, world: World, entities: list[EntityRef] | None = None,
-             mentions: list[MentionOut] | None = None) -> ItemOut:
+             mentions: list[MentionOut] | None = None, origin: dict | None = None) -> ItemOut:
     slugs = {p.id: p.slug for p in world.projects}
     return ItemOut(id=item.id, kind=item.kind, title=item.title, body=item.body, status=item.status,
                    project=slugs.get(item.project_id) if item.project_id else None, source=item.source,
                    closed_note=item.closed_note, closed_at=item.closed_at, created_at=item.created_at,
                    updated_at=item.updated_at, version=item.version, entities=entities or [],
-                   mentions=mentions or [])
+                   mentions=mentions or [], origin=origin)
 
 
 def items_out(db: Session, world: World, items: list[Item]) -> list[ItemOut]:
@@ -149,7 +156,29 @@ def items_out(db: Session, world: World, items: list[Item]) -> list[ItemOut]:
             found[m.source_id].append(MentionOut(entity_id=m.entity_id, entity_name=name, entity_kind=ekind,
                                                  start=m.start, end=m.end, matched_text=m.matched_text,
                                                  kind=m.kind))
-    return [item_out(i, world, tags[i.id], found[i.id]) for i in items]
+    origins = item_origins(db, ids)
+    return [item_out(i, world, tags[i.id], found[i.id], origins.get(i.id)) for i in items]
+
+
+def item_origins(db: Session, ids: list[uuid.UUID]) -> dict[uuid.UUID, dict]:
+    """Where each item came from: the chapter (its title) or journal entry (its date and title) it is linked to, with
+    the passage it was made from. A journal entry wins over a chapter; nothing for items without either."""
+    out: dict[uuid.UUID, dict] = {}
+    if not ids:
+        return out
+    for link, ch in db.execute(
+        select(ItemLink, Chapter).join(Chapter, Chapter.id == ItemLink.target_id)
+        .where(ItemLink.item_id.in_(ids), ItemLink.target_table == "chapter")
+    ).all():
+        out[link.item_id] = {"table": "chapter", "id": str(ch.id), "title": ch.title, "date": None,
+                             "passage": link.passage}
+    for link, j in db.execute(
+        select(ItemLink, JournalEntry).join(JournalEntry, JournalEntry.id == ItemLink.target_id)
+        .where(ItemLink.item_id.in_(ids), ItemLink.target_table == "journal")
+    ).all():
+        out[link.item_id] = {"table": "journal", "id": str(j.id), "title": j.title,
+                             "date": j.entry_date.isoformat(), "passage": link.passage}
+    return out
 
 
 def one_out(db: Session, world: World, item: Item) -> ItemOut:
@@ -244,17 +273,22 @@ def create_item(slug: str, body: ItemIn, user: User = Depends(current_user), db:
         captured = now
     item = Item(id=body.id or uuid.uuid4(), world_id=world.id, project_id=project.id if project else None,
                 kind=body.kind, title=(body.title or "").strip() or None, body=_clean_body(body.body),
-                source=body.source, created_by=user.id, updated_by=user.id, created_at=captured)
+                status=body.status, source=body.source, created_by=user.id, updated_by=user.id, created_at=captured)
     db.add(item)
     db.flush()
     if body.entities:
         known = set(db.scalars(select(Entity.id).where(Entity.world_id == world.id, Entity.id.in_(body.entities))))
         db.add_all(ItemLink(item_id=item.id, target_table="entity", target_id=e) for e in dict.fromkeys(body.entities)
                    if e in known)
+    passage = (body.passage or "").strip() or None
     if body.chapter_id is not None:
         ch = db.get(Chapter, body.chapter_id)
         if ch is not None and db.get(Project, ch.project_id).world_id == world.id:
-            db.add(ItemLink(item_id=item.id, target_table="chapter", target_id=ch.id))
+            db.add(ItemLink(item_id=item.id, target_table="chapter", target_id=ch.id, passage=passage))
+    if body.journal_id is not None:
+        j = db.get(JournalEntry, body.journal_id)
+        if j is not None and j.world_id == world.id:
+            db.add(ItemLink(item_id=item.id, target_table="journal", target_id=j.id, passage=passage))
     refresh_source(db, world.id, "item", item.id, item.body)
     db.commit()
     return one_out(db, world, item)
@@ -345,6 +379,20 @@ def close_item(slug: str, item_id: uuid.UUID, body: CloseIn, user: User = Depend
         decision_id = d.id
     db.commit()
     return CloseOut(item=one_out(db, world, item), decision_id=decision_id)
+
+
+@router.delete("/items/{item_id}", status_code=204)
+def delete_item(slug: str, item_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
+    """Undo an item just made (a spark or question from a passage): only an open or parked one, never an experiment,
+    and never one a decision came from."""
+    world, _ = member_world(db, user, slug)
+    item = _item(db, world, item_id)
+    if item.kind == "experiment" or item.status not in ("open", "deferred") or db.scalar(
+            select(func.count()).select_from(Decision).where(Decision.item_id == item.id)):
+        raise HTTPException(409, "Only an open item can be removed; close it instead.")
+    db.execute(delete(Mention).where(Mention.source_table == "item", Mention.source_id == item.id))
+    db.delete(item)
+    db.commit()
 
 
 @router.post("/items/{item_id}/reopen")

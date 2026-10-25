@@ -3,12 +3,14 @@ import { diffWords } from "diff";
 import { computed, onMounted, ref } from "vue";
 
 import { unreachable } from "../api";
+import { listEntryRevisions } from "../journal";
 import { getRevision, listRevisions, REASON_LABELS, type RevisionInfo } from "../manuscript";
 import { localRevision, localRevisions } from "../offline";
 
-// A chapter's snapshots, newest first. Choosing one shows what changed since (word by word) or the old text on
-// its own (to copy a passage); it can be put back, and the text it replaces is kept as a snapshot first.
-const props = defineProps<{ world: string; chapterId: string; current: string }>();
+// A chapter's (or a journal entry's) snapshots, newest first. Choosing one shows what changed since (word by word) or
+// the old text on its own (to copy a passage); it can be put back, and the text it replaces is kept as a snapshot
+// first.
+const props = defineProps<{ world: string; chapterId: string; current: string; doc?: "chapter" | "journal" }>();
 const emit = defineEmits<{ restore: [revisionId: string, body: string]; close: [] }>();
 // the server couldn't be reached: the snapshots kept on this device (the last 30)
 const local = ref(false);
@@ -23,7 +25,7 @@ const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle:
 
 onMounted(async () => {
   try {
-    revisions.value = await listRevisions(props.world, props.chapterId);
+    revisions.value = props.doc === "journal" ? await listEntryRevisions(props.world, props.chapterId) : await listRevisions(props.world, props.chapterId);
   } catch (e) {
     if (!offline(e)) {
       error.value = (e as Error).message;

@@ -27,6 +27,7 @@ import { EditorView } from "@codemirror/view";
 import { around, chapterCuts, cutLabel, findPlace, listCuts, markPutBack, removeCut, type Cut } from "../cuts";
 import { changesLine, changesSince } from "../editor/changes";
 import { createProse, countWords, type Prose, type WorldHooks } from "../editor/prose";
+import { passageActions, itemBody, type PassageContext } from "../editor/passage";
 import type { HistoryActions } from "../editor/strips";
 import { ChapterSaver, type SaveStatus } from "../editor/saver";
 import {
@@ -50,7 +51,7 @@ import {
   type Chapter,
   type StatusRef,
 } from "../manuscript";
-import { unreachable } from "../api";
+import { del, unreachable } from "../api";
 import {
   cacheChapter,
   checkpointBody,
@@ -66,8 +67,9 @@ import { usePrefs } from "../prefs";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
 import { localToday, type EntityRef, type Presence } from "../types";
-import { useCards } from "../world/cards";
+import { kindsOf, useCards } from "../world/cards";
 import { chapterWhen, timeText, unitOf } from "../world/when";
+import { includePlanned, setIncludePlanned } from "../focus";
 import { norm } from "../world/time";
 import { analyse, linkKey, storyText, type Finding } from "../world/findings";
 import NotFoundView from "./NotFoundView.vue";
@@ -215,6 +217,9 @@ async function openAt() {
   const p = prose.value;
   const ch = chapter.value;
   if (!p || !ch) return;
+  // at a passage (where something was planned or made from, docs/SPEC.md §14.3.1): found by its text
+  const passage = typeof route.query.passage === "string" ? route.query.passage : "";
+  if (passage && !p.markPassage(passage, true)) notice.value = "That passage has changed since; the chapter opens at the top.";
   const at = typeof route.query.at === "string" ? Number(route.query.at) : NaN;
   if (Number.isFinite(at)) {
     const pos = Math.max(0, Math.min(at, p.view.state.doc.length));
@@ -368,7 +373,7 @@ function byLevel(list: EntityRef[]): (EntityRef & { where?: string })[] {
 /** places for "is at…": the ones named in this chapter first, then the rest */
 function placesForChapter(): EntityRef[] {
   const named = new Set((chapter.value?.mentions ?? []).filter((m) => m.entity_kind === "place").map((m) => m.entity_id));
-  const places = byLevel(cards.names.filter((n) => n.kind === "place"));
+  const places = byLevel(cards.names.filter((n) => cards.hasKind(n.id, "place")));
   return [...places.filter((p) => named.has(p.id)), ...places.filter((p) => !named.has(p.id))];
 }
 
@@ -394,6 +399,7 @@ const worldHooks: WorldHooks = {
   cut: (from, to) => void cutToBin(from, to),
   several: (kind, label) => cards.several(kind, label),
   history: (from, to, raw) => historyActions(from, to, raw),
+  passage: (_from, _to, raw) => passageActions(passageContext(), raw),
   isAt: (id) => ({
     here: () => presence.value.find((p) => p.entity_id === id)?.place ?? null,
     places: placesForChapter,
@@ -411,8 +417,10 @@ const worldHooks: WorldHooks = {
   link: (id) => ({
     names: () => byLevel(cards.names),
     options: (other) => {
-      const from = cards.byId.get(id)?.kind ?? "other";
-      return typeOptions(cards.types, from, other.kind).map((o) => ({ key: `${o.type.id}|${o.forward}`, reads: o.reads }));
+      // any of each one's kinds (docs/SPEC.md §14.8)
+      const me = cards.byId.get(id);
+      const them = cards.byId.get(other.id);
+      return typeOptions(cards.types, me ? kindsOf(me) : ["other"], them ? kindsOf(them) : [other.kind]).map((o) => ({ key: `${o.type.id}|${o.forward}`, reads: o.reads }));
     },
     add: (other, key) => {
       const [typeId, forward] = key.split("|");
@@ -421,6 +429,84 @@ const worldHooks: WorldHooks = {
     },
   }),
 };
+// ---- recording a fact, a spark or a question from a passage (docs/SPEC.md §14.1.2, §14.3.1) ----
+function passageContext(): PassageContext {
+  const ch = chapter.value!;
+  return {
+    world: worldSlug.value,
+    where: "chapter",
+    sourceId: ch.id,
+    project: ch.project,
+    names: () => byLevel(cards.names),
+    namedIn,
+    addItem: (i) => addItem(i),
+    recorded: (r) => void factRecorded(r),
+    saved: (kind, sent) => itemSaved(kind, sent),
+    failed: (m) => (error.value = m),
+  };
+}
+let lastItem: string | null = null;
+/** An item made here goes through the outbox (it works offline), tied to this chapter with its passage. */
+async function addItem(i: { kind: "spark" | "question" | "task"; body: string; entities: string[]; passage: string; status: "open" | "deferred" }) {
+  const ch = chapter.value!;
+  const id = crypto.randomUUID();
+  lastItem = id;
+  const sent = await outbox.add({ id, world: worldSlug.value, body: i.body, kind: i.kind, project: ch.project, source: "passage", chapterId: ch.id, passage: i.passage, status: i.status, entities: i.entities });
+  if (sent) items.value = await chapterItems(worldSlug.value, ch.id).catch(() => items.value);
+  return { sent };
+}
+function itemSaved(kind: string, sent: boolean) {
+  const id = lastItem;
+  const label = `${kind[0]!.toUpperCase()}${kind.slice(1)} saved${sent ? "" : " on this device; it goes to the inbox when you're back online"}`;
+  toast.value = {
+    label,
+    undo: id
+      ? async () => {
+          if (!(await outbox.dropCapture(id))) await del(`/api/worlds/${encodeURIComponent(worldSlug.value)}/items/${id}`);
+          if (chapter.value) items.value = await chapterItems(worldSlug.value, chapter.value.id).catch(() => items.value);
+        }
+      : null,
+    actions: sent && id ? [{ label: "Open", run: () => router.push({ name: "item", params: { world: worldSlug.value, id } }) }] : [],
+  };
+}
+async function factRecorded(r: { entity: EntityRef; label: string; value: string; undo: () => Promise<void> }) {
+  await cards.refresh(worldSlug.value);
+  await afterWorldChange();
+  toast.value = {
+    label: `Recorded “${r.label}${r.value ? `: ${r.value}` : ""}” on ${r.entity.name}`,
+    undo: async () => {
+      await r.undo();
+      await cards.refresh(worldSlug.value);
+      await afterWorldChange();
+    },
+    actions: [{ label: "Open", run: () => router.push({ name: "entity", params: { world: worldSlug.value, id: r.entity.id } }) }],
+  };
+}
+// "Make a question" on a TK or ?? line: the line is the passage
+const asking = ref<{ passage: string } | null>(null);
+const askLine = ref("");
+const askPark = ref(false);
+const askBox = ref<HTMLInputElement | null>(null);
+async function startQuestion(passage: string) {
+  asking.value = { passage };
+  askLine.value = "";
+  askPark.value = false;
+  await nextTick();
+  askBox.value?.focus();
+}
+async function keepQuestion() {
+  const a = asking.value;
+  asking.value = null;
+  if (!a) return;
+  const named = namedIn(a.passage).map((n) => n.id);
+  try {
+    const { sent } = await addItem({ kind: "question", body: itemBody(askLine.value, a.passage), entities: named, passage: a.passage, status: askPark.value ? "deferred" : "open" });
+    itemSaved("question", sent);
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+
 // ---- recording history from the prose (docs/SPEC.md §13.2.3) ----
 /** The entries named in a passage, by the matcher that colours names, in order. */
 function namedIn(raw: string): EntityRef[] {
@@ -449,7 +535,7 @@ function historyActions(_from: number, _to: number, raw: string): HistoryActions
   return {
     named,
     events: () => {
-      const events = byLevel(cards.names.filter((n) => n.kind === "event"));
+      const events = byLevel(cards.names.filter((n) => cards.hasKind(n.id, "event")));
       const rank = (e: EntityRef) => (named.some((n) => n.id === e.id) ? 0 : inChapter.has(e.id) ? 1 : 2);
       return [...events].sort((a, b) => rank(a) - rank(b));
     },
@@ -530,7 +616,7 @@ const stale = ref(false);
 const linked = ref(new Set<string>());
 const resolved = ref(new Set<string>());
 const chapterChecks = ref<Check[]>([]);
-const items = ref<{ id: string; title: string | null; body: string }[]>([]);
+const items = ref<{ id: string; title: string | null; body: string; passage?: string | null }[]>([]);
 const nextNote = ref("");
 const backIn = ref<{ context: string; note: string; cursor: number } | null>(null);
 let analyseTimer = 0;
@@ -594,7 +680,7 @@ async function loadCompanion(ch: Chapter) {
   const [pairs, res, chk, its, note] = await Promise.allSettled([
     linkedPairs(w),
     resolutions(w),
-    loadChecksApi(w, ch.id),
+    loadChecksApi(w, ch.id, planned.value),
     chapterItems(w, ch.id),
     sessionNote(w, ch.id),
   ]);
@@ -615,8 +701,16 @@ async function loadCompanion(ch: Chapter) {
   }
   analyseNow();
 }
+// Include planned (docs/SPEC.md §14.6): starts from the world's focus; set by hand, it stays until the focus changes
+const planned = ref(includePlanned(world.value));
+watch(() => world.value?.focus, () => (planned.value = includePlanned(world.value)));
+function setPlanned(on: boolean) {
+  planned.value = on;
+  if (world.value) setIncludePlanned(world.value, on);
+  void loadChecks();
+}
 const loadChecks = async () => {
-  if (chapter.value) chapterChecks.value = await loadChecksApi(worldSlug.value, chapter.value.id).catch(() => chapterChecks.value);
+  if (chapter.value) chapterChecks.value = await loadChecksApi(worldSlug.value, chapter.value.id, planned.value).catch(() => chapterChecks.value);
 };
 
 /** Where the writer is, and their note, kept for next time (best effort: offline it waits for the next visit). */
@@ -772,6 +866,15 @@ const panelActions: PanelActions = {
   },
   stash: () => void openStash(),
   update: analyseNow,
+  question: (f) => {
+    const text = prose.value?.view.state.doc.toString() ?? "";
+    const at = placeOf(f);
+    if (!at) return;
+    const start = text.lastIndexOf("\n", at.from - 1) + 1;
+    const end = text.indexOf("\n", at.from);
+    void startQuestion(text.slice(start, end < 0 ? text.length : end).trim());
+  },
+  showPassage: (passage) => void prose.value?.markPassage(passage),
   goBack() {
     const p = prose.value;
     const b = backIn.value;
@@ -805,6 +908,11 @@ const companionHooks: NonNullable<WorldHooks["companion"]> = {
   },
 };
 
+// while Revising, a mark in the margin beside each passage with an open item (docs/SPEC.md §14.3.1)
+watch(
+  () => [mode.value, items.value, prose.value] as const,
+  ([m, list, p]) => p?.setItemMarks(m === "revising" ? list.flatMap((i) => (i.passage ? [i.passage] : [])) : null),
+);
 const editorStyle = computed(() => ({ "--prose-size": `${prefs.textSize}px`, "--prose-width": `${prefs.lineWidth}ch` }));
 watch(title, (t) => {
   if (chapter.value && t.trim() && t !== chapter.value.title) saver?.edit({ title: t });
@@ -1239,6 +1347,12 @@ const experimentText = computed(() => {
         <input id="stash-thought" ref="stashBox" v-model="thought" type="text" maxlength="2000" @keydown.esc="(stashing = false), prose?.view.focus()" />
         <button class="btn btn-sm btn-primary" type="submit">Stash</button>
       </form>
+      <form v-if="asking" class="checkpoint-bar" data-testid="ask-bar" @submit.prevent="keepQuestion">
+        <label for="ask-line">A question from “{{ asking.passage.slice(0, 60) }}”</label>
+        <input id="ask-line" ref="askBox" v-model="askLine" type="text" maxlength="2000" placeholder="Your line (optional)" @keydown.esc="(asking = null), prose?.view.focus()" />
+        <label class="toggle"><input v-model="askPark" type="checkbox" /> Park it</label>
+        <button class="btn btn-sm btn-primary" type="submit">Save</button>
+      </form>
       <form v-if="leaving" class="checkpoint-bar leave-bar" data-testid="leave-note" @submit.prevent="finishLeave(true)">
         <label for="leave-note">Before you go: what's next here?</label>
         <input id="leave-note" ref="leaveBox" v-model="leaveNote" type="text" maxlength="2000" placeholder="A note for next time" />
@@ -1264,8 +1378,10 @@ const experimentText = computed(() => {
       :types="cards.types"
       :world="world.slug"
       :actions="panelActions"
+      :planned="planned"
       @dismiss-back="backIn = null"
       @tab="onTab"
+      @planned="setPlanned"
     >
       <ChapterSide
         :world="world.slug"

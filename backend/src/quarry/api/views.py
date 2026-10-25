@@ -48,7 +48,9 @@ def graph(slug: str, co: bool = Query(default=False), user: User = Depends(curre
         # with each entry's level (a project's slug, for the project filter) and a character's gender (for the family
         # tree's words)
         "nodes": [{"id": str(e.id), "name": e.name, "kind": e.kind, "summary": e.summary,
-                   "project": projects.get(e.project_id) if e.project_id else None, "gender": e.gender}
+                   "project": projects.get(e.project_id) if e.project_id else None, "gender": e.gender,
+                   # the kinds it is as well (docs/SPEC.md §14.8): a place that is also a character nests as a place
+                   "also_kinds": list(e.also_kinds or [])}
                   for e in entities],
         "edges": edges,
         "types": [{"id": str(t.id), "a_kind": t.a_kind, "b_kind": t.b_kind, "label": t.label,

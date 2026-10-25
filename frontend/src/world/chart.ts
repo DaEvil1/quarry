@@ -10,6 +10,9 @@ import type { Card } from "./cards";
 import type { GraphData } from "./graph";
 import { holds, norm, type At, type IndexOf } from "./time";
 
+/** A node that is a place, as its main kind or an added one (docs/SPEC.md §14.8). */
+const isPlace = (n: { kind: string; also_kinds?: string[] } | undefined): boolean => !!n && (n.kind === "place" || !!n.also_kinds?.includes("place"));
+
 export type Shape = "world" | "hexagon" | "circle" | "rounded" | "square" | "water" | "ribbon" | "island" | "triangle" | "scalloped" | "dotted" | "plane" | "none";
 export const SHAPES: Shape[] = ["world", "hexagon", "circle", "rounded", "square", "water", "ribbon", "island", "triangle", "scalloped", "dotted", "plane"];
 export const SHAPE_WORDS: Record<Shape, string> = {
@@ -121,7 +124,7 @@ export function shapeOf(types: string[], own: Record<string, string>): { type: s
 export function chartState(inp: StateInput): ChartState {
   const { data, asOf, indexOf } = inp;
   const node = new Map(data.nodes.map((n) => [n.id, n]));
-  const placeIds = data.nodes.filter((n) => n.kind === "place").map((n) => n.id);
+  const placeIds = data.nodes.filter((n) => isPlace(n)).map((n) => n.id);
   const busiest = Math.max(0, ...placeIds.map((id) => inp.mentions.get(id) ?? 0));
   const step = (n: number) => (n <= 0 || busiest <= 0 ? 0 : Math.min(3, Math.max(1, Math.ceil((3 * n) / busiest))));
   const places = new Map<string, ChartPlace>();
@@ -138,7 +141,7 @@ export function chartState(inp: StateInput): ChartState {
     const a = node.get(e.a);
     const b = node.get(e.b);
     if (!a || !b) continue;
-    if (a.kind === "place" && b.kind === "place") {
+    if (isPlace(a) && isPlace(b)) {
       if (isInside(e.label, e.reverse_label)) parents.set(a.id, [...(parents.get(a.id) ?? []), b.id]);
       else if (/^borders$/i.test(e.label.trim())) state.borders.push({ a: a.id, b: b.id, standing: e.standing });
       else if (reads(e, /^road to$/i)) state.routes.push({ a: a.id, b: b.id, kind: "road", standing: e.standing });
@@ -147,10 +150,10 @@ export function chartState(inp: StateInput): ChartState {
       else if (/^south of$/i.test(e.label.trim())) state.north.push([b.id, a.id]);
       else if (/^west of$/i.test(e.label.trim())) state.west.push([a.id, b.id]);
       else if (/^east of$/i.test(e.label.trim())) state.west.push([b.id, a.id]);
-    } else if (a.kind === "faction" && b.kind === "place" && /^controls$/i.test(e.label.trim())) {
+    } else if (a.kind === "faction" && isPlace(b) && /^controls$/i.test(e.label.trim())) {
       state.control.set(b.id, [...(state.control.get(b.id) ?? []), a.id]);
       counts.set(a.id, (counts.get(a.id) ?? 0) + 1);
-    } else if (b.kind === "place" && a.kind === "character" && /^lives in$/i.test(e.label.trim()) && !inp.chapter) {
+    } else if (isPlace(b) && a.kind === "character" && /^lives in$/i.test(e.label.trim()) && !inp.chapter) {
       state.here.set(b.id, [...(state.here.get(b.id) ?? []), a.id]);
     }
   }

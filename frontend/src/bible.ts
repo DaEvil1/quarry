@@ -44,6 +44,8 @@ export type EntityChanges = Partial<Pick<Entity, "name" | "kind" | "aliases" | "
   time_approx?: boolean;
   outside_time?: boolean;
   era_colour?: string | null;
+  /** the kinds it is as well, in order; never the main kind (docs/SPEC.md §14.8) */
+  also_kinds?: EntityKind[];
 };
 
 /** The entry changed on another device since it was loaded here; `current` is the server's copy. */
@@ -122,7 +124,7 @@ export function sourceLink(world: string, table: SourceTable, id: string) {
     case "decision":
       return { name: "decisions", params: { world } };
     case "journal":
-      return { name: "journal", params: { world }, hash: `#entry-${id}` };
+      return { name: "journal-entry", params: { world, id } };
     case "entity":
       return { name: "entity", params: { world, id } };
     case "chapter":
@@ -143,7 +145,21 @@ export const factSuggestions = (world: string) => get<Record<string, KindSuggest
 export const addFact = (
   world: string,
   entityId: string,
-  body: { label: string; value: string; standing?: Standing; evidence?: string | null; established_in_chapter_id?: string | null; from_chapter_id?: string | null },
+  body: {
+    label: string;
+    value: string;
+    standing?: Standing;
+    evidence?: string | null;
+    established_in_chapter_id?: string | null;
+    from_chapter_id?: string | null;
+    from_time?: number | null;
+    until_time?: number | null;
+    /** where it was planned (docs/SPEC.md §14.1.2) */
+    planned_in_journal_id?: string | null;
+    planned_evidence?: string | null;
+    /** "Make it canon here": the planned fact this records in the book */
+    make_canon?: string;
+  },
 ) => post<Fact>(`${base(world)}/entities/${entityId}/facts`, body);
 export const updateFact = (world: string, fact: Pick<Fact, "id" | "version">, changes: Partial<Omit<Fact, "id" | "version">>) =>
   patch<Fact>(`${base(world)}/facts/${fact.id}`, { base_version: fact.version, ...changes });
@@ -158,7 +174,19 @@ export const deleteRelationType = (world: string, id: string) => del(`${base(wor
 
 export const addRelationship = (
   world: string,
-  body: { type_id: string; a_id: string; b_id: string; standing?: Standing; note?: string | null; established_in_chapter_id?: string | null; evidence?: string | null; role?: string | null },
+  body: {
+    type_id: string;
+    a_id: string;
+    b_id: string;
+    standing?: Standing;
+    note?: string | null;
+    established_in_chapter_id?: string | null;
+    evidence?: string | null;
+    role?: string | null;
+    planned_in_journal_id?: string | null;
+    planned_evidence?: string | null;
+    make_canon?: string;
+  },
 ) => post<Relationship>(`${base(world)}/relationships`, body);
 export const updateRelationship = (
   world: string,
@@ -202,8 +230,10 @@ export function rolesFor(sug: RoleSuggestions, typeId: string, groupId: string):
 
 /** The ways two kinds can be related, read from the first one's side: types that fit forward (it is A) or
  * backward (it is B, read with the reverse label). Symmetric types appear once. */
-export function typeOptions(types: RelationType[], from: string, to: string): { type: RelationType; reads: string; forward: boolean }[] {
-  const fits = (kind: string, side: string) => side === "*" || side === kind;
+/** The relationship types that can join two entries, as they read from the first. Each side is a kind, or all of an
+ * entry's kinds (an entry of more than one kind is offered the types of each, docs/SPEC.md §14.8). */
+export function typeOptions(types: RelationType[], from: string | string[], to: string | string[]): { type: RelationType; reads: string; forward: boolean }[] {
+  const fits = (kind: string | string[], side: string) => side === "*" || (Array.isArray(kind) ? kind.includes(side) : side === kind);
   const out: { type: RelationType; reads: string; forward: boolean }[] = [];
   for (const t of types) {
     const forward = fits(from, t.a_kind) && fits(to, t.b_kind);
