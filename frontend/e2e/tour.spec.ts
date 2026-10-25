@@ -46,7 +46,7 @@ test("load the demo world, look around, delete it", async () => {
   await expect(page.getByTestId("check").filter({ hasText: "never names Ilse Marrow" })).toBeVisible();
 
   // and away again
-  await page.goto(W);
+  await page.goto(`${W}/settings`);
   const del = page.getByTestId("delete-world");
   await del.getByRole("button", { name: "Delete this world…" }).click();
   await expect(del.getByRole("button", { name: "Delete forever" })).toBeDisabled();

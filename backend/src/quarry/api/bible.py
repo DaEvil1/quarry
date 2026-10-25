@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import any_, delete, func, literal, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -222,7 +222,7 @@ def list_entities(slug: str, kind: Kind | None = None, user: User = Depends(curr
     q = select(Entity).where(Entity.world_id == world.id)
     if kind:
         # an entry of more than one kind is listed under each (docs/SPEC.md §14.8)
-        q = q.where((Entity.kind == kind) | Entity.also_kinds.any(kind))
+        q = q.where((Entity.kind == kind) | (literal(kind) == any_(Entity.also_kinds)))
     counts = dict(db.execute(
         select(Mention.entity_id, func.count()).where(Mention.world_id == world.id, Mention.kind != "near_miss")
         .group_by(Mention.entity_id)).all())
