@@ -607,7 +607,9 @@ def delete_type(slug: str, type_id: uuid.UUID, user: User = Depends(current_user
 
 
 def _check_pair(t: RelationType, a: Entity, b: Entity) -> None:
-    if not (_fits(a.kind, t.a_kind) and _fits(b.kind, t.b_kind)):
+    """The type joins these two: any of each one's kinds fits its side (docs/SPEC.md §14.8)."""
+    if not (any(_fits(k, t.a_kind) for k in [a.kind, *(a.also_kinds or [])])
+            and any(_fits(k, t.b_kind) for k in [b.kind, *(b.also_kinds or [])])):
         raise HTTPException(422, f"“{t.label}” joins a {t.a_kind} to a {t.b_kind}.")
     if a.id == b.id:
         raise HTTPException(422, "An entry can't be related to itself.")
@@ -759,6 +761,7 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
         card = {"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases),
                 "first_name": firsts.get(e.id), "match_case": e.match_case, "exclusions": list(e.exclusions),
                 "summary": e.summary, "facts": facts.get(e.id, []), "relations": card_relations(e, relations.get(e.id, [])),
+                "also_kinds": list(e.also_kinds or []),
                 "labels": sorted(labels.get(e.id, ())), "project": projects.get(e.project_id) if e.project_id else None,
                 "gender": e.gender}
         # an event's "when" and an era's colour, so a time's era is found on the device (docs/SPEC.md §13.2.1)

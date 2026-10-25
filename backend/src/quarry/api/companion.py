@@ -77,6 +77,27 @@ def ancestor_direction(label: str, reverse: str | None) -> int:
     return 0
 
 
+# event–event types read as causes (docs/SPEC.md §14.7), whatever the capitals: "A caused B", "A led to B", or read
+# from the other side, "B caused by A", "B followed from A"
+CAUSES = ("caused", "led to")
+CAUSED_BY = ("caused by", "followed from")
+
+
+def cause_direction(label: str, reverse: str | None) -> int:
+    """1 when a type reads "A caused B" (A the cause), -1 when it reads "B caused A", 0 when it isn't a cause."""
+    label, reverse = " ".join(label.split()).lower(), " ".join((reverse or "").split()).lower()
+    if label in CAUSES or reverse in CAUSED_BY:
+        return 1
+    if label in CAUSED_BY or reverse in CAUSES:
+        return -1
+    return 0
+
+
+def kinds_of(e: Entity) -> list[str]:
+    """An entry's kinds: its main kind and any it is as well (docs/SPEC.md §14.8)."""
+    return [e.kind, *(e.also_kinds or [])]
+
+
 def plural(role: str) -> str:
     """"two Captains": a role's plural, simply."""
     return role if role.lower().endswith("s") else role + "s"
@@ -90,10 +111,14 @@ def _q(title: str) -> str:
     return f"“{title}”"
 
 
-def checks(db: Session, world: World) -> list[dict]:
+def checks(db: Session, world: World, planned: bool = False) -> list[dict]:
     """Every finding of the continuity rules, listed by chapter in book order. They compare on the clock (docs/SPEC.md
     §13.1.7): happened order, with time bounds; a tale or flashback with no time, a chapter outside time and anything
-    outside time are skipped by every check that compares times. With no times and no marks the clock is book order."""
+    outside time are skipped by every check that compares times. With no times and no marks the clock is book order.
+
+    They read canon only, unless `planned` ("Include planned", docs/SPEC.md §14.6): then planned facts and
+    relationships count as if they were canon, and a finding that rests on one says so. Rumour never counts."""
+    standings = ("canon", "planned") if planned else ("canon",)
     from .labels import one_at_a_time_roles, several_labels
 
     several = several_labels(db, world)
@@ -117,15 +142,18 @@ def checks(db: Session, world: World) -> list[dict]:
             named[m.entity_id][m.source_id] += 1
             if not any(a <= m.start < b for a, b in told.get(m.source_id, ())):
                 appears[m.entity_id][m.source_id] += 1
-    facts = [f for f in db.scalars(select(Fact).where(Fact.world_id == world.id, Fact.standing == "canon"))
+    facts = [f for f in db.scalars(select(Fact).where(Fact.world_id == world.id, Fact.standing.in_(standings)))
              if not f.outside_time]
     out: list[dict] = []
 
     def add(rule: str, key: str, message: str, chapter_id: uuid.UUID | None, *who: Entity, **extra) -> None:  # type: ignore[no-untyped-def]
         ch = chapter.get(chapter_id) if chapter_id else None
+        rows = extra.pop("rows", ())
         out.append({"rule": rule, "key": key, "message": message,
                     "chapter": {"id": str(ch.id), "title": ch.title} if ch else None,
-                    "entities": [_ref(e) for e in who], "_at": index.get(chapter_id, -1) if chapter_id else -1, **extra})
+                    "entities": [_ref(e) for e in who], "_at": index.get(chapter_id, -1) if chapter_id else -1,
+                    # resting on a planned row (Include planned): tagged, docs/SPEC.md §14.6
+                    "planned": any(getattr(x, "standing", "canon") == "planned" for x in rows), **extra})
 
     def when(chapter_id: uuid.UUID | None, t: float | None, approx: bool = False) -> str:
         """A bound in words: a chapter's title, or a time ("year 312")."""
@@ -162,9 +190,10 @@ def checks(db: Session, world: World) -> list[dict]:
         if DEAD_RE.search(f.value) or DEAD_RE.search(f.label):
             for ch_id, n in appears[e.id].items():
                 if side_of_start(f, ch_id) == 1:
+                    named_at = f"{e.name} is named in {_q(chapter[ch_id].title)}{f' ({n}×)' if n > 1 else ''}"
                     add("dead_mentioned", f"{e.id}:{ch_id}",
-                        f"{e.name} is named in {_q(chapter[ch_id].title)}{f' ({n}×)' if n > 1 else ''}, after being "
-                        f"recorded {f.value or f.label} from {since}.", ch_id, e)
+                        f"{named_at}, but is planned {f.value or f.label} from {since}." if f.standing == "planned"
+                        else f"{named_at}, after being recorded {f.value or f.label} from {since}.", ch_id, e, rows=[f])
         label = f.label.strip().lower()
         # named before coming into the story: born and arrives are about the world (the clock); introduced and first
         # appears are about the reader (book order)
@@ -172,13 +201,15 @@ def checks(db: Session, world: World) -> list[dict]:
             for ch_id, n in named[e.id].items():
                 if side_of_start(f, ch_id) == -1:
                     add("before_start", f"{e.id}:{ch_id}",
-                        f"{e.name} is named in {_q(chapter[ch_id].title)}, before “{f.label}” from {since}.", ch_id, e)
+                        f"{e.name} is named in {_q(chapter[ch_id].title)}, before “{f.label}” from {since}.", ch_id, e,
+                        rows=[f])
         elif label in START_LABELS and f.from_chapter_id in index:
             start = index[f.from_chapter_id]
             for ch_id, n in named[e.id].items():
                 if index[ch_id] < start:
                     add("before_start", f"{e.id}:{ch_id}",
-                        f"{e.name} is named in {_q(chapter[ch_id].title)}, before “{f.label}” from {since}.", ch_id, e)
+                        f"{e.name} is named in {_q(chapter[ch_id].title)}, before “{f.label}” from {since}.", ch_id, e,
+                        rows=[f])
 
     # a point-of-view character who isn't in their own chapter
     for c, _ in order:
@@ -207,12 +238,15 @@ def checks(db: Session, world: World) -> list[dict]:
 
     # places inside each other in a circle
     parent: dict[uuid.UUID, uuid.UUID] = {}
+    via: dict[uuid.UUID, Relationship] = {}
     for r in rels:
         t = types[r.type_id]
         a, b = entities.get(r.a_id), entities.get(r.b_id)
-        if a and b and a.kind == b.kind == "place" and r.standing == "canon" and (
+        if a and b and "place" in kinds_of(a) and "place" in kinds_of(b) and r.standing in standings and (
                 INSIDE_RE.match(t.label) or (t.reverse_label or "").lower() == "contains"):
-            parent.setdefault(a.id, b.id)
+            if a.id not in parent:
+                parent[a.id] = b.id
+                via[a.id] = r
     reported: set[frozenset] = set()
     for start in parent:
         seen = [start]
@@ -226,17 +260,19 @@ def checks(db: Session, world: World) -> list[dict]:
                 reported.add(frozenset(ring))
                 names = " → ".join(entities[x].name for x in ring + [ring[0]])
                 add("place_cycle", ":".join(sorted(str(x) for x in ring)), f"Places inside each other in a circle: "
-                    f"{names}.", None, *(entities[x] for x in ring))
+                    f"{names}.", None, *(entities[x] for x in ring), rows=[via[x] for x in ring if x in via])
 
     # someone recorded as their own ancestor (parenthood, or "ancestor of", in a circle), like a place inside itself
     parents: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+    lineage: dict[tuple[uuid.UUID, uuid.UUID], Relationship] = {}
     for r in rels:
         t = types[r.type_id]
         a, b = entities.get(r.a_id), entities.get(r.b_id)
         way = parent_direction(t.label, t.reverse_label) or ancestor_direction(t.label, t.reverse_label)
-        if a and b and a.kind == b.kind == "character" and r.standing == "canon" and way:
+        if a and b and "character" in kinds_of(a) and "character" in kinds_of(b) and r.standing in standings and way:
             child, parent_id = (b.id, a.id) if way > 0 else (a.id, b.id)
             parents[child].add(parent_id)
+            lineage.setdefault((child, parent_id), r)
     looped: set[frozenset] = set()
     for start in sorted(parents, key=lambda x: entities[x].name.lower()):
         # a path up through the parents that comes back to where it started
@@ -250,9 +286,12 @@ def checks(db: Session, world: World) -> list[dict]:
                     if ring not in looped:
                         looped.add(ring)
                         names = " → ".join(entities[x].name for x in [start, *reversed(path[1:]), start])
+                        steps = [*path, start]
                         add("own_ancestor", ":".join(sorted(str(x) for x in ring)),
                             f"{entities[start].name} is recorded as their own ancestor: {names}.", None,
-                            *(entities[x] for x in path))
+                            *(entities[x] for x in path),
+                            rows=[lineage[(steps[i], steps[i + 1])] for i in range(len(steps) - 1)
+                                  if (steps[i], steps[i + 1]) in lineage])
                 elif up not in seen_ids:
                     seen_ids.add(up)
                     stack.append((up, [*path, up]))
@@ -273,6 +312,15 @@ def checks(db: Session, world: World) -> list[dict]:
             if clock.holds(x, c.id) and clock.holds(y, c.id):
                 return c.id
         return None
+
+    def timed_overlap(x, y) -> bool:  # type: ignore[no-untyped-def]
+        """Two spans bounded by times on both starts (x starting first) overlap by their numbers: the same start, or
+        x's own end after y's start. An open-ended x simply gives way to y, as on the clock."""
+        if x.from_time is None or y.from_time is None or x.from_chapter_id or y.from_chapter_id:
+            return False
+        if float(x.from_time) == float(y.from_time):
+            return True
+        return x.until_time is not None and float(x.until_time) > float(y.from_time)
 
     def ordered(s1, s2):  # type: ignore[no-untyped-def]
         """(earlier, its start, later, its start), unbounded starts first."""
@@ -304,14 +352,20 @@ def checks(db: Session, world: World) -> list[dict]:
                 if at is not None:
                     add("fact_conflict", ":".join(sorted([str(f1.id), str(f2.id)])),
                         f"{e.name}: “{f1.label}” is both “{f1.value}” and “{f2.value}” in {_q(chapter[at].title)}.", at,
-                        e, label=f1.label, kind=e.kind)
+                        e, label=f1.label, kind=e.kind, rows=[f1, f2])
+                elif timed_overlap(x, y):
+                    # bounded by times, with no chapter to hold them: compared by their numbers, the whole world's
+                    add("fact_conflict", ":".join(sorted([str(f1.id), str(f2.id)])),
+                        f"{e.name}: “{f1.label}” is both “{f1.value}” and “{f2.value}” from "
+                        f"{when(None, y.from_time, y.from_approx)}.", None, e, label=f1.label, kind=e.kind,
+                        rows=[f1, f2])
 
     # two holders of a one-at-a-time role in the same group at once (docs/SPEC.md §13.4): canon relationships only,
     # on the clock; a handover (one ends at the chapter or time where the other starts) is not a clash
     single = one_at_a_time_roles(db, world)
     holders: dict[tuple[uuid.UUID, str], list[Relationship]] = defaultdict(list)
     for r in rels:
-        if r.role and r.standing == "canon" and not r.outside_time and " ".join(r.role.split()).lower() in single:
+        if r.role and r.standing in standings and not r.outside_time and " ".join(r.role.split()).lower() in single:
             holders[(r.b_id, " ".join(r.role.split()).lower())].append(r)
     for (group_id, _), group in holders.items():
         g = entities.get(group_id)
@@ -327,7 +381,7 @@ def checks(db: Session, world: World) -> list[dict]:
                 handover = (x.until_chapter_id is not None and x.until_chapter_id == y.from_chapter_id) or (
                     x.until_time is not None and y.from_time is not None and float(x.until_time) == float(y.from_time))
                 at = None if handover else first_together(x, y)
-                if at is None:
+                if at is None and (handover or not timed_overlap(x, y)):
                     continue
                 hx, hy = entities[x.a_id], entities[y.a_id]
 
@@ -336,19 +390,19 @@ def checks(db: Session, world: World) -> list[dict]:
                         return "from the start"
                     return f"from {when(r.from_chapter_id, r.from_time, r.from_approx)}"
                 add("role_clash", ":".join(sorted([str(r1.id), str(r2.id)])),
-                    f"{g.name} has two {plural(x.role or '')} in {_q(chapter[at].title)}: {hx.name} ({since(x)}) and "
-                    f"{hy.name} ({since(y)}).", at, g, hx, hy,
+                    f"{g.name} has two {plural(x.role or '')} {'in ' + _q(chapter[at].title) if at else 'at once'}: "
+                    f"{hx.name} ({since(x)}) and {hy.name} ({since(y)}).", at, g, hx, hy, rows=[r1, r2],
                     end={"id": str(x.id), "name": hx.name},
                     before={"id": str(y.id), "name": hy.name} if (y.from_chapter_id or y.from_time is not None) else None)
 
     # a computed age that disagrees with an "age" fact (docs/SPEC.md §13.2.4): canon facts, chapters on the clock; a
     # birth is a "born" fact or a canon birth event they are related to
-    births = life_events(db, world, clock, entities, rels, "birth")
+    births = life_events(db, world, clock, entities, rels, "birth", standings)
     for e in entities.values():
-        if e.kind != "character":
+        if "character" not in kinds_of(e):
             continue
         mine = [f for f in facts if f.entity_id == e.id]
-        born = birth_of(clock, mine) or births.get(e.id)
+        born = birth_of(clock, mine, standings) or births.get(e.id)
         if born is None:
             continue
         b, b_approx, born_fact = born
@@ -373,8 +427,32 @@ def checks(db: Session, world: World) -> list[dict]:
                     add("age_conflict", f"{a.id}:{born_fact.id}",
                         f"{e.name} is {m.group(0).strip()} in {_q(c.title)} by {her[2]} age, but born in "
                         f"{time_text(unit, units, b, None, None, b_approx)} makes {her[1]} "
-                        f"{'about ' if approx else ''}{computed}.", c.id, e)
+                        f"{'about ' if approx else ''}{computed}.", c.id, e, rows=[a, born_fact])
                     break
+
+    # an effect placed before its cause on the clock (docs/SPEC.md §14.7): event–event relationships read as causes;
+    # both events need a place on the clock (a time, or a chapter with a set time); starts compare; the same time isn't
+    # a finding. Listed under the effect's chapter when it happens in one.
+    from .history import event_time
+
+    for r in rels:
+        t = types[r.type_id]
+        way = cause_direction(t.label, t.reverse_label)
+        a, b = entities.get(r.a_id), entities.get(r.b_id)
+        if not way or a is None or b is None or r.standing not in standings:
+            continue
+        if "event" not in kinds_of(a) or "event" not in kinds_of(b):
+            continue
+        cause, effect = (a, b) if way > 0 else (b, a)
+        tc, ac = event_time(cause, clock)
+        te, ae = event_time(effect, clock)
+        if tc is None or te is None or te >= tc:
+            continue
+        verb = t.label if way > 0 else (t.reverse_label or t.label)
+        add("cause_after_effect", str(r.id),
+            f"{cause.name} ({time_text(unit, units, tc, None, None, ac)}) {verb} {effect.name} "
+            f"({time_text(unit, units, te, None, None, ae)}), which comes before it.",
+            effect.time_chapter_id if effect.time_chapter_id in index else None, cause, effect, rows=[r])
 
     out.sort(key=lambda x: (x["_at"], x["rule"], x["message"]))
     for x in out:
@@ -383,20 +461,20 @@ def checks(db: Session, world: World) -> list[dict]:
 
 
 def life_events(db: Session, world: World, clock: Clock, entities: dict, rels: list[Relationship],
-                kind: str) -> dict[uuid.UUID, tuple[float, bool, Entity]]:
+                kind: str, standings: tuple[str, ...] = ("canon",)) -> dict[uuid.UUID, tuple[float, bool, Entity]]:
     """Per character, the time of a canon birth (or death) event they are related to: an event whose canon type is
-    "birth" (or "death"), placed in time."""
+    "birth" (or "death"), placed in time. With planned standings too, for "Include planned"."""
     from .history import event_time
 
-    typed = {f.entity_id for f in db.scalars(select(Fact).where(Fact.world_id == world.id, Fact.standing == "canon"))
+    typed = {f.entity_id for f in db.scalars(select(Fact).where(Fact.world_id == world.id, Fact.standing.in_(standings)))
              if " ".join(f.label.split()).lower() == "type" and " ".join(f.value.split()).lower() == kind}
     out: dict[uuid.UUID, tuple[float, bool, Entity]] = {}
     for r in rels:
-        if r.standing != "canon":
+        if r.standing not in standings:
             continue
         for ev_id, who_id in ((r.a_id, r.b_id), (r.b_id, r.a_id)):
             ev, who = entities.get(ev_id), entities.get(who_id)
-            if ev is None or who is None or ev.id not in typed or who.kind != "character" or who.id in out:
+            if ev is None or who is None or ev.id not in typed or "character" not in kinds_of(who) or who.id in out:
                 continue
             t, approx = event_time(ev, clock)
             if t is not None:
@@ -404,11 +482,11 @@ def life_events(db: Session, world: World, clock: Clock, entities: dict, rels: l
     return out
 
 
-def birth_of(clock: Clock, facts: list[Fact]) -> tuple[float, bool, Fact] | None:
+def birth_of(clock: Clock, facts: list[Fact], standings: tuple[str, ...] = ("canon",)) -> tuple[float, bool, Fact] | None:
     """A character's birth time on the clock: the start of their canon "born" fact, a time or the set time of a chapter
     (docs/SPEC.md §13.2.4). None when it can't be placed."""
     for f in facts:
-        if " ".join(f.label.split()).lower() != "born" or f.outside_time or f.standing != "canon":
+        if " ".join(f.label.split()).lower() != "born" or f.outside_time or f.standing not in standings:
             continue
         if f.from_time is not None:
             return float(f.from_time), bool(f.from_approx), f
@@ -419,13 +497,14 @@ def birth_of(clock: Clock, facts: list[Fact]) -> tuple[float, bool, Fact] | None
 
 
 @router.get("/checks")
-def list_checks(slug: str, chapter: uuid.UUID | None = Query(default=None), user: User = Depends(current_user),
-                db: Session = Depends(get_db)) -> list[dict]:
-    """The Checks, each with how it was resolved (if it was). Findings marked intentional are left out."""
+def list_checks(slug: str, chapter: uuid.UUID | None = Query(default=None), planned: bool = Query(default=False),
+                user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
+    """The Checks, each with how it was resolved (if it was). Findings marked intentional are left out. `planned=1`:
+    planned facts and relationships count too (Include planned, docs/SPEC.md §14.6)."""
     world, _ = member_world(db, user, slug)
     resolved = {(r.rule, r.key): r for r in db.scalars(select(Resolution).where(Resolution.world_id == world.id))}
     out = []
-    for f in checks(db, world):
+    for f in checks(db, world, planned=planned):
         if chapter is not None and (f["chapter"] or {}).get("id") != str(chapter):
             continue
         r = resolved.get((f["rule"], f["key"]))

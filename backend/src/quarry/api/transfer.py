@@ -8,10 +8,10 @@ the texts as they are now.
     <world>/world.md                                  name, slug, words marked "not a typo", relationship types
                                                       (with has_role), the per-label switches (fact_labels), the
                                                       one-at-a-time roles (roles), the unit of time (time_unit,
-                                                      time_units), the chart (chart: its settings, and each pin
+                                                      time_units), the premise, the chart (chart: its settings, and each pin
                                                       with its place and container ids)
     <world>/Bible/<Kind>/<Name>.md                    id, name, kind, aliases, project (its level; null for the
-                                                      world), gender (when set), an event's when (a chapter id, a
+                                                      world), gender (when set), also (the kinds it is as well), an event's when (a chapter id, a
                                                       time, or "outside"), an era's colour, an event's tellings
                                                       (chapter and passage) and notes in the Journal (journal and
                                                       passage); facts and relationships with planned_in (a journal
@@ -246,7 +246,7 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
         "fact_labels": [{"kind": r.kind, "label": r.label, "several": r.several, "expected": r.expected,
                          "asked": r.asked} for r in switches],
         "roles": [{"role": r.role, "one_at_a_time": r.one_at_a_time} for r in roles],
-        "time_unit": world.time_unit, "time_units": world.time_units,
+        "time_unit": world.time_unit, "time_units": world.time_units, "premise": world.premise,
         "chart": {"settings": {"shapes": dict((world.chart or {}).get("shapes") or {})},
                   "pins": [{"place": str(p.place_id), "container": str(p.container_id) if p.container_id else None,
                             "x": p.x, "y": p.y} for p in pins]}}, "")
@@ -291,6 +291,8 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                 "exclusions": list(e.exclusions), "project": projects[e.project_id].slug if e.project_id else None}
         if e.gender:
             meta["gender"] = e.gender
+        if e.also_kinds:
+            meta["also"] = list(e.also_kinds)
         if facts.get(e.id):
             meta["facts"] = facts[e.id]
         if rels.get(e.id):
@@ -476,6 +478,7 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     world = World(name=name, slug=_unique(slugify(str(wmeta.get("slug") or name), "world"), taken),
                   time_unit=" ".join(str(wmeta.get("time_unit") or "year").split())[:40] or "year",
                   time_units=" ".join(str(wmeta.get("time_units") or "years").split())[:40] or "years",
+                  premise=" ".join(str(wmeta.get("premise") or "").split())[:300] or None,
                   created_by=user.id, updated_by=user.id)
     db.add(world)
     db.flush()
@@ -579,6 +582,9 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                    first_name_alias=meta.get("first_name_alias") is not False,
                    exclusions=[str(x) for x in meta.get("exclusions") or []], project_id=level,
                    gender=meta.get("gender") if meta.get("gender") in GENDERS else None,
+                   # the kinds it is as well, in order (none in an export from before phase 13)
+                   also_kinds=[k for i, k in enumerate(str(x) for x in (meta.get("also") or []))
+                               if k in KIND_FOLDERS and k != kind and k not in [str(y) for y in (meta.get("also") or [])][:i]],
                    created_by=user.id, updated_by=user.id)
         db.add(e)
         db.flush()

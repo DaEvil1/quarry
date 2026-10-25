@@ -58,7 +58,7 @@ def first_name_aliases(entities: Iterable[Entity]) -> dict[uuid.UUID, str]:
     claims: dict[str, list[tuple[uuid.UUID, str]]] = {}
     for e in entities:
         words = [w.strip(",.") for w in e.name.split()]
-        if e.kind != "character" or not e.first_name_alias or len(words) < 2 or words[0].lower() in ARTICLES:
+        if "character" not in [e.kind, *(e.also_kinds or [])] or not e.first_name_alias or len(words) < 2 or words[0].lower() in ARTICLES:
             continue
         while len(words) > 1 and words[0].lower() in TITLES:
             words = words[1:]
