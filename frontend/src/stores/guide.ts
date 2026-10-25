@@ -5,7 +5,7 @@ import { readLastUsed, writeLastUsed } from "../lastUsed";
 import { DEFAULT_PREFS, PREFS_KEY, readPrefs, usePrefs } from "../prefs";
 import { router } from "../router";
 import type { World } from "../types";
-import { bringIntoView, find, perform, sleep, waitFor, type Step, type Tour } from "../guide/engine";
+import { bringIntoView, find, makeRoom, perform, sleep, waitFor, type Step, type Tour } from "../guide/engine";
 import { TOURS } from "../guide/tours";
 import { useSession } from "./session";
 
@@ -195,6 +195,7 @@ export const useGuide = defineStore("guide", {
     /** Stop the walkthrough. The sandbox stays, to look around in; the next walkthrough or "Delete" removes it. */
     stop() {
       run += 1;
+      makeRoom(document, 0);
       leave();
       if (this.finished && this.tour) {
         this.done = { ...this.done, [this.tour.id]: new Date().toISOString() };
