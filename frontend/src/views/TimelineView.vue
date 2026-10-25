@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { get } from "../api";
 import { updateEntity, getEntity } from "../bible";
+import ChartSpan from "../components/ChartSpan.vue";
 import EntityPicker from "../components/EntityPicker.vue";
 import { chronology as getChronology, type Chronology } from "../history";
 import { useSession } from "../stores/session";
@@ -224,7 +225,28 @@ const shown = computed(() =>
     return out;
   }),
 );
-const tickList = computed(() => ticks(axis.value, offset.value, offset.value + W.value).map((t) => ({ t, x: X(t), era: eraAt(t, eras.value) })));
+// ticks, leaving out any whose label would sit on a fold's
+const tickList = computed(() =>
+  ticks(axis.value, offset.value, offset.value + W.value)
+    .map((t) => ({ t, x: X(t), era: eraAt(t, eras.value) }))
+    .filter((tk) => !axis.value.folds.some((f) => tk.x > f.x - offset.value - 18 && tk.x < f.x - offset.value + f.w + 18)),
+);
+/** each segment's name, after the lane's title, where it fits before the segment ends and clear of the name before
+ * it (shortened, or left out) */
+const segLabels = computed(() =>
+  lanes.value.map((l) => {
+    let end = Math.min(220, 12 + l.title.length * 7) + 6;
+    return l.segments.map((s) => {
+      if (s.tone !== "place" && s.tone !== "role") return null;
+      const x = Math.max(end, X(s.t) + 2);
+      const room = Math.min(W.value, X(s.t2)) - x - 4;
+      if (room < 36) return null;
+      const text = s.label.length * 5.8 <= room ? s.label : `${s.label.slice(0, Math.floor(room / 5.8) - 1)}…`;
+      end = x + text.length * 5.8 + 8;
+      return { x, text };
+    });
+  }),
+);
 const foldsShown = computed(() => axis.value.folds.map((f) => ({ ...f, sx: f.x - offset.value })).filter((f) => f.sx + f.w > 0 && f.sx < W.value));
 const foldText = (n: number) => `· ${numberText(Math.round(n))} ${Math.round(n) === 1 ? unit.value.unit : unit.value.units} ·`;
 const eraBands = computed(() =>
@@ -275,6 +297,19 @@ function setBrush(t1: number, t2: number) {
   setQuery({ from: r(Math.min(t1, t2)), to: r(Math.max(t1, t2)) });
 }
 const clearBrush = () => setQuery({ from: undefined, to: undefined });
+// the chart beside the lanes follows the brushed span (docs/SPEC.md §13.7.5); the span is kept on the device too, for
+// the chart page's "Follow the Timeline"
+const chartOpen = computed(() => route.query.chart === "1");
+watch(brush, (b) => {
+  // leaving the page changes the address before the page goes: that isn't clearing the span
+  if (route.name !== "timeline") return;
+  try {
+    if (b) localStorage.setItem(`timeline-span:${worldSlug.value}`, JSON.stringify(b));
+    else localStorage.removeItem(`timeline-span:${worldSlug.value}`);
+  } catch {
+    /* storage unavailable */
+  }
+}, { immediate: true });
 const spanLine = computed(() => {
   const b = brush.value;
   if (!b) return "";
@@ -628,12 +663,14 @@ void nextTick;
           <EntityPicker :entities="cards.names" :exclude="[...entries]" placeholder="Only about…" @pick="(e) => setQuery({ entries: [...entries, e.id].join(',') })" @cancel="() => {}" />
         </span>
         <button type="button" class="btn btn-sm" data-testid="add-lane" @click="picking = !picking">Lanes…</button>
+        <button type="button" class="btn btn-sm" :class="{ 'btn-primary': chartOpen }" data-testid="open-chart" @click="setQuery({ chart: chartOpen ? undefined : '1' })">Chart</button>
       </div>
       <div v-if="picking" class="card lane-pick" data-testid="lane-pick">
         <EntityPicker :entities="laneChoices" placeholder="A lane for… (a character, a faction, an era)" @pick="(e) => addLane(e.id)" @cancel="picking = false" />
       </div>
       <p v-if="historyEmpty" class="notice small" data-testid="history-empty">Set a time on a chapter to place the book among them.</p>
 
+      <div class="timeline-main" :class="{ 'with-chart': chartOpen }">
       <div ref="wrap" class="timeline-wrap">
         <svg
           v-if="visibleTimes.length"
@@ -700,7 +737,7 @@ void nextTick;
                 <rect v-if="X(s.t2) > -20 && X(s.t) < W + 20" class="tl-seg" :class="[`tone-${s.tone}`, s.colour ? `era-${s.colour}` : '', s.fade ? `fade-${s.fade}` : '']" :x="Math.max(-20, X(s.t))" :y="s.tone === 'life' ? LANE_H - 13 : s.tone === 'lives' ? LANE_H - 22 : 16" :width="Math.max(3, Math.min(W + 20, X(s.t2)) - Math.max(-20, X(s.t)))" :height="s.tone === 'life' ? 6 : 8" data-testid="segment" :data-label="s.label" :data-from="s.t" :data-to="s.t2">
                   <title>{{ s.label }}</title>
                 </rect>
-                <text v-if="s.tone === 'place' || s.tone === 'role'" class="tl-seg-label" :x="Math.max(2, X(s.t)) + 2" y="14">{{ s.label }}</text>
+                <text v-if="segLabels[li]?.[si]" class="tl-seg-label" :x="segLabels[li]![si]!.x" y="14">{{ segLabels[li]![si]!.text }}</text>
               </template>
               <g v-for="(o, oi) in shown[li]" :key="o.item.mark?.id ?? o.item.cluster!.id" :transform="`translate(${o.x} ${LANE_H - 10})`" :class="[o.item.cluster ? 'tl-cluster' : `tl-mark kind-${o.item.mark!.kind}`, { dim: dimOutside(o.x), focused: focusRing(li, oi), told: o.item.mark?.told }]"
                 :data-testid="o.item.cluster ? 'cluster' : 'mark'" :data-label="o.item.mark?.label" :data-count="o.item.cluster?.marks.length"
@@ -729,6 +766,15 @@ void nextTick;
         <p v-else-if="cards.world === worldSlug" class="empty" data-testid="timeline-empty">
           {{ view === "history" ? "No history yet: nothing is set before the book." : "Nothing has a time yet. Give an event a time on its page, or a chapter on the manuscript list." }}
         </p>
+      </div>
+      <aside v-if="chartOpen" class="card timeline-chart" data-testid="timeline-chart">
+        <div class="card-head">
+          <h2>Chart</h2>
+          <span class="small muted">{{ brush ? "as the span ends, with what changed across it" : "the end of the story; brush a span to follow it" }}</span>
+          <RouterLink class="small" :to="{ name: 'chart', params: { world: world.slug }, query: { follow: '1' } }" data-testid="chart-page-link">Open the chart</RouterLink>
+        </div>
+        <ChartSpan :world="world.slug" :from="brush?.from ?? null" :to="brush?.to ?? null" :height="320" />
+      </aside>
       </div>
 
       <div v-if="laneKeys.length" class="lane-list small">

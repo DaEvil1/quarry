@@ -370,6 +370,7 @@ async function notForThisOne(label: string) {
         <RouterLink class="btn btn-sm" :to="{ name: 'entity-read', params: { world: world.slug, id: detail.entity.id } }" data-testid="read-thread">
           Read where {{ detail.entity.name }} appears
         </RouterLink>
+        <RouterLink v-if="detail.entity.kind === 'place'" class="btn btn-sm" :to="{ name: 'chart', params: { world: world.slug }, query: { focus: detail.entity.id, ...(asOfId ? { asof: asOfId } : {}) } }" data-testid="on-the-chart">On the chart</RouterLink>
         <RouterLink v-if="hasFamily" class="btn btn-sm" :to="{ name: 'graph', params: { world: world.slug }, query: { view: 'family', centre: detail.entity.id, ...(asOfId ? { asof: asOfId } : {}) } }" data-testid="family-tree-link">Family tree</RouterLink>
         <select class="filter" :value="detail.entity.kind" aria-label="Kind" @change="save({ kind: ($event.target as HTMLSelectElement).value as EntityKind })">
           <option v-for="k in ENTITY_KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
