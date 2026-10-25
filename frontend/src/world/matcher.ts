@@ -1,8 +1,10 @@
 // Finding the world's names in text, in the browser, exactly as the server does (backend/src/quarry/mentions.py):
 // names and other names on word boundaries with plural and possessive endings; capitals optional per entry; a
 // character's first name (computed by the server); "not in this sense" phrases; and capitalised words one edit
-// away from a name (two for long words, a swapped pair counting as one) as likely misspellings. A name two entries
-// claim is shared (docs/SPEC.md §14.10): ambiguous until a choice line, `%% Isolde: Isolde Marr`, settles it.
+// away from a name (two for long words, a swapped pair counting as one) as likely misspellings: a word that is a name
+// by itself anywhere, a word of a longer name only with the rest of that name around it ("Old Harbor", not "Fears"
+// for "The Lock Years"). A name two entries claim is shared (docs/SPEC.md §14.10): ambiguous until a choice line,
+// `%% Isolde: Isolde Marr`, settles it.
 
 import type { Card } from "./cards";
 
@@ -41,6 +43,9 @@ const SUFFIX = "(?:'s|’s|s)?";
 const WORD = /(?<![\p{L}\p{N}_'’-])\p{L}[\p{L}\p{N}]*(?:['’-][\p{L}\p{N}]+)*/gu;
 const POSSESSIVE = /(?:'s|’s)$/;
 const NEAR_MIN = 5;
+/** where a name ends: an optional plural or possessive, then no more of a word (as the name patterns end) */
+const NAME_END = new RegExp(`${SUFFIX}(?![\\p{L}\\p{N}_])`, "uy");
+const NAME_CHAR = /[\p{L}\p{N}_'’-]/u;
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Optimal string alignment distance: like Levenshtein, with a swapped pair of letters counting as one edit. */
@@ -69,6 +74,24 @@ export function osa(a: string, b: string, limit = 99): number {
   return prev[b.length];
 }
 
+/** Whether text[start, end) stands where a word of a name does: `before` the rest of the name before it, `after` the
+ * rest after it (lowercase for a name matched whatever the capitals), as on the server. */
+export function fits(text: string, start: number, end: number, before: string, after: string, loose: boolean): boolean {
+  if (before) {
+    const i = start - before.length;
+    const seg = i >= 0 ? text.slice(i, start) : "";
+    if ((loose ? seg.toLowerCase() : seg) !== before || (i > 0 && NAME_CHAR.test(text[i - 1]))) return false;
+  }
+  if (after) {
+    const j = end + after.length;
+    const seg = text.slice(end, j);
+    if ((loose ? seg.toLowerCase() : seg) !== after) return false;
+    NAME_END.lastIndex = j;
+    if (!NAME_END.test(text)) return false;
+  }
+  return true;
+}
+
 /** How many lines' results a matcher remembers (a long chapter has a few hundred paragraphs). */
 const LINE_CACHE = 4000;
 
@@ -81,6 +104,9 @@ export function articleForms(name: string): string[] {
 }
 
 type Owner = [string, Hit["kind"]];
+/** a use of a near-miss candidate: the entry, the rest of the name before and after the word (both empty for a
+ * one-word name), and whether the name is matched whatever the capitals */
+type Use = [string, string, string, boolean];
 
 export class Matcher {
   /** every form, with the entries claiming it in the order met (a shared name has several) */
@@ -92,14 +118,15 @@ export class Matcher {
   private exclusions = new Map<string, string[]>();
   private kinds = new Map<string, string>();
   private knownLower = new Set<string>();
-  private owner = new Map<string, string>();
+  /** each near-miss candidate's uses, in the order met */
+  private uses = new Map<string, Use[]>();
   private ignored: Set<string>;
   /** the near-miss candidates by length, so a word is only compared with names it could be one or two edits from */
   private ownersByLength = new Map<number, string[]>();
   /** ties go to the name met first, as on the server */
   private ownerOrder = new Map<string, number>();
-  /** a word's verdict: the name it is likely a misspelling of, or null */
-  private nearCache = new Map<string, string | null>();
+  /** a word's candidates: the words of names it could be a misspelling of, closest first */
+  private nearCache = new Map<string, string[]>();
   /** a line's hits (at offset 0), so typing in one paragraph doesn't rescan the others */
   private lineCache = new Map<string, Hit[]>();
 
@@ -139,17 +166,22 @@ export class Matcher {
     this.exactRe = alternation(this.exact.keys(), "gu");
     this.looseRe = alternation(this.loose.keys(), "giu");
     for (const [f, [[id]]] of [...this.exact, ...this.loose]) {
-      for (const w of f.match(WORD) ?? []) {
+      for (const wm of f.matchAll(WORD)) {
+        const w = wm[0];
         this.knownLower.add(w.toLowerCase());
         if (w.length >= NEAR_MIN) {
-          const key = this.exact.has(f) ? w : w[0].toUpperCase() + w.slice(1);
-          if (!this.owner.has(key)) this.owner.set(key, id);
+          const loose = !this.exact.has(f);
+          const key = loose ? w[0].toUpperCase() + w.slice(1) : w;
+          const use: Use = [id, f.slice(0, wm.index), f.slice(wm.index + w.length), loose];
+          const uses = this.uses.get(key);
+          if (!uses) this.uses.set(key, [use]);
+          else if (!uses.some((u) => u.every((x, k) => x === use[k]))) uses.push(use);
         }
       }
     }
     this.ignored = new Set(ignored);
     let i = 0;
-    for (const k of this.owner.keys()) {
+    for (const k of this.uses.keys()) {
       this.ownerOrder.set(k, i++);
       this.ownersByLength.set(k.length, [...(this.ownersByLength.get(k.length) ?? []), k]);
     }
@@ -167,25 +199,31 @@ export class Matcher {
     return offset ? hits.map((h) => ({ ...h, start: h.start + offset, end: h.end + offset })) : hits;
   }
 
-  /** The name `base` is likely a misspelling of, if any. */
-  private nearest(base: string): string | null {
+  /** The words of names `base` could be a misspelling of, closest first (the first met, of equally close ones). */
+  private nearest(base: string): string[] {
     const known = this.nearCache.get(base);
     if (known !== undefined) return known;
     const limit = base.length <= 6 ? 1 : 2;
-    let best: string | null = null;
-    let bestD = limit + 1;
+    const close: [number, number, string][] = [];
     for (let len = base.length - limit; len <= base.length + limit; len++) {
       for (const cand of this.ownersByLength.get(len) ?? []) {
-        const d = osa(base, cand, Math.min(limit, bestD));
-        if (d < bestD || (d === bestD && best !== null && this.ownerOrder.get(cand)! < this.ownerOrder.get(best)!)) {
-          bestD = d;
-          best = cand;
-        }
+        const d = osa(base, cand, limit);
+        if (d <= limit) close.push([d, this.ownerOrder.get(cand)!, cand]);
       }
     }
+    const found = close.sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , c]) => c);
     if (this.nearCache.size > 20_000) this.nearCache.clear();
-    this.nearCache.set(base, best);
-    return best;
+    this.nearCache.set(base, found);
+    return found;
+  }
+
+  /** The entry the word text[start, end) is likely a misspelling of, if any: the closest candidate that, here, stands
+   * where it would in a name. */
+  private nearMiss(text: string, start: number, end: number): string | null {
+    for (const w of this.nearest(text.slice(start, end))) {
+      for (const [id, before, after, loose] of this.uses.get(w)!) if (fits(text, start, end, before, after, loose)) return id;
+    }
+    return null;
   }
 
   /** Is this word part of a known name, or a word marked "not a typo / not a name"? */
@@ -321,7 +359,7 @@ export class Matcher {
         entityKind: kinds.size === 1 ? this.kindOf(id) : "name", matched, shared: { key: key.toLowerCase(), ids, form: key },
       });
     }
-    if (nearMisses && this.owner.size) {
+    if (nearMisses && this.uses.size) {
       WORD.lastIndex = 0;
       for (let m = WORD.exec(text); m; m = WORD.exec(text)) {
         const word = m[0];
@@ -330,9 +368,8 @@ export class Matcher {
         const base = word.replace(POSSESSIVE, "");
         if (base.length < NEAR_MIN || this.ignored.has(base) || this.ignored.has(word)) continue;
         if (this.knownLower.has(base.toLowerCase())) continue;
-        const best = this.nearest(base);
-        if (best) {
-          const id = this.owner.get(best)!;
+        const id = this.nearMiss(text, at, at + base.length);
+        if (id) {
           out.push({ start: at + offset, end: at + base.length + offset, entityId: id, kind: "near_miss", entityKind: this.kindOf(id), matched: base });
         }
       }

@@ -124,11 +124,19 @@ const readSpan = () => {
   }
 };
 const onStorage = (e: StorageEvent) => e.key === `timeline-span:${worldSlug.value}` && readSpan();
+// the chart is as tall as the window leaves it below the tools (at least 420 px), so a wide screen shows it larger
+const winH = ref(typeof window !== "undefined" ? window.innerHeight : 800);
+const onResize = () => (winH.value = window.innerHeight);
+const chartH = computed(() => Math.max(420, winH.value - 250));
 onMounted(() => {
   readSpan();
   window.addEventListener("storage", onStorage);
+  window.addEventListener("resize", onResize);
 });
-onBeforeUnmount(() => window.removeEventListener("storage", onStorage));
+onBeforeUnmount(() => {
+  window.removeEventListener("storage", onStorage);
+  window.removeEventListener("resize", onResize);
+});
 
 const canvas = ref<InstanceType<typeof ChartCanvas> | null>(null);
 const open = (id: string) => void router.push({ name: "entity", params: { world: worldSlug.value, id } });
@@ -186,11 +194,11 @@ const shapeWord = (s: Shape) => SHAPE_WORDS[s];
 
     <template v-if="following">
       <p v-if="!span" class="notice small">Brush a span on the Timeline and the chart follows it here.</p>
-      <ChartSpan :world="world.slug" :from="span?.from ?? null" :to="span?.to ?? null" :standings="standings" :height="560" />
+      <ChartSpan :world="world.slug" :from="span?.from ?? null" :to="span?.to ?? null" :standings="standings" :height="chartH" />
     </template>
     <template v-else>
       <p v-if="chart.graph.value && !state?.places.size" class="empty">No places in the bible yet.</p>
-      <ChartCanvas v-else ref="canvas" :state="state" :layout="layout" :point="point" :focus="focus" @open="open" @pin="pin" />
+      <ChartCanvas v-else ref="canvas" :state="state" :layout="layout" :point="point" :focus="focus" :height="chartH" @open="open" @pin="pin" />
       <p v-if="layout?.unplaced.length" class="small muted" data-testid="chart-unplaced">Couldn't place: {{ layout.unplaced.join(" · ") }}</p>
     </template>
     <UndoToast :label="toast?.label ?? null" :undo="toast?.undo ?? null" @dismiss="toast = null" />

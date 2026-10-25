@@ -10,6 +10,7 @@ import { useCards } from "../world/cards";
 import { filterText, groupBy, labelsOfKind, matches, norm, parseFilter, valuesAtEnd, type LabelReader, type ValueFilter } from "../world/labels";
 import { eventTime } from "../world/eras";
 import { SPECIES_COLUMN, speciesAtEnd } from "../world/species";
+import { timeText, unitOf } from "../world/when";
 import NotFoundView from "./NotFoundView.vue";
 
 // The bible: every entry, or one kind of them (characters, places, …) as a table with their one-liners and the facts
@@ -112,6 +113,17 @@ const values = (e: Entity, label: string) => {
   const c = cards.byId.get(e.id);
   return c ? valuesAtEnd(c, label, label === SPECIES_COLUMN || cards.several(c.kind, label), reader.value.last, cards.indexOf) : [];
 };
+/** A fact recorded by when it began and nothing else ("born", with a time and no value): the time, read in the
+ * column, so it isn't blank. Not a filter value. */
+function timeOnly(e: Entity, label: string): { text: string; t: number | null } | null {
+  if (label === SPECIES_COLUMN) return null;
+  const c = cards.byId.get(e.id);
+  const key = norm(label);
+  const f = c?.facts.filter((x) => norm(x.label) === key && !x.value.trim() && (x.from_time != null || x.from)).at(-1);
+  if (!f) return null;
+  if (f.from_time != null) return { text: timeText({ time_at: f.from_time, time_approx: f.from_approx }, unitOf(world.value)), t: f.from_time };
+  return { text: `from ${cards.chapterTitle(f.from!) ?? "a chapter"}`, t: null };
+}
 /** A column's heading: a fact label, or "Species" for what characters are (read from "is a", docs/SPEC.md §13.3). */
 const heading = (label: string) => (label === SPECIES_COLUMN ? "Species" : label);
 // the characters table gets a Species column once any character is recorded as being one
@@ -140,7 +152,12 @@ function sortKey(e: Entity): string | number {
   if (sortBy.value === "summary") return e.summary.toLowerCase();
   if (sortBy.value === "level") return e.project ? projectName(e.project).toLowerCase() : "";
   if (sortBy.value === "#") return e.mention_count;
-  return (values(e, sortBy.value)[0] ?? "￿").toLowerCase();
+  const v = values(e, sortBy.value)[0];
+  if (v === undefined) {
+    const t = timeOnly(e, sortBy.value);
+    if (t?.t != null) return t.t;
+  }
+  return (v ?? "￿").toLowerCase();
 }
 const sorted = (list: Entity[]) => {
   const out = [...list].sort((a, b) => {
@@ -294,6 +311,7 @@ async function add() {
             <td v-if="hasWhen" class="small" data-testid="when-cell"><span :class="whenCell(e).colour ? `era-${whenCell(e).colour} era-tint` : 'muted'">{{ whenCell(e).text }}</span></td>
             <td v-for="c in columns" :key="c" class="fact-cell">
               <button v-for="v in values(e, c)" :key="v" type="button" class="value-link" :title="`Only ${heading(c)}: ${v}`" @click="addFilter({ label: c, value: v })">{{ v }}</button>
+              <span v-if="!values(e, c).length && timeOnly(e, c)" class="small" data-testid="fact-time">{{ timeOnly(e, c)!.text }}</span>
             </td>
             <td class="num muted">{{ e.mention_count }}</td>
           </tr>

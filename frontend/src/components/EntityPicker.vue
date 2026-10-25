@@ -12,6 +12,9 @@ const active = ref(0);
 const box = ref<HTMLInputElement | null>(null);
 // the suggestions show while the field is in use, not as a permanent list under it
 const focused = ref(!!props.autofocus);
+// after a pick the list closes until the next letter (or the next time the field is entered), so it doesn't sit over
+// the page waiting for a click meant for what is under it
+const picked = ref(false);
 
 const matches = computed(() => {
   const needle = q.value.trim().toLowerCase();
@@ -27,6 +30,7 @@ function pick(e: EntityRef | undefined) {
   emit("pick", e);
   q.value = "";
   active.value = 0;
+  picked.value = true;
 }
 
 function onKey(e: KeyboardEvent) {
@@ -54,11 +58,11 @@ defineExpose({ focus: () => nextTick(() => box.value?.focus()) });
       :placeholder="props.placeholder ?? 'Tag with a name from the bible…'"
       :autofocus="props.autofocus"
       @keydown="onKey"
-      @input="active = 0"
-      @focus="focused = true"
+      @input="(active = 0), (picked = false)"
+      @focus="(focused = true), (picked = false)"
       @blur="focused = false"
     />
-    <ul v-if="(focused || q) && matches.length" class="picker-list" role="listbox">
+    <ul v-if="((focused && !picked) || q) && matches.length" class="picker-list" role="listbox">
       <li
         v-for="(e, i) in matches"
         :key="e.id"

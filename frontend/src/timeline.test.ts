@@ -5,7 +5,7 @@ import type { StoryChapter } from "./types";
 import type { Card } from "./world/cards";
 import { ageText, birthOf, deathOf, eraAt, erasOf } from "./world/eras";
 import { entitySlice } from "./world/slice";
-import { breakdown, buildLanes, buildModel, cluster, fitScale, FOLD_W, inSpan, makeAxis, scaleOfStep, stepOf, ticks } from "./world/timeline";
+import { breakdown, buildLanes, buildModel, cluster, fitScale, FOLD_W, inSpan, makeAxis, placeLabels, scaleOfStep, stepOf, ticks } from "./world/timeline";
 
 // Phase 12b (docs/SPEC.md §13.2): eras, ages, the Timeline's model, lanes, its axis with folds, clusters, and an
 // entry's own slice, worked out in the browser. The book: chapters 1–13 in year 312, 14 a tale in year −800.
@@ -196,5 +196,37 @@ describe("an entry's own timeline", () => {
     expect(rows.map((r) => r.text)).toEqual(["born", "took part in The Founding", "married to Varren", "died"]);
     expect(rows.map((r) => r.age)).toEqual([undefined, "age 1000", "age 1312", "at 1312"]);
     expect(rows[0]!.when).toBe("year −1000");
+  });
+});
+
+describe("names on a lane", () => {
+  // 6 px a letter; shortening keeps the first letters that fit and adds "…"
+  const measure = (t: string) => t.length * 6;
+  const fit = (t: string, room: number) => {
+    const n = Math.floor(room / 6) - 1;
+    return n >= 3 ? `${t.slice(0, n)}…` : "";
+  };
+  const opts = { rows: 2, width: 400, measure, fit };
+  const at = (...xs: [number, string][]) => xs.map(([x, text]) => ({ x, text, pad: 7 }));
+
+  it("beside the mark when there is room, a row up when it would run over the next mark", () => {
+    const spots = placeLabels(at([10, "The Spring Flood"], [60, "The Raising"], [300, "Ash"]), opts);
+    // the first name would run to x 113, over the second mark: a row up; the second beside its own mark
+    expect(spots[0]).toEqual({ row: 1, left: false, text: "The Spring Flood" });
+    expect(spots[1]).toEqual({ row: 0, left: false, text: "The Raising" });
+    expect(spots[2]).toEqual({ row: 0, left: false, text: "Ash" });
+  });
+
+  it("near the right edge, to the left of the mark instead of off the edge", () => {
+    const spots = placeLabels(at([380, "The Mountain Fires"]), opts);
+    expect(spots[0]).toEqual({ row: 0, left: true, text: "The Mountain Fires" });
+  });
+
+  it("shortened where nothing whole fits, and never on another name", () => {
+    const spots = placeLabels(at([10, "A".repeat(40)], [20, "B".repeat(40)], [30, "C".repeat(60)]), { ...opts, width: 300 });
+    const boxes = spots.map((s, i) => (s ? { row: s.row, x0: s.left ? 10 * (i + 1) - 7 - measure(s.text) : 10 * (i + 1) + 7, w: measure(s.text) } : null));
+    for (const a of boxes) for (const b of boxes) if (a && b && a !== b && a.row === b.row) expect(a.x0 + a.w <= b.x0 || b.x0 + b.w <= a.x0).toBe(true);
+    for (const b of boxes) if (b) expect(b.x0 + b.w).toBeLessThanOrEqual(300);
+    expect(spots.some((s) => s?.text.endsWith("…")) || spots.some((s) => s === null)).toBe(true);
   });
 });
