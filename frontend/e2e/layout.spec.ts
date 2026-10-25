@@ -14,6 +14,7 @@ const BASE = process.env.E2E_BASE_URL ?? "http://localhost:8767";
 let context: BrowserContext;
 let page: Page;
 let demo = "";
+let tamsin = "";
 
 const WIDTHS = [
   { name: "phone", width: 390, height: 844 },
@@ -28,6 +29,9 @@ test.beforeAll(async ({ browser }) => {
   const r = await page.request.post("/api/worlds/demo", { headers: { Origin: BASE } });
   expect(r.ok()).toBeTruthy();
   demo = (await r.json()).slug;
+  // a character's page, whose head carries the most buttons
+  const entities = await (await page.request.get(`/api/worlds/${demo}/entities`)).json();
+  tamsin = entities.find((e: { name: string }) => e.name === "Tamsin Vey").id;
 });
 
 test.afterAll(async () => {
@@ -67,6 +71,15 @@ async function outside(selector: string, container: string): Promise<string[]> {
   }, [selector, container] as const);
 }
 
+/** A page's title block keeps room for itself: buttons beside it wrap below rather than squeeze it (docs/DECISIONS.md). */
+async function headRoom(what: string) {
+  const { head, main } = await page.evaluate(() => ({
+    head: Math.min(...[...document.querySelectorAll(".page-head > .grow")].map((e) => e.getBoundingClientRect().width)),
+    main: document.querySelector("main > .page")?.getBoundingClientRect().width ?? 0,
+  }));
+  if (Number.isFinite(head)) expect(head, `${what}: its title is squeezed`).toBeGreaterThanOrEqual(Math.min(240, main - 40));
+}
+
 async function noSidewaysScroll(what: string) {
   const { scroll, inner } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth }));
   expect(scroll, `${what} scrolls sideways`).toBeLessThanOrEqual(inner + 1);
@@ -82,7 +95,13 @@ for (const w of WIDTHS) {
       await expect(page.locator("main h1").first()).toBeVisible();
       await page.waitForLoadState("networkidle");
       await noSidewaysScroll(p || "the front page");
+      await headRoom(p || "the front page");
     }
+    // a character's page: its name and one-liner beside a full row of buttons
+    await page.goto(`/w/${demo}/bible/${tamsin}`);
+    await expect(page.locator("main h1").first()).toBeVisible();
+    await noSidewaysScroll("an entry page");
+    await headRoom("an entry page");
 
     // reading pages sit in the middle of what the nav leaves; drawn views and tables use the width
     if (w.width >= 1920) {

@@ -148,6 +148,9 @@ main.page-wide { --page-max: var(--page-wide); }
 main.page-full { --page-max: none; }
 main > .page { max-width: var(--page-max); margin-inline: auto; }
 .page-head { margin-bottom: 18px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+/* the title keeps room for itself: when the buttons beside it don't fit, they wrap below it rather than squeeze it */
+.page-head > .grow { flex: 1 1 340px; }
+.page-head > .actions { flex: 0 1 auto; justify-content: flex-end; }
 .crumbs { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
 
 /* the world switcher sits at the top of the nav */
@@ -600,7 +603,7 @@ h2 a .kdot { margin-right: 6px; }
 select.standing.canon { background: transparent; opacity: .5; }
 tr:hover select.standing, .rel:hover select.standing, select.standing:focus { opacity: 1; }
 table.facts { max-width: 780px; }
-@media (max-width: 600px) { .entry-head { flex-wrap: wrap; } .entry-head > .grow { flex-basis: 100%; } }
+@media (max-width: 600px) { .entry-head { flex-wrap: wrap; } .entry-head > .grow { flex-basis: 100%; } .page-head > .actions { justify-content: flex-start; } }
 /* "+ where it says so" shows only when the row is pointed at (always on touch screens) */
 .evidence .inline-text.empty { opacity: 0; font-style: normal; }
 tr:hover .evidence .inline-text.empty, .evidence .inline-text.empty:focus-visible { opacity: 1; }
