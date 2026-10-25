@@ -30,6 +30,9 @@ Examples here use made-up names.
 | Term | lore and concepts: a magic system, a title, a law |
 | Other | everything else |
 
+From phase 13 an entry can also **add a kind** and stay one entry: a world that is a place and acts is a place that
+is also a character, listed under both ([SPEC.md](SPEC.md) §14.8).
+
 The nav lists the kinds under **World**, each with its count, instead of one "Bible" entry. The bible page per kind
 is a table with search and the kind's own columns.
 
@@ -49,8 +52,9 @@ Every entry has:
   - You can add your own (*eye colour: grey*).
   - "Status: dead from chapter 9" is a fact like any other.
   - A fact can keep its **evidence**: the chapter and the passage that established it. Selecting a passage in a
-    chapter and recording a fact from it fills both in. From phase 13 the source can be a journal entry instead,
-    where the fact was worked out in planning; it is never a place in the story ([SPEC.md](SPEC.md) §14.1.2).
+    chapter and recording a fact from it fills both in. From phase 13 a fact can also say where it was
+    **planned**: a journal entry and its passage, never a place in the story. Anything recorded outside a chapter
+    starts as *planned*, and stays so until it is in the book or marked canon ([SPEC.md](SPEC.md) §14.1.2).
 - **Relationships** (§3), shown grouped by type, with the other entry's one-liner.
 - What exists today stays: mentions, first appearance, tagged items, possible misspellings, and now the
   **decisions** that are tagged with it or name it.
@@ -340,10 +344,10 @@ highlighting; the server's result is the one that is stored.
 12. **Time, history and kinds of being** (in-world time under the chapters, happened and told order, the Timeline and
     history, recording an event from a passage, ages, Species, roles in groups, more starting vocabulary,
     restructuring across several chapters, and the chart) is designed in [SPEC.md](SPEC.md) §13.
-13. **Planning before writing** (the editor's world tools in the Journal, a journal entry as a source for evidence,
-    reading an entry's thread through the planning, sparks and questions from a passage, a front page for the world,
-    "since this was written", "Include planned" on the checks, and cause arrows on the Timeline) is designed in
-    [SPEC.md](SPEC.md) §14.
+13. **Planning before writing** (the editor's world tools in the Journal, planned in the Journal and canon in the
+    book, reading an entry's thread through the planning, sparks and questions from a passage, a front page for the
+    world, "since this was written", "Include planned" on the checks, cause arrows on the Timeline, and entries of
+    more than one kind) is designed in [SPEC.md](SPEC.md) §14.
 
 **Later:** map images with pins, and from the research: a chapter-by-thread grid, scenes below
 chapters, and a corkboard (research/README.md).
