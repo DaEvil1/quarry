@@ -180,6 +180,8 @@ test("set up and seed a large world", async () => {
     createMs.push(ms);
     entities.push({ id: e.id, name, kind });
   }
+  // two characters sharing a first name, called by it bare in the chapter and settled by choice lines (docs/SPEC.md §14.10)
+  for (const name of ["Isolde Marr", "Isolde Senn"]) entities.push({ id: (await postJson(r, `${api}/entities`, { name, kind: "character" })).id, name, kind: "character" });
   results["entries"] = entities.length;
   log("entries created");
   results["create entry p50 ms"] = pct(createMs, 50);
@@ -217,10 +219,12 @@ test("set up and seed a large world", async () => {
   log("relationships added");
 
   // the long chapter: names everywhere, the odd misspelling
-  const names = entities.map((e) => e.name);
+  const names = [...entities.map((e) => e.name), "Isolde", "Isolde", "Isolde"];
   const paras: string[] = [];
   let words = 0;
   while (words < WORDS) {
+    // every 20 paragraphs a choice line for the shared first name
+    if (paras.length % 20 === 10) paras.push(`%% Isolde: ${pick(["Marr", "Senn", "Marr, Senn", "?"])}`);
     const p = Array.from({ length: 4 + Math.floor(rnd() * 5) }, () => sentence(names)).join(" ");
     words += p.split(/\s+/).length;
     paras.push(rnd() < 0.05 ? p.replace(/\b([A-Z][a-z]{5,})\b/, (m) => m.slice(0, -2) + m.slice(-1)) : p);

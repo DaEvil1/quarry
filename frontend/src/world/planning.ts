@@ -6,7 +6,7 @@
 
 import type { PlanningDecision, PlanningItem } from "../journal";
 import type { Matcher } from "./matcher";
-import { paragraphs, type Gap, type Para } from "./thread";
+import { paragraphs, unsettledIn, type Gap, type Para, type Unsettled } from "./thread";
 
 export type PlanningKind = "journal" | "item" | "decision";
 
@@ -64,14 +64,20 @@ const time = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`).getTime(
 /** A paragraph names every one of the ids. */
 const namesAll = (p: Para, ids: string[]) => ids.every((id) => p.hits.some((h) => h.entityId === id));
 
-export function planningReading(input: PlanningInput): { lines: Line[]; counts: { paragraphs: number; entries: number; items: number; decisions: number; from: number | null; to: number | null } } {
+export function planningReading(input: PlanningInput): { lines: Line[]; counts: { paragraphs: number; entries: number; items: number; decisions: number; from: number | null; to: number | null; unsettled: Unsettled | null } } {
   const { ids, project } = input;
   const inProject = (p: string | null) => !project || p === null || p === project;
   const sources: Source[] = [];
+  let unsettled = null as Unsettled | null;
   if (input.kinds.has("journal")) {
     for (const e of input.entries) {
       if (!inProject(e.project)) continue;
+      if (input.from && e.entry_date < input.from) continue;
       const all = paragraphs(e.body, input.matcher).map((p) => ({ ...p, margin: false }));
+      for (const p of all) {
+        const form = unsettledIn(p, ids);
+        if (form) unsettled = { paragraphs: (unsettled?.paragraphs ?? 0) + 1, form: unsettled?.form ?? form };
+      }
       const hits = all.map((p) => namesAll(p, ids));
       const count = hits.filter(Boolean).length;
       if (input.mode === "entries") {
@@ -126,6 +132,7 @@ export function planningReading(input: PlanningInput): { lines: Line[]; counts: 
       decisions: sources.filter((s) => s.kind === "decision").length,
       from: years.length ? Math.min(...years) : null,
       to: years.length ? Math.max(...years) : null,
+      unsettled,
     },
   };
 }

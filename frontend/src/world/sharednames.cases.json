@@ -1,0 +1,110 @@
+{
+  "about": "Shared names and choice lines (docs/SPEC.md §14.10). Run by backend/tests/test_mentions.py and frontend/src/matcher.test.ts, so the server and the browser agree. Each expected hit is [matched, kind, entry].",
+  "entities": [
+    { "id": "marr", "name": "Isolde Marr", "kind": "character" },
+    { "id": "senn", "name": "Isolde Senn", "kind": "character" },
+    { "id": "varren", "name": "Varren Hale", "kind": "character", "aliases": ["the Warden"] },
+    { "id": "brand", "name": "Ilse Brand", "kind": "character", "aliases": ["the Warden"] },
+    { "id": "rose", "name": "Rose", "kind": "character" },
+    { "id": "rosehale", "name": "Rose Hale", "kind": "character" },
+    { "id": "harbour", "name": "Old Harbour", "kind": "place", "aliases": ["the Quay"] },
+    { "id": "quay", "name": "Quay Morrow", "kind": "character", "aliases": ["the Quay"] }
+  ],
+  "first_names": { "marr": "Isolde", "senn": "Isolde", "varren": "Varren", "brand": "Ilse", "quay": "Quay" },
+  "cases": [
+    {
+      "about": "a bare shared first name is ambiguous: one hit per claimant",
+      "text": "Isolde left.",
+      "expect": [["Isolde", "ambiguous", "marr"], ["Isolde", "ambiguous", "senn"]]
+    },
+    {
+      "about": "full names are not shared",
+      "text": "Isolde Marr and Isolde Senn.",
+      "expect": [["Isolde Marr", "exact", "marr"], ["Isolde Senn", "exact", "senn"]]
+    },
+    {
+      "about": "a choice line settles it from there on, endings included; the line itself names nobody",
+      "text": "%% Isolde: Isolde Marr\nIsolde left. Isolde's lamp.",
+      "expect": [["Isolde", "alias", "marr"], ["Isolde's", "alias", "marr"]]
+    },
+    {
+      "about": "before the first line it is ambiguous; each line holds to the next; ? unsettles it",
+      "text": "Isolde came.\n%% Isolde: Marr\nIsolde left.\n  %% Isolde: senn\nIsolde stayed.\n%% Isolde: ?\nIsolde slept.",
+      "expect": [
+        ["Isolde", "ambiguous", "marr"], ["Isolde", "ambiguous", "senn"],
+        ["Isolde", "alias", "marr"],
+        ["Isolde", "alias", "senn"],
+        ["Isolde", "ambiguous", "marr"], ["Isolde", "ambiguous", "senn"]
+      ]
+    },
+    {
+      "about": "several chosen: a mention of each",
+      "text": "%% Isolde: Marr, Isolde Senn\nIsolde sang.",
+      "expect": [["Isolde", "alias", "marr"], ["Isolde", "alias", "senn"]]
+    },
+    {
+      "about": "a line that singles out nobody does nothing",
+      "text": "%% Isolde: Mar\nIsolde sang.\n%% Isolde: Isolde\nIsolde sang.",
+      "expect": [
+        ["Isolde", "ambiguous", "marr"], ["Isolde", "ambiguous", "senn"],
+        ["Isolde", "ambiguous", "marr"], ["Isolde", "ambiguous", "senn"]
+      ]
+    },
+    {
+      "about": "a margin note that is not about a shared name is an ordinary note",
+      "text": "%% Todo: Marr\n%% Varren: Hale\nIsolde sang. Varren too.",
+      "expect": [["Isolde", "ambiguous", "marr"], ["Isolde", "ambiguous", "senn"], ["Varren", "alias", "varren"]]
+    },
+    {
+      "about": "an other name given to two entries is shared the same way, with either article",
+      "text": "The Warden spoke.\n%% the Warden: Ilse Brand\nthe Warden left. The Warden's keys.",
+      "expect": [
+        ["The Warden", "ambiguous", "varren"], ["The Warden", "ambiguous", "brand"],
+        ["the Warden", "alias", "brand"], ["The Warden's", "alias", "brand"]
+      ]
+    },
+    {
+      "about": "an entry's own name wins over another's first name",
+      "text": "Rose walked with Rose Hale.",
+      "expect": [["Rose", "exact", "rose"], ["Rose Hale", "exact", "rosehale"]]
+    },
+    {
+      "about": "claimants of different kinds share too",
+      "text": "the Quay\n%% the Quay: Old Harbour\nthe Quay",
+      "expect": [
+        ["the Quay", "ambiguous", "harbour"], ["the Quay", "ambiguous", "quay"],
+        ["the Quay", "alias", "harbour"]
+      ]
+    },
+    {
+      "about": "a choice for one shared name leaves another alone",
+      "text": "%% Isolde: Marr\nThe Warden and Isolde.",
+      "expect": [["The Warden", "ambiguous", "varren"], ["The Warden", "ambiguous", "brand"], ["Isolde", "alias", "marr"]]
+    },
+    {
+      "about": "a first name only one character has is theirs",
+      "text": "Ilse ran.",
+      "expect": [["Ilse", "alias", "brand"]]
+    },
+    {
+      "about": "an invalid line leaves the choice before it in force",
+      "text": "%% Isolde: Senn\nIsolde.\n%% Isolde: Nobody\nIsolde.",
+      "expect": [["Isolde", "alias", "senn"], ["Isolde", "alias", "senn"]]
+    },
+    {
+      "about": "in the Journal choice lines are read, and other %% lines are ordinary text",
+      "source": "journal",
+      "text": "%% Isolde: Marr\nIsolde sang.\n%% about Varren Hale",
+      "expect": [["Isolde", "alias", "marr"], ["Varren Hale", "exact", "varren"]]
+    },
+    {
+      "about": "outside chapters and the Journal, choice lines are not read",
+      "source": "item",
+      "text": "%% Isolde: Marr\nIsolde sang.",
+      "expect": [
+        ["Isolde", "ambiguous", "marr"], ["Isolde", "ambiguous", "senn"],
+        ["Isolde", "ambiguous", "marr"], ["Isolde", "ambiguous", "senn"]
+      ]
+    }
+  ]
+}

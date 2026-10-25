@@ -114,7 +114,7 @@ def _out(j: JournalEntry, world: World) -> EntryOut:
 def entry_detail(db: Session, world: World, j: JournalEntry) -> EntryDetail:
     found = db.execute(
         select(Mention, Entity.name, Entity.kind).join(Entity, Entity.id == Mention.entity_id)
-        .where(Mention.source_table == "journal", Mention.source_id == j.id).order_by(Mention.start)
+        .where(Mention.source_table == "journal", Mention.source_id == j.id).order_by(Mention.start, Entity.name)
     ).all()
     mentions = [{"entity_id": str(m.entity_id), "entity_name": name, "entity_kind": ekind, "start": m.start,
                  "end": m.end, "matched_text": m.matched_text, "kind": m.kind} for m, name, ekind in found]

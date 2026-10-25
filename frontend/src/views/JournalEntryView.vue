@@ -150,16 +150,22 @@ async function worldChange(fn: () => Promise<unknown>) {
 /** a new entry made from a journal entry starts in its project's bible when the world has several (§12.4) */
 const newEntryProject = () => ((world.value?.projects.length ?? 0) > 1 ? (entry.value?.project ?? null) : null);
 
-/** The entries named in a passage, by the matcher that colours names, in order. */
+/** The entries named in a passage, by the matcher that colours names, in order. A shared name counts as the choice
+ * lines above the passage settle it, and not at all where none does (docs/SPEC.md §14.10). */
 function namedIn(raw: string): EntityRef[] {
   const m = currentMatcher();
   const out: EntityRef[] = [];
-  let from = 0;
+  const doc = prose.value?.view.state.doc.toString() ?? "";
+  const at = doc.indexOf(raw);
+  const choices = at >= 0 ? m.choices(doc) : [];
+  let from = Math.max(at, 0);
   for (const line of raw.split("\n")) {
-    for (const h of m.scanLine(line, from, false)) {
-      if (h.kind === "near_miss" || out.some((x) => x.id === h.entityId)) continue;
-      const c = cards.byId.get(h.entityId);
-      if (c) out.push({ id: c.id, name: c.name, kind: c.kind });
+    for (const h of m.resolve(m.scanLine(line, from, false), choices)) {
+      if (h.kind === "near_miss" || h.kind === "ambiguous") continue;
+      for (const id of h.chosen ?? [h.entityId]) {
+        const c = cards.byId.get(id);
+        if (c && !out.some((x) => x.id === id)) out.push({ id: c.id, name: c.name, kind: c.kind });
+      }
     }
     from += line.length + 1;
   }
@@ -536,6 +542,7 @@ const panelActions: PanelActions = {
 };
 const companionHooks: NonNullable<WorldHooks["companion"]> = {
   revising: () => mode.value === "revising",
+  choicesOnly: true,
   marked: () =>
     (analysed?.findings ?? []).flatMap((f) => {
       const at = placeOf(f);

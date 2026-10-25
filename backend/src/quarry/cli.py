@@ -50,6 +50,9 @@ def main(argv: list[str] | None = None) -> int:
     from .db import session_scope
 
     run_migrations()
+    from .app import rescan_mentions
+
+    rescan_mentions()
     if args.cmd == "migrate":
         print("migrations applied")
         return 0

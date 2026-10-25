@@ -67,7 +67,7 @@ function opening(body: string): string {
 /** The names in an entry's first lines, found on the device the way the editor finds them. */
 function namesIn(text: string): Mention[] {
   const m = cards.matcher();
-  return m.scan(text, 0, false).map((h) => ({ entity_id: h.entityId, entity_name: cards.byId.get(h.entityId)?.name ?? h.matched, entity_kind: cards.byId.get(h.entityId)?.kind, start: h.start, end: h.end, matched_text: h.matched, kind: "exact" }));
+  return m.scanSource(text, "journal", false).map((h) => ({ entity_id: h.entityId, entity_name: cards.byId.get(h.entityId)?.name ?? h.matched, entity_kind: cards.byId.get(h.entityId)?.kind, start: h.start, end: h.end, matched_text: h.matched, kind: h.kind === "ambiguous" ? "ambiguous" : "exact" }));
 }
 
 // ---- a new entry, dated today; made on the device when there is no connection ----

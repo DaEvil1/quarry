@@ -207,7 +207,8 @@ export interface Mention {
   start: number;
   end: number;
   matched_text: string;
-  kind: "exact" | "alias" | "near_miss";
+  /** ambiguous: a shared name no choice line settles, one mention per claimant (docs/SPEC.md §14.10) */
+  kind: "exact" | "alias" | "near_miss" | "ambiguous";
 }
 
 export type SourceTable = "item" | "decision" | "journal" | "entity" | "chapter";
@@ -233,6 +234,8 @@ export interface EntityDetail {
   linked_items: { id: string; title: string; status: ItemStatus; project: string | null }[];
   near_misses: (SourceRef & { token: string })[];
   first_appearance: { project: string; chapter_id: string; title: string; position: number }[];
+  /** texts where a name it shares with another entry isn't settled (docs/SPEC.md §14.10): shown faintly, counted for none */
+  unsettled?: { source_table: SourceTable; source_id: string; title: string; count: number; matched: string }[];
   decisions: { id: string; decided_on: string; text: string; project: string | null; tagged: boolean }[];
   facts: Fact[];
   relationships: Relationship[];

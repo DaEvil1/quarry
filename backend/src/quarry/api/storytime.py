@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..clock import Clock, time_text
 from ..db import get_db
+from ..mentions import COUNTED
 from ..models import Chapter, Entity, Mention, Presence, Project, User, World
 from .deps import current_user
 from .worlds import member_world
@@ -212,7 +213,7 @@ def where_everyone_is(slug: str, project: str | None = Query(default=None), kind
     if chapter_ids:
         for source_id, start, entity_id in db.execute(
                 select(Mention.source_id, Mention.start, Mention.entity_id)
-                .where(Mention.source_table == "chapter", Mention.source_id.in_(chapter_ids), Mention.kind != "near_miss")
+                .where(Mention.source_table == "chapter", Mention.source_id.in_(chapter_ids), Mention.kind.in_(COUNTED))
                 .order_by(Mention.start)):
             e = all_entities.get(entity_id)
             if e is not None:

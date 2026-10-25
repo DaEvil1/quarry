@@ -13,14 +13,19 @@ import { hideCard, showCard } from "../world/hovercard";
 const props = defineProps<{ text: string; mentions: Mention[]; world: string; source: { table: SourceTable; id: string } }>();
 const emit = defineEmits<{ fixed: [] }>();
 
-type Part = { text: string; mention?: Mention };
+type Part = { text: string; mention?: Mention; shared?: string };
 const parts = computed<Part[]>(() => {
   const out: Part[] = [];
   let at = 0;
-  for (const m of [...props.mentions].sort((a, b) => a.start - b.start)) {
+  const sorted = [...props.mentions].sort((a, b) => a.start - b.start);
+  for (const m of sorted) {
     if (m.start < at || m.end > props.text.length) continue;
     if (m.start > at) out.push({ text: props.text.slice(at, m.start) });
-    out.push({ text: props.text.slice(m.start, m.end), mention: m });
+    // a shared name nothing settles (docs/SPEC.md §14.10): one mention per claimant at the same place
+    const shared = m.kind === "ambiguous"
+      ? sorted.filter((x) => x.kind === "ambiguous" && x.start === m.start && x.end === m.end).map((x) => x.entity_name).join(" or ")
+      : undefined;
+    out.push({ text: props.text.slice(m.start, m.end), mention: m, shared });
     at = m.end;
   }
   if (at < props.text.length) out.push({ text: props.text.slice(at) });
@@ -65,6 +70,7 @@ async function run(fn: () => Promise<unknown>) {
   <span class="mention-text">
     <template v-for="(p, i) in parts" :key="i">
       <template v-if="!p.mention">{{ p.text }}</template>
+      <span v-else-if="p.shared" class="mention-shared" :title="`Not settled: ${p.shared}`">{{ p.text }}</span>
       <RouterLink
         v-else-if="p.mention.kind !== 'near_miss'"
         class="mention"

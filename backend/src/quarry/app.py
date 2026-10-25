@@ -123,6 +123,17 @@ class Compressed(GZipMiddleware):
         await super().__call__(scope, receive, send)
 
 
+def rescan_mentions() -> None:
+    """After an upgrade that reads texts differently, work out the stored mentions again (docs/SPEC.md §14.10)."""
+    from .db import session_factory
+    from .mentions import rescan_stale
+
+    with session_factory()() as db:
+        n = rescan_stale(db)
+    if n:
+        log.info("worked out the mentions again in %d world(s)", n)
+
+
 def _mount_frontend(app: FastAPI) -> None:
     """Serve the built frontend: real files as they are, any other path gets index.html (client-side routes)."""
     root = get_settings().web_path.resolve()
@@ -150,6 +161,7 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     async def lifespan(app: FastAPI):
         if run_bootstrap and s.migrate_on_start:
             run_migrations()
+            rescan_mentions()
         yield
 
     app = FastAPI(title="Quarry", version=__version__, lifespan=lifespan,
