@@ -13,10 +13,14 @@ the texts as they are now.
     <world>/Bible/<Kind>/<Name>.md                    id, name, kind, aliases, project (its level; null for the
                                                       world), gender (when set), an event's when (a chapter id, a
                                                       time, or "outside"), an era's colour, an event's tellings
-                                                      (chapter and passage); the notes
+                                                      (chapter and passage) and notes in the Journal (journal and
+                                                      passage); facts and relationships with planned_in (a journal
+                                                      id) and planned_evidence beside established_in and evidence;
+                                                      the notes
     <world>/Journal/<date> <title> (<id>).md          id, date, title, project
     <world>/Decisions.md                              one line per decision
-    <world>/Planning/<status>/<date> <text> (<id>).md items for the whole world
+    <world>/Planning/<status>/<date> <text> (<id>).md items for the whole world; `from:` the chapter or journal entry
+                                                      an item came from (by id), with `passage:`
     <world>/Projects/<Name>/project.md                name, slug, kind, position, statuses (in order), gap_chapters
     <world>/Projects/<Name>/Manuscript/<NN> <Title>.md id, title, state, position, pov, summary, status, time (at,
                                                       end, label, approx, or "outside"), told_as
@@ -154,6 +158,16 @@ def _bounds_in(d: dict) -> dict:
             "until_time": _num(d.get("until_time")), "until_approx": d.get("until_approx") is True}
 
 
+def _planned_meta(x) -> dict:  # type: ignore[no-untyped-def]
+    """Where a fact or relationship was planned (docs/SPEC.md §14.1.2), only when it was."""
+    out: dict = {}
+    if x.planned_in_journal_id:
+        out["planned_in"] = str(x.planned_in_journal_id)
+    if x.planned_evidence:
+        out["planned_evidence"] = x.planned_evidence
+    return out
+
+
 def _time_in(meta: dict) -> dict:
     """A chapter's time and mark read back from its frontmatter."""
     t = meta.get("time")
@@ -244,7 +258,7 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                                    "established_in": str(f.established_in_chapter_id) if f.established_in_chapter_id else None,
                                    "from": str(f.from_chapter_id) if f.from_chapter_id else None,
                                    "until": str(f.until_chapter_id) if f.until_chapter_id else None,
-                                   **_bound_meta(f)})
+                                   **_bound_meta(f), **_planned_meta(f)})
     rels: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for r in db.scalars(select(Relationship).where(Relationship.world_id == world.id).order_by(Relationship.created_at)):
         t = type_by_id[r.type_id]
@@ -257,10 +271,15 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
         if r.role:
             rels[r.a_id][-1]["role"] = r.role
         rels[r.a_id][-1].update(_bound_meta(r))
+        rels[r.a_id][-1].update(_planned_meta(r))
 
     tellings: dict[uuid.UUID, list[dict]] = defaultdict(list)
+    event_notes: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for t in db.scalars(select(Telling).where(Telling.world_id == world.id).order_by(Telling.created_at)):
-        tellings[t.event_id].append({"chapter": str(t.chapter_id) if t.chapter_id else None, "passage": t.passage})
+        if t.journal_id:
+            event_notes[t.event_id].append({"journal": str(t.journal_id), "passage": t.passage})
+        else:
+            tellings[t.event_id].append({"chapter": str(t.chapter_id) if t.chapter_id else None, "passage": t.passage})
     presence: dict[uuid.UUID, list[dict]] = defaultdict(list)
     for p in db.scalars(select(Presence).where(Presence.world_id == world.id).order_by(Presence.created_at)):
         presence[p.entity_id].append({"chapter": str(p.chapter_id), "place": str(p.place_id),
@@ -290,6 +309,8 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             meta["colour"] = e.era_colour
         if tellings.get(e.id):
             meta["tellings"] = tellings[e.id]
+        if event_notes.get(e.id):
+            meta["notes"] = event_notes[e.id]
         files[f"{root}/Bible/{KIND_FOLDERS[e.kind]}/{_safe(e.name)}.md"] = _doc(meta, e.body)
 
     for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id).order_by(JournalEntry.entry_date)):
@@ -317,6 +338,12 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                                       .where(Item.world_id == world.id, ItemLink.target_table == "entity")).all():
         if target in names:
             tags[item_id].append(names[target])
+    origins: dict[uuid.UUID, dict] = {}
+    for link in db.scalars(select(ItemLink).join(Item, Item.id == ItemLink.item_id)
+                           .where(Item.world_id == world.id, ItemLink.target_table.in_(("chapter", "journal")))
+                           .order_by(ItemLink.target_table)):
+        # a journal entry wins over a chapter (sorted after it)
+        origins[link.item_id] = {"from": {link.target_table: str(link.target_id)}, "passage": link.passage}
     ranges: dict[uuid.UUID, list[str]] = defaultdict(list)
     for r in db.scalars(select(ExperimentRange).join(Item, Item.id == ExperimentRange.item_id)
                         .where(Item.world_id == world.id).order_by(ExperimentRange.position)):
@@ -328,6 +355,10 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                 "project": projects[i.project_id].slug if i.project_id else None, "source": i.source,
                 "created_at": _iso(i.created_at), "closed_at": _iso(i.closed_at), "closed_note": i.closed_note,
                 "tags": sorted(tags.get(i.id, []))}
+        if i.id in origins:
+            meta["from"] = origins[i.id]["from"]
+            if origins[i.id]["passage"]:
+                meta["passage"] = origins[i.id]["passage"]
         # an experiment: the chapters it would replace, or where it adds (docs/SPEC.md §13.6.1)
         if i.kind == "experiment":
             if ranges.get(i.id):
@@ -560,6 +591,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     item_by_old: dict[str, uuid.UUID] = {}
     # experiments' ranges and places, relinked once the chapters exist
     item_ranges: list[tuple[Item, dict]] = []
+    # where items came from (a chapter or journal entry), relinked once those exist
+    item_origins: list[tuple[Item, dict]] = []
     planning = [(None, rel, meta, body) for rel, meta, body in under(f"{root}/Planning/")]
     for folder, pslug in project_dirs.items():
         planning += [(pslug, rel, meta, body) for rel, meta, body in under(f"{root}/Projects/{folder}/Planning/")]
@@ -582,6 +615,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
         for tag in meta.get("tags") or []:
             if str(tag) in entity_by_name:
                 db.add(ItemLink(item_id=i.id, target_table="entity", target_id=entity_by_name[str(tag)]))
+        if isinstance(meta.get("from"), dict):
+            item_origins.append((i, meta))
 
     # chapters: current, experiments, salvage
     chapter_by_old: dict[str, uuid.UUID] = {}
@@ -646,6 +681,28 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                        cut_at=_when(meta.get("cut_at")) or datetime.now(UTC), put_back_at=_when(meta.get("put_back_at")),
                        put_back_to=chapter(meta.get("put_back_to")), created_by=user.id))
 
+    # the journal, before what was planned in it, kept by its old ids
+    journal_by_old: dict[str, uuid.UUID] = {}
+    for _rel, meta, body in under(f"{root}/Journal/"):
+        j = JournalEntry(world_id=world.id, project_id=project_of(meta.get("project")),
+                         entry_date=_day(meta.get("date")) or date.today(), title=meta.get("title"), body=body,
+                         created_by=user.id, updated_by=user.id)
+        db.add(j)
+        db.flush()
+        if meta.get("id"):
+            journal_by_old[str(meta["id"])] = j.id
+
+    def journal(old) -> uuid.UUID | None:  # type: ignore[no-untyped-def]
+        return journal_by_old.get(str(old)) if old else None
+
+    for i, meta in item_origins:
+        src = meta["from"]
+        passage = str(meta.get("passage") or "").strip() or None
+        for table, find in (("chapter", chapter), ("journal", journal)):
+            target = find(src.get(table))
+            if target is not None:
+                db.add(ItemLink(item_id=i.id, target_table=table, target_id=target, passage=passage))
+
     standings = ("canon", "planned", "rumour")
     for e, meta in world_model:
         for i, f in enumerate(meta.get("facts") or []):
@@ -654,6 +711,7 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                         standing=f.get("standing") if f.get("standing") in standings else "canon",
                         evidence=f.get("evidence"), note=f.get("note"),
                         established_in_chapter_id=chapter(f.get("established_in")),
+                        planned_in_journal_id=journal(f.get("planned_in")), planned_evidence=f.get("planned_evidence"),
                         **_spans_in(f, chapter), created_by=user.id, updated_by=user.id))
         for r in meta.get("relationships") or []:
             other = entity_by_old.get(str(r.get("to"))) or entity_by_name.get(str(r.get("to_name")))
@@ -665,6 +723,8 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
                                 standing=r.get("standing") if r.get("standing") in standings else "canon",
                                 evidence=r.get("evidence"), note=r.get("note"), role=clean_role(r.get("role")),
                                 established_in_chapter_id=chapter(r.get("established_in")),
+                                planned_in_journal_id=journal(r.get("planned_in")),
+                                planned_evidence=r.get("planned_evidence"),
                                 **_spans_in(r, chapter), created_by=user.id, updated_by=user.id))
 
     # events' when, eras' colours and tellings, relinked to the chapters by id
@@ -684,6 +744,11 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
         for t in meta.get("tellings") or []:
             if isinstance(t, dict) and str(t.get("passage") or "").strip():
                 db.add(Telling(world_id=world.id, event_id=e.id, chapter_id=chapter(t.get("chapter")),
+                               passage=str(t["passage"]), created_by=user.id))
+        # notes in the Journal (docs/SPEC.md §14.1.2); one whose entry isn't in the export keeps its passage
+        for t in meta.get("notes") or []:
+            if isinstance(t, dict) and str(t.get("passage") or "").strip():
+                db.add(Telling(world_id=world.id, event_id=e.id, journal_id=journal(t.get("journal")),
                                passage=str(t["passage"]), created_by=user.id))
 
     for e, meta in world_model:
@@ -711,11 +776,6 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
         pinned.add((place, container))
         db.add(ChartPin(world_id=world.id, place_id=place, container_id=container, x=float(_num(p["x"])),
                         y=float(_num(p["y"])), updated_by=user.id))
-
-    for _rel, meta, body in under(f"{root}/Journal/"):
-        db.add(JournalEntry(world_id=world.id, project_id=project_of(meta.get("project")),
-                            entry_date=_day(meta.get("date")) or date.today(), title=meta.get("title"), body=body,
-                            created_by=user.id, updated_by=user.id))
 
     decisions = files.get(f"{root}/Decisions.md", "")
     for line in decisions.splitlines():
