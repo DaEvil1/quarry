@@ -232,7 +232,7 @@ test("12.2 done when: three generations around Mirelle, kin words by gender, wor
   const before = ((await api("GET", `${A}/relationships`)) as unknown as Json[]).length;
   // Varren's gender set on his page
   await page.goto(`${W}/bible/${ids.Varren}`);
-  await page.getByTestId("gender").selectOption("male");
+  await Promise.all([page.waitForResponse((r) => r.url().includes(`/entities/${ids.Varren}`) && r.request().method() === "PATCH" && r.ok()), page.getByTestId("gender").selectOption("male")]);
   await expect(page.getByTestId("gender")).toHaveValue("male");
 
   await page.goto(`${W}/graph?view=family&centre=${ids.Mirelle}`);

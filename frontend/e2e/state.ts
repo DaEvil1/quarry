@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-// Where phase1.spec.ts leaves its signed-in browser state for the spec files after it (they run in name order).
+// Where phase1.spec.ts (the setup project in playwright.config.ts) leaves its signed-in browser state for the others.
 export const STATE_FILE = "test-results/.signed-in.json";
 
 

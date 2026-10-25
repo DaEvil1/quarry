@@ -85,7 +85,7 @@ test("point of view, a second chapter, and the order", async () => {
   await expect(rows.first()).toContainText("Arrival");
   await expect(rows.first()).toContainText("Varren");
   await expect(page.getByTestId("pov-tally")).toContainText("Varren");
-  await page.getByRole("button", { name: "Move Storm up" }).click();
+  await Promise.all([page.waitForResponse((r) => r.url().endsWith("/chapter-order") && r.ok()), page.getByRole("button", { name: "Move Storm up" }).click()]);
   await expect(rows.first()).toContainText("Storm");
   await page.reload();
   await expect(rows.first()).toContainText("Storm");

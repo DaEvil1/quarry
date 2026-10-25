@@ -1,5 +1,6 @@
 # Tests, the end-to-end run and (on master) the Docker image, pushed to ghcr.io/<owner>/quarry for the droplet.
 # The runner image is pinned (ubuntu-latest moves to a new Ubuntu now and then); bump it on purpose.
+# The test jobs run side by side, and not at all when only docs/** or *.md changed (the run still ends green).
 name: ci
 
 on:
@@ -12,7 +13,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  changes:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      # a pull request's files come from the API; a push compares with the commit before it
+      - uses: actions/checkout@v6
+        if: github.event_name == 'push'
+      - id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          predicate-quantifier: every
+          filters: |
+            code:
+              - "**"
+              - "!docs/**"
+              - "!**/*.md"
+
+  backend:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -31,26 +55,91 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/pyproject.toml
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
+      # one database per pytest-xdist worker (tests/conftest.py)
       - name: backend tests
         working-directory: backend
         env:
           QUARRY_TEST_DATABASE_URL: postgresql://quarry:quarry@localhost:5432/quarry
         run: |
           pip install -q -e ".[dev]"
-          python -m pytest -q
+          python -m pytest -q -n auto
 
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: frontend typecheck, unit tests and build
         working-directory: frontend
         run: |
           npm ci --no-audit --no-fund
           npm run build
           npm test
+
+  # Each shard runs phase1.spec.ts (the setup project) first, against a database and a Quarry of its own. The
+  # chain of phase specs stays together; the specs that build their own worlds are split in two.
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    name: e2e (${{ matrix.shard.name }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - { name: chain, args: --project=chain --project=update }
+          - { name: own 1, args: --project=demo --project=own --shard=1/2 }
+          - { name: own 2, args: --project=demo --project=own --shard=2/2 }
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: quarry
+          POSTGRES_PASSWORD: quarry
+          POSTGRES_DB: quarry_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U quarry" --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - id: playwright
+        run: echo "version=$(jq -r '.packages["node_modules/playwright-core"].version' frontend/package-lock.json)" >> "$GITHUB_OUTPUT"
+      - id: browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      # pip and the browser (or on a cache hit its system libraries) install while npm installs and builds; the
+      # frontend job typechecks, so the build alone is enough here
+      - name: install and build
+        run: |
+          pip install -q -e backend > pip.log 2>&1 &
+          pip=$!
+          cd frontend
+          npm ci --no-audit --no-fund
+          if [ "${{ steps.browsers.outputs.cache-hit }}" = "true" ]; then npx playwright install-deps chromium > ../browser.log 2>&1 &
+          else npx playwright install --with-deps --only-shell chromium > ../browser.log 2>&1 & fi
+          browser=$!
+          npx vite build
+          wait $pip || { cat ../pip.log; exit 1; }
+          wait $browser || { cat ../browser.log; exit 1; }
 
       - name: end to end
         working-directory: frontend
@@ -60,24 +149,22 @@ jobs:
           QUARRY_SETUP_TOKEN: e2e-setup-token
           QUARRY_AUTH_RATE_LIMIT: "1000"
           QUARRY_PORT: "8767"
-          PGPASSWORD: quarry
+          E2E_SHARD: ${{ matrix.shard.name }}
         run: |
-          npx playwright install --with-deps --only-shell chromium
-          psql -h localhost -U quarry -d quarry -c "CREATE DATABASE quarry_e2e"
           (QUARRY_WEB_DIR="$PWD/dist" quarry serve > server.log 2>&1 &)
           for i in $(seq 1 30); do curl -sf http://localhost:8767/healthz && break; sleep 1; done
-          npx playwright test || (tail -50 server.log; exit 1)
+          npx playwright test ${{ matrix.shard.args }} || (tail -50 server.log; exit 1)
 
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-traces
+          name: playwright-traces-${{ strategy.job-index }}
           path: frontend/test-results
           retention-days: 7
 
   image:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.code == 'true'
+    needs: [changes, backend, frontend, e2e]
     runs-on: ubuntu-24.04
     permissions:
       contents: read

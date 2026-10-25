@@ -127,7 +127,7 @@ test("14.9 done when: Planning reorders the nav, turns Include planned on, opens
   let order = await navOrder();
   expect(order.findIndex((t) => t.startsWith("The Ferryman's Daughter"))).toBeLessThan(order.findIndex((t) => t.startsWith("Capture")));
   await page.goto(`/w/${demo}`);
-  await page.locator("main").getByTestId("focus-switch").getByRole("button", { name: "Planning" }).click();
+  await Promise.all([page.waitForResponse((r) => r.url().endsWith("/focus") && r.request().method() === "PUT" && r.ok()), page.locator("main").getByTestId("focus-switch").getByRole("button", { name: "Planning" }).click()]);
   await expect(async () => {
     order = await navOrder();
     expect(order.indexOf("Journal")).toBeLessThan(order.indexOf("Capture"));
@@ -147,7 +147,7 @@ test("14.9 done when: Planning reorders the nav, turns Include planned on, opens
   await expect(p.locator("main").getByTestId("focus-switch").getByRole("button", { name: "Planning" })).toHaveAttribute("aria-pressed", "true");
   await phone.close();
   // back to Writing: the projects first, Include planned off, and the world opens at the last chapter used
-  await page.locator("main").getByTestId("focus-switch").getByRole("button", { name: "Writing" }).click();
+  await Promise.all([page.waitForResponse((r) => r.url().endsWith("/focus") && r.request().method() === "PUT" && r.ok()), page.locator("main").getByTestId("focus-switch").getByRole("button", { name: "Writing" }).click()]);
   await expect(async () => {
     order = await navOrder();
     expect(order.findIndex((t) => t.startsWith("The Ferryman's Daughter"))).toBeLessThan(order.indexOf("Capture"));
