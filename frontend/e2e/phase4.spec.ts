@@ -104,7 +104,8 @@ test("an experiment from scratch, accepted: it takes the old chapter's place", a
   await expect(status()).toHaveText("Saved", { timeout: 10_000 });
 
   await page.getByTestId("experiment-bar").getByRole("button", { name: "Accept" }).click();
-  await page.getByLabel("Anything worth keeping from the old chapter? (optional)").fill("the harbour walk");
+  // the review before the old chapter leaves the book, with its harvest note (docs/SPEC.md §13.6.2)
+  await page.getByLabel("Harvest note for Arrival").fill("the harbour walk");
   await page.getByRole("button", { name: "Accept", exact: true }).last().click();
   await expect(page.getByText("Accepted: this draft is now the chapter.")).toBeVisible();
   await expect(page.getByTestId("experiment-bar")).toHaveCount(0);
@@ -119,7 +120,7 @@ test("an experiment from scratch, accepted: it takes the old chapter's place", a
 test("retire a chapter; salvage keeps both, with notes, and searches them", async () => {
   await page.getByTestId("chapters").getByRole("link", { name: "Storm" }).click();
   await page.getByRole("button", { name: "Retire to Salvage" }).click();
-  await page.getByLabel("What was alive in this chapter? (optional)").fill("the rain image");
+  await page.getByLabel("Harvest note for Storm").fill("the rain image");
   await page.getByRole("button", { name: "Retire", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`${W}/p/first-light$`));
   await page.getByRole("link", { name: /Salvage/ }).click();

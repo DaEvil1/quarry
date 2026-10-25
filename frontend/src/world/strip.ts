@@ -4,6 +4,7 @@
 // they reach the gap length of the project they start in. Worked out when shown, never stored.
 
 import type { StoryChapter } from "../types";
+import { atOrBefore, type At, type IndexOf } from "./time";
 
 export interface StripCell {
   chapter: StoryChapter;
@@ -13,7 +14,7 @@ export interface StripCell {
   /** 0 for not named, else 1–3 */
   step: number;
   pov: boolean;
-  /** later in the story than the "as of" chapter */
+  /** later on the clock than the "as of" point (docs/SPEC.md §13.1.4) */
   later: boolean;
   asOf: boolean;
 }
@@ -44,12 +45,16 @@ export function mentionStrip(
   timeline: StoryChapter[],
   counts: Map<string, number>,
   entityId: string,
-  asOf: number | null = null,
+  asOf: At | null = null,
+  indexOf?: IndexOf,
 ): Strip {
+  // with no clock given, the strip's own book order is the clock (as before phase 12)
+  const clock: IndexOf = indexOf ?? Object.assign((id: string | null) => timeline.find((c) => c.id === id)?.index, {});
   const busiest = Math.max(0, ...timeline.map((c) => counts.get(c.id) ?? 0));
   const cells: StripCell[] = timeline.map((c, i) => {
     const count = counts.get(c.id) ?? 0;
-    return { chapter: c, n: i + 1, count, step: step(count, busiest), pov: c.pov === entityId, later: asOf !== null && i > asOf, asOf: asOf === i };
+    const later = asOf !== null && !atOrBefore(c.id, asOf, clock);
+    return { chapter: c, n: i + 1, count, step: step(count, busiest), pov: c.pov === entityId, later, asOf: asOf !== null && typeof asOf === "number" && clock(c.id) === asOf };
   });
   const rows: Strip["rows"] = [];
   for (const cell of cells) {

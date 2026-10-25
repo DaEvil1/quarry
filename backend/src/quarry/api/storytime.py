@@ -1,5 +1,5 @@
-"""Story time: the order of chapters across a world's projects (the clock that facts and relationships are dated by),
-"is at" presence, and the Where-everyone-is grid (docs/WORLD-MODEL.md §4)."""
+"""Story time: the order of chapters across a world's projects, the clock that facts and relationships are dated by
+(happened order, docs/SPEC.md §13.1), "is at" presence, and the Where-everyone-is grid (docs/WORLD-MODEL.md §4)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..clock import Clock, time_text
 from ..db import get_db
 from ..models import Chapter, Entity, Mention, Presence, Project, User, World
 from .deps import current_user
@@ -35,22 +36,47 @@ def story_index(db: Session, world: World) -> dict[uuid.UUID, int]:
     return {c.id: i for i, (c, _) in enumerate(story_order(db, world))}
 
 
-def check_span(db: Session, world: World, from_id: uuid.UUID | None, until_id: uuid.UUID | None) -> None:
-    """A span must run forwards: its first chapter no later than its last."""
-    if from_id and until_id:
-        index = story_index(db, world)
-        if from_id in index and until_id in index and index[from_id] > index[until_id]:
-            raise HTTPException(422, "“From” must come before “until” in the story.")
+def world_clock(db: Session, world: World) -> Clock:
+    """The book's chapters placed in happened order."""
+    return Clock(story_order(db, world))
+
+
+def check_span(db: Session, world: World, span) -> None:  # type: ignore[no-untyped-def]
+    """A span must run forwards on the clock: it starts no later than it ends (a chapter or a time on each side)."""
+    has_from = span.from_chapter_id is not None or span.from_time is not None
+    has_until = span.until_chapter_id is not None or span.until_time is not None
+    if has_from and has_until and world_clock(db, world).backwards(span):
+        raise HTTPException(422, "“From” must come before “until” in the story.")
+
+
+def times(c: Chapter) -> dict:
+    """A chapter's own time and mark, as the API shows them."""
+    return {"time_at": float(c.time_at) if c.time_at is not None else None,
+            "time_end": float(c.time_end) if c.time_end is not None else None,
+            "time_label": c.time_label, "time_approx": c.time_approx, "outside_time": c.outside_time,
+            "told_as": c.told_as}
 
 
 @router.get("/timeline")
 def timeline(slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
     """The chapters in story order, each with its point-of-view entry and its project's gap length (for the mentions
-    strip, docs/SPEC.md §12.1)."""
+    strip, docs/SPEC.md §12.1), its time and mark, its set time and its place on the clock (docs/SPEC.md §13.1):
+    `clock` is its place in happened order, null outside time; `early` a tale or flashback set before the story."""
     world, _ = member_world(db, user, slug)
-    return [{"id": str(c.id), "title": c.title, "project": p.slug, "project_name": p.name, "index": i,
-             "pov": str(c.pov_entity_id) if c.pov_entity_id else None, "gap_chapters": p.gap_chapters}
-            for i, (c, p) in enumerate(story_order(db, world))]
+    order = story_order(db, world)
+    clock = Clock(order)
+    from ..models import ChapterStatus
+
+    ids = [p.id for p in world.projects]
+    status = {s.id: s.label for s in db.scalars(select(ChapterStatus).where(ChapterStatus.project_id.in_(ids)))} if ids else {}
+    out = []
+    for i, (c, p) in enumerate(order):
+        x = clock.by_id[c.id]
+        out.append({"id": str(c.id), "title": c.title, "project": p.slug, "project_name": p.name, "index": i,
+                    "pov": str(c.pov_entity_id) if c.pov_entity_id else None, "gap_chapters": p.gap_chapters,
+                    **times(c), "set_time": x.set_time, "set_approx": x.set_approx, "early": x.early,
+                    "clock": x.place, "summary": c.summary, "status": status.get(c.status_id) if c.status_id else None})
+    return out
 
 
 # presence -------------------------------------------------------------------------------------------------------
@@ -238,9 +264,18 @@ def where_everyone_is(slug: str, project: str | None = Query(default=None), kind
     rows = [{"entity": _ref(all_entities[eid]), "added": eid in picked, "cells": cells.get(eid, {})}
             for eid in sorted(shown, key=lambda x: (*first_seen.get(x, (never, 0)), all_entities[x].name.lower()))]
     pov = {c.id: all_entities.get(c.pov_entity_id) if c.pov_entity_id else None for c, _ in order}
+    # each chapter's head shows its set time and mark; the grid can be read in happened order (docs/SPEC.md §13.1.4)
+    clock = world_clock(db, world)
+    head = {}
+    for c, _ in order:
+        x = clock.by_id[c.id]
+        head[c.id] = {**times(c), "set_time": x.set_time, "set_approx": x.set_approx, "early": x.early,
+                      "clock": x.place,
+                      "set_text": time_text(world.time_unit, world.time_units, x.set_time, None, None, x.set_approx,
+                                            c.outside_time)}
     return {
         "chapters": [{"id": str(c.id), "title": c.title, "project": p.slug, "project_name": p.name,
-                      "pov": _ref(pov[c.id]) if pov[c.id] else None} for c, p in order],
+                      "pov": _ref(pov[c.id]) if pov[c.id] else None, **head[c.id]} for c, p in order],
         "rows": rows,
         "events": events,
     }

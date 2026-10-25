@@ -30,6 +30,7 @@ from ..models import (
     User,
     World,
 )
+from .history import chapter_in_world, event_when, tellings_of
 from .world import entity_world_detail
 from .deps import current_user
 from .worlds import member_world
@@ -100,6 +101,15 @@ class EntityUpdate(BaseModel):
     # the level (a project's slug, or null for the world) and a character's gender (null is not set); only when sent
     project: str | None = None
     gender: Gender | None = None
+    # an event's "when" (docs/SPEC.md §13.2.1): a chapter it happens in, a time, or outside time; only when sent
+    time_chapter_id: uuid.UUID | None = None
+    time_at: float | None = None
+    time_end: float | None = None
+    time_label: str | None = Field(default=None, max_length=200)
+    time_approx: bool | None = None
+    outside_time: bool | None = None
+    # an era's colour: one of the palette's eight names
+    era_colour: Literal["amber", "moss", "teal", "sky", "indigo", "plum", "rose", "rust"] | None = None
 
 
 class EntityOut(BaseModel):
@@ -122,6 +132,9 @@ class EntityOut(BaseModel):
     gender: str | None = None
     # in the bible's list: the projects whose current chapters name it
     named_in: list[str] = Field(default_factory=list)
+    # an event's "when" (a chapter, a time or outside time; null for not placed yet), and an era's colour
+    when: dict | None = None
+    era_colour: str | None = None
 
 
 def _clean_aliases(name: str, aliases: list[str]) -> list[str]:
@@ -146,7 +159,7 @@ def _out(e: Entity, count: int = 0, projects: dict[uuid.UUID, str] | None = None
                      match_case=e.match_case, first_name_alias=e.first_name_alias, exclusions=list(e.exclusions),
                      version=e.version, updated_at=e.updated_at, mention_count=count,
                      project=(projects or {}).get(e.project_id) if e.project_id else None, gender=e.gender,
-                     named_in=named_in or [])
+                     named_in=named_in or [], when=event_when(e), era_colour=e.era_colour)
 
 
 def _slugs(world: World) -> dict[uuid.UUID, str]:
@@ -286,7 +299,9 @@ def get_entity(slug: str, entity_id: uuid.UUID, user: User = Depends(current_use
                                      .order_by(Decision.decided_on.desc()))] if tagged | named else []
     return {"entity": _out(e, sum(m["count"] for m in mentions), projects), "mentions": mentions, "unlinked": unlinked,
             "linked_items": linked_items, "near_misses": near, "first_appearance": list(first.values()),
-            "decisions": decisions, **entity_world_detail(db, world, e)}
+            "decisions": decisions, **entity_world_detail(db, world, e),
+            # an event's tellings (Told in, docs/SPEC.md §13.2.3)
+            "tellings": tellings_of(db, world, e.id) if e.kind == "event" else []}
 
 
 @router.patch("/entities/{entity_id}")
@@ -330,6 +345,29 @@ def update_entity(slug: str, entity_id: uuid.UUID, body: EntityUpdate, user: Use
         e.project_id = _level(world, body.project)
     if "gender" in body.model_fields_set:
         e.gender = body.gender
+    sent = body.model_fields_set
+    if sent & {"time_chapter_id", "time_at", "time_end", "time_label", "time_approx", "outside_time"}:
+        # one of them: in a chapter, a time, or outside time (or none: not placed yet)
+        if "time_chapter_id" in sent:
+            e.time_chapter_id = chapter_in_world(db, world, body.time_chapter_id)
+        for field in ("time_at", "time_end"):
+            if field in sent:
+                setattr(e, field, getattr(body, field))
+        if "time_label" in sent:
+            e.time_label = " ".join((body.time_label or "").split()) or None
+        for flag in ("time_approx", "outside_time"):
+            if flag in sent and getattr(body, flag) is not None:
+                setattr(e, flag, getattr(body, flag))
+        if e.outside_time:
+            e.time_chapter_id = e.time_at = e.time_end = e.time_label = None
+            e.time_approx = False
+        elif e.time_chapter_id is not None or e.time_at is None:
+            e.time_at = e.time_end = e.time_label = None
+            e.time_approx = False
+        if e.time_at is not None and e.time_end is not None and e.time_end < e.time_at:
+            raise HTTPException(422, "A span ends after it starts.")
+    if "era_colour" in sent:
+        e.era_colour = body.era_colour
     if body.summary is not None:
         e.summary = " ".join(body.summary.split())
     for flag in ("match_case", "first_name_alias"):

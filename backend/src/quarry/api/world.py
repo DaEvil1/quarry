@@ -61,6 +61,12 @@ class FactIn(BaseModel):
     established_in_chapter_id: uuid.UUID | None = None
     from_chapter_id: uuid.UUID | None = None
     until_chapter_id: uuid.UUID | None = None
+    # a bound can be an in-world time instead (docs/SPEC.md §13.1.5); outside time has no bounds (§13.1.8)
+    from_time: float | None = None
+    from_approx: bool | None = None
+    until_time: float | None = None
+    until_approx: bool | None = None
+    outside_time: bool | None = None
 
 
 class FactUpdate(BaseModel):
@@ -73,6 +79,12 @@ class FactUpdate(BaseModel):
     established_in_chapter_id: uuid.UUID | None = None
     from_chapter_id: uuid.UUID | None = None
     until_chapter_id: uuid.UUID | None = None
+    # a bound can be an in-world time instead (docs/SPEC.md §13.1.5); outside time has no bounds (§13.1.8)
+    from_time: float | None = None
+    from_approx: bool | None = None
+    until_time: float | None = None
+    until_approx: bool | None = None
+    outside_time: bool | None = None
 
 
 class FactOut(BaseModel):
@@ -87,6 +99,11 @@ class FactOut(BaseModel):
     established_in_chapter_id: uuid.UUID | None
     from_chapter_id: uuid.UUID | None
     until_chapter_id: uuid.UUID | None
+    from_time: float | None = None
+    from_approx: bool = False
+    until_time: float | None = None
+    until_approx: bool = False
+    outside_time: bool = False
     version: int
     # after adding: the one-time "expect it on every …?" prompt, when this fact brought its label to three entries
     prompt: dict | None = None
@@ -132,6 +149,12 @@ class RelationshipIn(BaseModel):
     established_in_chapter_id: uuid.UUID | None = None
     from_chapter_id: uuid.UUID | None = None
     until_chapter_id: uuid.UUID | None = None
+    # a bound can be an in-world time instead (docs/SPEC.md §13.1.5); outside time has no bounds (§13.1.8)
+    from_time: float | None = None
+    from_approx: bool | None = None
+    until_time: float | None = None
+    until_approx: bool | None = None
+    outside_time: bool | None = None
     role: str | None = Field(default=None, max_length=100)
 
 
@@ -145,6 +168,12 @@ class RelationshipUpdate(BaseModel):
     established_in_chapter_id: uuid.UUID | None = None
     from_chapter_id: uuid.UUID | None = None
     until_chapter_id: uuid.UUID | None = None
+    # a bound can be an in-world time instead (docs/SPEC.md §13.1.5); outside time has no bounds (§13.1.8)
+    from_time: float | None = None
+    from_approx: bool | None = None
+    until_time: float | None = None
+    until_approx: bool | None = None
+    outside_time: bool | None = None
 
 
 class Side(BaseModel):
@@ -166,6 +195,11 @@ class RelationshipOut(BaseModel):
     established_in_chapter_id: uuid.UUID | None
     from_chapter_id: uuid.UUID | None
     until_chapter_id: uuid.UUID | None
+    from_time: float | None = None
+    from_approx: bool = False
+    until_time: float | None = None
+    until_approx: bool = False
+    outside_time: bool = False
     # the A side's role in the B side's group, and whether the type offers one
     role: str | None = None
     has_role: bool = False
@@ -209,11 +243,47 @@ def norm(text: str) -> str:
 COMMON_AT = 3
 
 
+def _f(x) -> float | None:  # type: ignore[no-untyped-def]
+    return None if x is None else float(x)
+
+
+def time_bounds(x: Fact | Relationship) -> dict:
+    """A fact's or relationship's time bounds and outside time, as the API shows them."""
+    return {"from_time": _f(x.from_time), "from_approx": bool(x.from_approx), "until_time": _f(x.until_time),
+            "until_approx": bool(x.until_approx), "outside_time": bool(x.outside_time)}
+
+
+def set_bounds(db: Session, world: World, x: Fact | Relationship, body: BaseModel, sent: set[str]) -> None:
+    """Apply the bounds sent: each side is a chapter or a time (the one sent last wins); outside time has none."""
+    for side in ("from", "until"):
+        ch, t, ap = f"{side}_chapter_id", f"{side}_time", f"{side}_approx"
+        if ch in sent:
+            setattr(x, ch, _chapter_in_world(db, world, getattr(body, ch)))
+            if getattr(x, ch) is not None and t not in sent:
+                setattr(x, t, None)
+        if t in sent:
+            setattr(x, t, getattr(body, t))
+            if getattr(body, t) is not None and ch not in sent:
+                setattr(x, ch, None)
+        if ap in sent and getattr(body, ap) is not None:
+            setattr(x, ap, getattr(body, ap))
+        if getattr(x, ch) is not None and getattr(x, t) is not None:
+            raise HTTPException(422, "A bound is a chapter or a time, not both.")
+        if getattr(x, t) is None:
+            setattr(x, ap, False)
+    if "outside_time" in sent and body.outside_time is not None:  # type: ignore[attr-defined]
+        x.outside_time = body.outside_time  # type: ignore[attr-defined]
+    if x.outside_time:
+        x.from_chapter_id = x.until_chapter_id = None
+        x.from_time = x.until_time = None
+        x.from_approx = x.until_approx = False
+
+
 def fact_out(f: Fact) -> FactOut:
     return FactOut(id=f.id, entity_id=f.entity_id, label=f.label, value=f.value, position=f.position,
                    standing=f.standing, evidence=f.evidence, note=f.note,
                    established_in_chapter_id=f.established_in_chapter_id, from_chapter_id=f.from_chapter_id,
-                   until_chapter_id=f.until_chapter_id, version=f.version)
+                   until_chapter_id=f.until_chapter_id, **time_bounds(f), version=f.version)
 
 
 def relationship_out(r: Relationship, t: RelationType, a: Entity, b: Entity) -> RelationshipOut:
@@ -221,8 +291,8 @@ def relationship_out(r: Relationship, t: RelationType, a: Entity, b: Entity) -> 
                            b=Side(id=b.id, name=b.name, kind=b.kind), label=t.label, reverse_label=t.reverse_label,
                            standing=r.standing, evidence=r.evidence, note=r.note,
                            established_in_chapter_id=r.established_in_chapter_id, from_chapter_id=r.from_chapter_id,
-                           until_chapter_id=r.until_chapter_id, role=r.role, has_role=t.has_role, version=r.version,
-                           created_at=r.created_at)
+                           until_chapter_id=r.until_chapter_id, **time_bounds(r), role=r.role, has_role=t.has_role,
+                           version=r.version, created_at=r.created_at)
 
 
 def relationships_of(db: Session, world: World, entity_id: uuid.UUID | None = None) -> list[RelationshipOut]:
@@ -326,13 +396,15 @@ def add_fact(slug: str, entity_id: uuid.UUID, body: FactIn, user: User = Depends
              position=0 if top is None else top + 1, standing=body.standing, evidence=_clean(body.evidence),
              note=_clean(body.note),
              established_in_chapter_id=_chapter_in_world(db, world, body.established_in_chapter_id),
-             from_chapter_id=_chapter_in_world(db, world, body.from_chapter_id),
-             until_chapter_id=_chapter_in_world(db, world, body.until_chapter_id),
-             created_by=user.id, updated_by=user.id)
-    check_span(db, world, f.from_chapter_id, f.until_chapter_id)
+             from_approx=False, until_approx=False, outside_time=False, created_by=user.id, updated_by=user.id)
+    set_bounds(db, world, f, body, body.model_fields_set)
+    check_span(db, world, f)
     db.add(f)
     db.flush()
     prompt = label_prompt(db, world, e, label, had_it)
+    from .history import assign_era_colour
+
+    assign_era_colour(db, world, e)
     db.commit()
     out = fact_out(f)
     out.prompt = prompt
@@ -364,12 +436,18 @@ def update_fact(slug: str, fact_id: uuid.UUID, body: FactUpdate, user: User = De
     for field in ("evidence", "note"):
         if field in sent:
             setattr(f, field, _clean(getattr(body, field)))
-    for field in ("established_in_chapter_id", "from_chapter_id", "until_chapter_id"):
-        if field in sent:
-            setattr(f, field, _chapter_in_world(db, world, getattr(body, field)))
-    check_span(db, world, f.from_chapter_id, f.until_chapter_id)
+    if "established_in_chapter_id" in sent:
+        f.established_in_chapter_id = _chapter_in_world(db, world, body.established_in_chapter_id)
+    set_bounds(db, world, f, body, sent)
+    check_span(db, world, f)
     f.version += 1
     f.updated_by = user.id
+    db.flush()
+    from .history import assign_era_colour
+
+    e = db.get(Entity, f.entity_id)
+    if e is not None:
+        assign_era_colour(db, world, e)
     db.commit()
     return fact_out(f)
 
@@ -485,10 +563,10 @@ def add_relationship(slug: str, body: RelationshipIn, user: User = Depends(curre
     r = Relationship(world_id=world.id, type_id=t.id, a_id=a.id, b_id=b.id, standing=body.standing,
                      evidence=_clean(body.evidence), note=_clean(body.note),
                      established_in_chapter_id=_chapter_in_world(db, world, body.established_in_chapter_id),
-                     from_chapter_id=_chapter_in_world(db, world, body.from_chapter_id),
-                     until_chapter_id=_chapter_in_world(db, world, body.until_chapter_id),
+                     from_approx=False, until_approx=False, outside_time=False,
                      role=clean_role(body.role) if t.has_role else None, created_by=user.id, updated_by=user.id)
-    check_span(db, world, r.from_chapter_id, r.until_chapter_id)
+    set_bounds(db, world, r, body, body.model_fields_set)
+    check_span(db, world, r)
     db.add(r)
     db.commit()
     return relationship_out(r, t, a, b)
@@ -524,12 +602,12 @@ def update_relationship(slug: str, rel_id: uuid.UUID, body: RelationshipUpdate, 
     for field in ("evidence", "note"):
         if field in sent:
             setattr(r, field, _clean(getattr(body, field)))
-    for field in ("established_in_chapter_id", "from_chapter_id", "until_chapter_id"):
-        if field in sent:
-            setattr(r, field, _chapter_in_world(db, world, getattr(body, field)))
+    if "established_in_chapter_id" in sent:
+        r.established_in_chapter_id = _chapter_in_world(db, world, body.established_in_chapter_id)
+    set_bounds(db, world, r, body, sent)
     if "role" in sent:
         r.role = clean_role(body.role)
-    check_span(db, world, r.from_chapter_id, r.until_chapter_id)
+    check_span(db, world, r)
     r.version += 1
     r.updated_by = user.id
     db.commit()
@@ -565,22 +643,50 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
         labels[f.entity_id].add(norm(f.label))
         if f.standing == "canon":
             facts.setdefault(f.entity_id, []).append({"label": f.label, "value": f.value, "from": _sid(f.from_chapter_id),
-                                                      "until": _sid(f.until_chapter_id)})
+                                                      "until": _sid(f.until_chapter_id), **card_times(f)})
     relations: dict[uuid.UUID, list[dict]] = {}
     for r in relationships_of(db, world):
-        span = {"from": _sid(r.from_chapter_id), "until": _sid(r.until_chapter_id)}
+        span = {"from": _sid(r.from_chapter_id), "until": _sid(r.until_chapter_id), **card_times(r)}
         role = {"role": r.role} if r.role else {}
         relations.setdefault(r.a.id, []).append({"label": r.label, "other": r.b.model_dump(mode="json"),
                                                  "standing": r.standing, **span, **role})
         relations.setdefault(r.b.id, []).append({"label": r.reverse_label or r.label,
                                                  "other": r.a.model_dump(mode="json"), "standing": r.standing, **span,
                                                  **role})
-    return [{"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases),
-             "first_name": firsts.get(e.id), "match_case": e.match_case, "exclusions": list(e.exclusions),
-             "summary": e.summary, "facts": facts.get(e.id, []), "relations": card_relations(e, relations.get(e.id, [])),
-             "labels": sorted(labels.get(e.id, ())), "project": projects.get(e.project_id) if e.project_id else None,
-             "gender": e.gender}
-            for e in entities]
+    from .history import event_when
+
+    out = []
+    for e in entities:
+        card = {"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases),
+                "first_name": firsts.get(e.id), "match_case": e.match_case, "exclusions": list(e.exclusions),
+                "summary": e.summary, "facts": facts.get(e.id, []), "relations": card_relations(e, relations.get(e.id, [])),
+                "labels": sorted(labels.get(e.id, ())), "project": projects.get(e.project_id) if e.project_id else None,
+                "gender": e.gender}
+        # an event's "when" and an era's colour, so a time's era is found on the device (docs/SPEC.md §13.2.1)
+        if e.kind == "event":
+            when = event_when(e)
+            if when:
+                card["when"] = when
+            if e.era_colour:
+                card["era_colour"] = e.era_colour
+        out.append(card)
+    return out
+
+
+def card_times(x) -> dict:  # type: ignore[no-untyped-def]
+    """Time bounds and outside time on a card, only when set (most facts have neither, and the cards stay small)."""
+    out: dict = {}
+    if x.from_time is not None:
+        out["from_time"] = float(x.from_time)
+        if x.from_approx:
+            out["from_approx"] = True
+    if x.until_time is not None:
+        out["until_time"] = float(x.until_time)
+        if x.until_approx:
+            out["until_approx"] = True
+    if x.outside_time:
+        out["outside_time"] = True
+    return out
 
 
 # a character's species and outward form, and who possesses them, read by label from the character's side
@@ -594,8 +700,9 @@ def card_relations(e: Entity, rels: list[dict]) -> list[dict]:
     outward form, and who possesses them), so the word beside the name follows "as of" offline too."""
     out = rels[:16]
     if e.kind == "character":
+        # and every event: a birth or a death event is how an age is worked out (docs/SPEC.md §13.2.4)
         out += [r for r in rels[16:] if (r["other"]["kind"] == "species" and SPECIES_RE.match(r["label"].strip()))
-                or POSSESSED_RE.match(r["label"].strip())]
+                or POSSESSED_RE.match(r["label"].strip()) or r["other"]["kind"] == "event"]
     return out
 
 
@@ -627,15 +734,18 @@ def role_suggestions(slug: str, user: User = Depends(current_user), db: Session 
 class ChangeRoleIn(BaseModel):
     base_version: int
     role: str | None = Field(default=None, max_length=100)
-    # where the new role starts: a chapter (the old one ends at the chapter before it)
-    from_chapter_id: uuid.UUID
+    # where the new role starts: a chapter (the old one ends at the chapter before it on the clock), or a time (the
+    # two meet there: a handover)
+    from_chapter_id: uuid.UUID | None = None
+    from_time: float | None = None
+    from_approx: bool = False
 
 
 @router.post("/relationships/{rel_id}/change-role", status_code=201)
 def change_role(slug: str, rel_id: uuid.UUID, body: ChangeRoleIn, user: User = Depends(current_user),
                 db: Session = Depends(get_db)):
-    """A promotion is a new span: the relationship ends just before the chosen chapter, and a copy with the new role
-    starts there. With no chapter before it in the story, the two meet at the chosen chapter (a handover)."""
+    """A promotion is a new span: the relationship ends just before the chosen chapter (or time), and a copy with the
+    new role starts there. With no chapter before it on the clock, the two meet at the chosen chapter (a handover)."""
     world, _ = member_world(db, user, slug)
     r = _relationship(db, world, rel_id)
     a, b = db.get(Entity, r.a_id), db.get(Entity, r.b_id)
@@ -645,19 +755,29 @@ def change_role(slug: str, rel_id: uuid.UUID, body: ChangeRoleIn, user: User = D
         return JSONResponse(status_code=409, content={
             "detail": "This relationship changed elsewhere. Here is the newer version.",
             "relationship": relationship_out(r, t, a, b).model_dump(mode="json")})
-    start = _chapter_in_world(db, world, body.from_chapter_id)
-    from .storytime import story_order
-
-    order = [c.id for c, _ in story_order(db, world)]
-    if start not in order:
-        raise HTTPException(422, "Pick a chapter in the book.")
-    i = order.index(start)
     copy = Relationship(world_id=world.id, type_id=r.type_id, a_id=r.a_id, b_id=r.b_id, standing=r.standing,
-                        note=r.note, from_chapter_id=start, until_chapter_id=r.until_chapter_id,
+                        note=r.note, until_chapter_id=r.until_chapter_id, until_time=r.until_time,
+                        until_approx=r.until_approx, outside_time=False, from_approx=False,
                         role=clean_role(body.role), created_by=user.id, updated_by=user.id)
-    r.until_chapter_id = order[i - 1] if i > 0 else start
-    check_span(db, world, r.from_chapter_id, r.until_chapter_id)
-    check_span(db, world, copy.from_chapter_id, copy.until_chapter_id)
+    if body.from_time is not None:
+        copy.from_time, copy.from_approx = body.from_time, body.from_approx
+        r.until_chapter_id, r.until_time, r.until_approx = None, body.from_time, body.from_approx
+    else:
+        if body.from_chapter_id is None:
+            raise HTTPException(422, "Pick where the new role starts: a chapter or a time.")
+        start = _chapter_in_world(db, world, body.from_chapter_id)
+        from .storytime import world_clock
+
+        clock = world_clock(db, world)
+        x = clock.get(start)
+        if x is None or x.place is None:
+            raise HTTPException(422, "Pick a chapter in the book, on the clock.")
+        copy.from_chapter_id = start
+        r.until_chapter_id = clock.happened[x.place - 1].id if x.place > 0 else start
+        r.until_time, r.until_approx = None, False
+    r.outside_time = False
+    check_span(db, world, r)
+    check_span(db, world, copy)
     r.version += 1
     r.updated_by = user.id
     db.add(copy)
@@ -671,10 +791,10 @@ def end_before(slug: str, rel_id: uuid.UUID, other_id: uuid.UUID, user: User = D
     """Resolve two holders of a one-at-a-time role: the earlier one ends where the other starts (a handover)."""
     world, _ = member_world(db, user, slug)
     r, other = _relationship(db, world, rel_id), _relationship(db, world, other_id)
-    if other.from_chapter_id is None:
+    if other.from_chapter_id is None and other.from_time is None:
         raise HTTPException(422, "The other one holds from the start: there is nothing to end before.")
-    r.until_chapter_id = other.from_chapter_id
-    check_span(db, world, r.from_chapter_id, r.until_chapter_id)
+    r.until_chapter_id, r.until_time, r.until_approx = other.from_chapter_id, other.from_time, other.from_approx
+    check_span(db, world, r)
     r.version += 1
     r.updated_by = user.id
     db.commit()

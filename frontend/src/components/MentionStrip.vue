@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 
 import type { StoryChapter } from "../types";
 import { mentionStrip, type StripCell } from "../world/strip";
+import type { At, IndexOf } from "../world/time";
 
 // Where in the story an entry is named (docs/SPEC.md §12.1): a cell per current chapter, filled by how often, a bar
 // under its point-of-view chapters, gaps bracketed below, and a line that sums it up. Resting on a cell (long-press on
@@ -13,10 +14,12 @@ const props = defineProps<{
   timeline: StoryChapter[];
   /** chapter id -> how often it names the entry */
   counts: Map<string, number>;
-  asOf: number | null;
+  /** "as of": the strip stays in book order, and dims what is later on the clock */
+  asOf: At | null;
+  indexOf?: IndexOf;
 }>();
 
-const strip = computed(() => mentionStrip(props.timeline, props.counts, props.entityId, props.asOf));
+const strip = computed(() => mentionStrip(props.timeline, props.counts, props.entityId, props.asOf, props.indexOf));
 const several = computed(() => strip.value.rows.length > 1);
 const inGap = (n: number) => strip.value.gaps.find((g) => g.from <= n && n <= g.to);
 const tip = ref("");

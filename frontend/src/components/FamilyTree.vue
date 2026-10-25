@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+import { useCards } from "../world/cards";
+import { birthOf } from "../world/eras";
 import { Family, kinOf, kinText, layoutTree, SLOT, type FamilyLink } from "../world/family";
 import type { GraphData } from "../world/graph";
+import { numberText } from "../world/time";
 
 // A family drawn in generations (docs/SPEC.md §12.2): couples side by side (a double line when married, a single one
 // for two parents who aren't), children hanging from their parents, recorded siblings without parents from a "?".
@@ -20,7 +23,19 @@ const emit = defineEmits<{ centre: [id: string] }>();
 
 const fam = computed(() => new Family(props.links));
 const node = computed(() => new Map(props.data.nodes.map((n) => [n.id, n])));
-const tree = computed(() => (fam.value.people.has(props.centre) ? layoutTree(fam.value, props.centre, (id) => node.value.get(id)?.name ?? id) : null));
+// a lineage's gap, from the two birth times when both are known (docs/SPEC.md §13.5): "about 600 years"
+const cards = useCards();
+function gap(ancestor: string, descendant: string): string {
+  const chapters = new Map(cards.timeline.map((c) => [c.id, c]));
+  const [a, d] = [ancestor, descendant].map((id) => {
+    const c = cards.byId.get(id);
+    return c ? birthOf(c, cards.byId, chapters) : null;
+  });
+  if (!a || !d) return "generations not recorded";
+  const n = Math.round(Math.abs(d.t - a.t));
+  return `about ${numberText(n)} ${n === 1 ? cards.unit.unit : cards.unit.units}`;
+}
+const tree = computed(() => (fam.value.people.has(props.centre) ? layoutTree(fam.value, props.centre, (id) => node.value.get(id)?.name ?? id, gap) : null));
 const how = computed(() => {
   const out = new Map<string, string[]>();
   for (const k of kinOf(fam.value, props.centre)) out.set(k.id, [...(out.get(k.id) ?? []), kinText(k, node.value.get(k.id)?.gender)]);

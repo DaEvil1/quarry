@@ -3,7 +3,9 @@ import { computed, ref, watch } from "vue";
 
 import { addRelationship, changeRole, deleteRelationship, roleSuggestions, rolesFor, typeOptions, updateRelationship, type RoleSuggestions } from "../bible";
 import type { Entity, EntityRef, RelationType, Relationship, Span, Standing, StoryChapter } from "../types";
-import { holds, type IndexOf } from "../world/time";
+import { holds, type At, type IndexOf } from "../world/time";
+import type { Era } from "../world/eras";
+import type { Unit } from "../world/when";
 import EntityPicker from "./EntityPicker.vue";
 import InlineText from "./InlineText.vue";
 import SpanPicker from "./SpanPicker.vue";
@@ -18,8 +20,10 @@ const props = defineProps<{
   types: RelationType[];
   names: EntityRef[];
   timeline: StoryChapter[];
-  asOf: number | null;
+  asOf: At | null;
   indexOf: IndexOf;
+  unit?: Unit;
+  eraOf?: (t: number | null | undefined) => Era | null;
 }>();
 const off = (r: Relationship) => props.asOf !== null && !holds(r, props.asOf, props.indexOf);
 const setSpan = (r: Relationship, span: Span) => run(() => updateRelationship(props.world, r, span));
@@ -96,16 +100,19 @@ function add() {
 const changing = ref<string | null>(null);
 const changeFrom = ref("");
 const changeTo = ref("");
+const changeTime = ref("");
 function startChange(r: Relationship) {
   changing.value = r.id;
-  changeFrom.value = props.timeline.find((c) => props.asOf !== null && c.index === props.asOf)?.id ?? "";
-  changeTo.value = "";
+  changeFrom.value = props.timeline.find((c) => props.asOf !== null && props.indexOf(c.id) === props.asOf)?.id ?? "";
+  changeTo.value = changeTime.value = "";
 }
 function doChange(r: Relationship) {
   if (!changeFrom.value) return;
   const to = changeTo.value.trim() || null;
+  const at = changeFrom.value === "time" ? Number(changeTime.value.replace("−", "-")) : null;
+  if (at !== null && !Number.isFinite(at)) return;
   changing.value = null;
-  void run(() => changeRole(props.world, r, to, changeFrom.value));
+  void run(() => changeRole(props.world, r, to, at === null ? { chapter: changeFrom.value } : { time: at }));
 }
 </script>
 
@@ -128,7 +135,7 @@ function doChange(r: Relationship) {
             <select class="standing" :class="r.standing" :value="r.standing" aria-label="Standing" @change="run(() => updateRelationship(props.world, r, { standing: ($event.target as HTMLSelectElement).value as Standing }))">
               <option v-for="s in STANDINGS" :key="s" :value="s">{{ s }}</option>
             </select>
-            <SpanPicker :span="r" :timeline="props.timeline" @save="(sp) => setSpan(r, sp)" />
+            <SpanPicker :span="r" :timeline="props.timeline" :unit="props.unit" :era-of="props.eraOf" @save="(sp) => setSpan(r, sp)" />
             <span v-if="r.note" class="muted small">— {{ r.note }}</span>
             <button v-if="r.has_role && props.timeline.length && changing !== r.id" type="button" class="linkish small" data-testid="change-role" @click="startChange(r)">Change role from here…</button>
             <form v-if="changing === r.id" class="span-form" data-testid="change-role-form" @submit.prevent="doChange(r)" @keydown.esc.prevent="changing = null">
@@ -136,8 +143,10 @@ function doChange(r: Relationship) {
                 <select v-model="changeFrom" class="filter" aria-label="New role from">
                   <option value="" disabled>a chapter…</option>
                   <option v-for="c in props.timeline" :key="c.id" :value="c.id">{{ c.title }}</option>
+                  <option value="time">A time…</option>
                 </select>
               </label>
+              <input v-if="changeFrom === 'time'" v-model="changeTime" class="filter time-num" inputmode="decimal" aria-label="New role from a time" :placeholder="props.unit?.unit ?? 'year'" />
               <input v-model="changeTo" class="filter" :list="listId(r.type_id, r.b.id)" placeholder="new role" aria-label="New role" maxlength="100" />
               <button class="btn btn-sm btn-primary" type="submit" :disabled="!changeFrom">Change</button>
               <button class="btn btn-sm" type="button" @click="changing = null">Cancel</button>

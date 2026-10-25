@@ -13,7 +13,7 @@ export const EDITORS: { name: EditorName; label: string; about: string }[] = [
   { name: "proofreader", label: "Proofreader", about: "doubled words, the same word close together, spacing, likely misspelled names" },
   { name: "continuity", label: "Continuity", about: "dead but named, before being born, conflicting facts, point of view, places inside themselves" },
   { name: "connections", label: "Connections", about: "names that share a sentence or paragraph with no recorded link, and where people are" },
-  { name: "archivist", label: "Archivist", about: "possible new names, entries without a one-liner, spellings worth adding, expected labels, entries of another book's bible" },
+  { name: "archivist", label: "Archivist", about: "possible new names, entries without a one-liner, spellings worth adding, expected labels, entries of another book's bible, evidence in Salvage" },
   { name: "looseEnds", label: "Loose ends", about: "TK placeholders, margin notes, thoughts stashed for this chapter, your note for next time" },
 ];
 
@@ -37,6 +37,8 @@ export interface Finding {
   places?: EntityRef[];
   /** an expected label the entry hasn't got */
   label?: string;
+  /** evidence resting on a retired chapter: what it is, and where its passage is found now */
+  evidence?: { kind: "fact" | "relationship" | "telling"; id: string; found: { id: string; title: string }[] };
 }
 
 export interface AnalyseInput {
@@ -55,6 +57,8 @@ export interface AnalyseInput {
   projectName?: (slug: string) => string;
   /** the labels expected on every entry of a kind */
   expected?: (kind: string) => string[];
+  /** evidence resting on passages in retired chapters, from the server (docs/SPEC.md §13.6.3) */
+  evidence?: { key: string; kind: "fact" | "relationship" | "telling"; id: string; message: string; entities: EntityRef[]; found: { id: string; title: string }[] }[];
 }
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}:${b}` : `${b}:${a}`);
@@ -343,6 +347,11 @@ export function analyse(input: AnalyseInput): Finding[] {
             message: `${c.name} has no ${label} (expected for ${plural}).` });
         }
       }
+    }
+    // evidence that rests on a passage in a retired chapter, for the entries named here
+    for (const x of input.evidence ?? []) {
+      const who = x.entities.find((e) => named.includes(e.id));
+      if (who) keep({ editor: "archivist", rule: "evidence_retired", key: x.key, a: who, message: x.message, evidence: { kind: x.kind, id: x.id, found: x.found } });
     }
     const misses = new Map<string, { n: number; h: Hit }>();
     for (const h of hits.filter((x) => x.kind === "near_miss")) {

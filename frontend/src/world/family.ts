@@ -7,7 +7,7 @@
 
 import type { Gender } from "../types";
 import type { GraphData } from "./graph";
-import { holds, type IndexOf } from "./time";
+import { holds, type At, type IndexOf } from "./time";
 
 export type LinkKind = "parent" | "married" | "sibling" | "ancestor";
 
@@ -50,7 +50,7 @@ export function readType(label: string, reverse: string | null): { kind: LinkKin
 }
 
 export interface FamilyFilter {
-  asOf: number | null;
+  asOf: At | null;
   indexOf: IndexOf;
   standings: Set<string>;
 }

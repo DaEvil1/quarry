@@ -2,8 +2,25 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { resolve } from "../companion";
+import RetireReview from "../components/RetireReview.vue";
 import { listCuts, type Cut } from "../cuts";
-import { addHarvestNote, getManuscript, getSalvage, reinstateChapter, statusStrength, type ChapterInfo, type SalvageEntry } from "../manuscript";
+import {
+  addHarvestNote,
+  evidenceRetired,
+  getManuscript,
+  getSalvage,
+  reAnchor,
+  reinstateChapter,
+  reinstateRows,
+  reviewLine,
+  reviewRetired,
+  statusStrength,
+  type ChapterInfo,
+  type Choice,
+  type EvidenceFinding,
+  type SalvageEntry,
+} from "../manuscript";
 import { useSession } from "../stores/session";
 import NotFoundView from "./NotFoundView.vue";
 
@@ -28,17 +45,69 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 const fmtTime = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
+const evidence = ref<EvidenceFinding[]>([]);
 async function load() {
   if (!world.value || !project.value) return;
   error.value = "";
   try {
-    [entries.value, cuts.value] = await Promise.all([
+    [entries.value, cuts.value, evidence.value] = await Promise.all([
       getSalvage(world.value.slug, project.value.slug, q.value.trim()),
       listCuts(world.value.slug, project.value.slug, q.value.trim(), showPutBack.value),
+      evidenceRetired(world.value.slug).catch(() => [] as EvidenceFinding[]),
     ]);
   } catch (e) {
     error.value = (e as Error).message;
   }
+}
+
+// ---- what a review did, a review for a chapter retired before reviews, and evidence left here (docs/SPEC.md
+// §13.6.2, §13.6.3) ----
+const evidenceIn = (id: string) => evidence.value.filter((x) => x.chapter.id === id);
+const tiedLine = (t: NonNullable<SalvageEntry["still_tied"]>) =>
+  [[t.facts, "fact"], [t.relationships, "relationship"], [t.is_at, "“is at”"], [t.items, "item"], [t.notes, "note"]]
+    .filter(([n]) => n)
+    .map(([n, w]) => `${n} ${w}${n === 1 || w === "“is at”" ? "" : "s"}`)
+    .join(", ");
+const reviewingId = ref<string | null>(null);
+async function loadChapters() {
+  if (!chapters.value.length && world.value && project.value) {
+    const m = await getManuscript(world.value.slug, project.value.slug).catch(() => null);
+    chapters.value = m ? [...m.chapters, ...m.experiments.flatMap((x) => x.drafts)] : [];
+  }
+}
+async function startReview(id: string) {
+  await loadChapters();
+  reviewingId.value = id;
+}
+async function applyReview(id: string, review: Choice[]) {
+  if (!world.value) return;
+  try {
+    const done = await reviewRetired(world.value.slug, id, review);
+    reviewingId.value = null;
+    notice.value = `Reviewed: ${reviewLine(done.summary)}.`;
+    await load();
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+const anchoring = ref<string | null>(null);
+const anchorTo = ref("");
+async function startAnchor(x: EvidenceFinding) {
+  await loadChapters();
+  anchoring.value = x.key;
+  anchorTo.value = x.found[0]?.id ?? "";
+}
+async function doAnchor(x: EvidenceFinding) {
+  if (!world.value || !anchorTo.value) return;
+  await reAnchor(world.value.slug, x.kind, x.id, anchorTo.value);
+  anchoring.value = null;
+  notice.value = "The evidence points there now.";
+  await load();
+}
+async function dismiss(x: EvidenceFinding) {
+  if (!world.value) return;
+  await resolve(world.value.slug, "evidence_retired", x.key, "intentional");
+  await load();
 }
 watch(project, load, { immediate: true });
 watch(showPutBack, load);
@@ -58,6 +127,12 @@ async function saveNote(id: string) {
 
 async function reinstate(id: string) {
   if (!world.value) return;
+  const e = entries.value.find((x) => x.id === id);
+  // Reinstate: what its review changed can go back as it was
+  if (e?.review && (e.review.move || e.review.planned || e.review.drop || e.review.keep) && confirm(`Its review ${reviewLine(e.review)}. Put those back as they were too?`)) {
+    const r = await reinstateRows(world.value.slug, id);
+    notice.value = `${r.restored} put back${r.skipped ? `; ${r.skipped} changed since, left as they are` : ""}.`;
+  }
   await reinstateChapter(world.value.slug, id);
   await load();
 }
@@ -72,7 +147,7 @@ async function startPutBack(c: Cut) {
   target.value = c.chapter && c.chapter.state !== "retired" ? c.chapter.id : "";
   if (!chapters.value.length && world.value && project.value) {
     const m = await getManuscript(world.value.slug, project.value.slug).catch(() => null);
-    chapters.value = m ? [...m.chapters, ...m.experiments] : [];
+    chapters.value = m ? [...m.chapters, ...m.experiments.flatMap((x) => x.drafts)] : [];
   }
   if (!target.value) target.value = chapters.value[0]?.id ?? "";
 }
@@ -135,6 +210,31 @@ const strength = (e: SalvageEntry) => (e.status ? statusStrength(e.status.positi
         <ul v-if="e.harvest_notes.length" class="harvest">
           <li v-for="n in e.harvest_notes" :key="n.id">{{ n.body }}</li>
         </ul>
+        <p v-if="e.review" class="small muted" data-testid="review-line">Its review: {{ reviewLine(e.review) }}.</p>
+        <p v-if="e.still_tied" class="small warn" data-testid="still-tied">
+          Still tied: {{ tiedLine(e.still_tied) }} · <button type="button" class="linkish" @click="startReview(e.id)">Review…</button>
+        </p>
+        <RetireReview v-if="reviewingId === e.id" :world="world.slug" :chapters="[{ id: e.id, title: e.title }]" :targets="chapters.map((c) => ({ id: c.id, title: c.title }))" verb="Apply" :notes="false"
+          @done="(r) => applyReview(e.id, r)" @cancel="reviewingId = null" />
+        <div v-for="x in evidenceIn(e.id)" :key="x.key" class="finding small" data-rule="evidence_retired" data-testid="evidence-finding">
+          <div>{{ x.message }} <span class="muted">“{{ x.passage }}”</span></div>
+          <form v-if="anchoring === x.key" class="actions" @submit.prevent="doAnchor(x)">
+            <select v-model="anchorTo" class="filter" aria-label="Re-anchor to">
+              <optgroup v-if="x.found.length" label="Where the passage is now">
+                <option v-for="c in x.found" :key="c.id" :value="c.id">{{ c.title }}{{ c.state === "experiment" ? " (draft)" : "" }}</option>
+              </optgroup>
+              <optgroup label="Other chapters">
+                <option v-for="c in chapters.filter((c) => !x.found.some((y) => y.id === c.id))" :key="c.id" :value="c.id">{{ c.title }}</option>
+              </optgroup>
+            </select>
+            <button class="btn btn-sm btn-primary" type="submit">Re-anchor</button>
+            <button class="btn btn-sm" type="button" @click="anchoring = null">Cancel</button>
+          </form>
+          <span v-else class="qrow">
+            <button type="button" class="qchip primary" @click="startAnchor(x)">Re-anchor…</button>
+            <button type="button" class="qchip quiet" @click="dismiss(x)">Dismiss</button>
+          </span>
+        </div>
         <form v-if="noting === e.id" class="actions" @submit.prevent="saveNote(e.id)">
           <label :for="`note-${e.id}`" class="visually-hidden">Harvest note</label>
           <input :id="`note-${e.id}`" v-model="note" class="filter grow" type="text" maxlength="5000" placeholder="What was alive in it?" />

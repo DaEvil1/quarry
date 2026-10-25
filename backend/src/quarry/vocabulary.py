@@ -126,7 +126,8 @@ SUGGESTED_FACTS: dict[str, list[str]] = {
     # a species is described with facts, not fields (docs/SPEC.md §13.3)
     "species": ["form", "sapient", "size", "lifespan", "habitat", "diet", "reproduction", "appearance",
                 "pronunciation", "name meaning"],
-    "event": ["type", "when", "outcome", "name meaning"],
+    # "when" is a field on events now (docs/SPEC.md §13.2.1); existing "when" facts stay, as facts
+    "event": ["type", "outcome", "name meaning"],
     "object": ["material", "appearance", "power", "age", "name meaning"],
     "term": ["meaning", "usage", "name meaning"],
     "other": ["name meaning"],
