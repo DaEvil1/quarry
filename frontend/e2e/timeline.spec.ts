@@ -274,3 +274,25 @@ test("13.2.2: the unplaced tray sets a time, outside time has its strip, and the
   // the nav has the page after Graph
   await expect(page.getByTestId("nav-timeline")).toBeVisible();
 });
+
+test("the Timeline's height: dragged taller with the handle, kept through a reload, and back to the window on a double-click", async () => {
+  await page.goto(`${W}/timeline`);
+  const handle = page.getByTestId("timeline-resize");
+  await expect(handle).toBeVisible();
+  const start = (await box(timeline())).height;
+  const h = await box(handle);
+  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2 + 200, { steps: 8 });
+  await page.mouse.up();
+  await expect(async () => expect((await box(timeline())).height).toBeGreaterThan(start + 150)).toPass({ timeout: 5000 });
+  const dragged = (await box(timeline())).height;
+  // kept on this device
+  await page.reload();
+  await expect(async () => expect(Math.abs((await box(timeline())).height - dragged)).toBeLessThan(4)).toPass({ timeout: 5000 });
+  // a double-click goes back to filling the window
+  await handle.dblclick();
+  await expect(async () => expect((await box(timeline())).height).toBeLessThan(dragged - 100)).toPass({ timeout: 5000 });
+  await page.reload();
+  await expect(async () => expect((await box(timeline())).height).toBeLessThan(dragged - 100)).toPass({ timeout: 5000 });
+});

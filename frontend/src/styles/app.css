@@ -875,6 +875,10 @@ svg.family-tree { display: block; }
 .lane-pick { max-width: 420px; margin-bottom: 10px; }
 .timeline-wrap { width: 100%; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); touch-action: none; user-select: none; }
 svg.timeline { display: block; cursor: grab; outline: none; font: 11.5px system-ui, -apple-system, "Segoe UI", sans-serif; }
+/* the handle under the Timeline: a grip in the middle of a thin strip, brighter when a height has been chosen */
+.tl-resize { height: 10px; cursor: ns-resize; border-top: 1px solid var(--border); touch-action: none;
+  background: linear-gradient(var(--muted), var(--muted)) center / 36px 2px no-repeat; opacity: .55; }
+.tl-resize:hover, .tl-resize.chosen { opacity: 1; }
 svg.timeline:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 svg.timeline:active { cursor: grabbing; }
 .tl-era { fill: var(--era-bg); stroke: none; opacity: .75; }
