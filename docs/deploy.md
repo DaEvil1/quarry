@@ -113,6 +113,11 @@ sudo nginx -t && sudo systemctl reload nginx
 (certbot added its own lines to the site file, so change the one setting in place rather than copying the file
 over it.)
 
+The export and restore routes have their own `location` block with a longer timeout (300 s), since a world of
+thousands of entries takes longer than 30 s to restore. Paste the block from `nginx-quarry.conf` (the one starting
+`location ~ ^/api/worlds/(restore|`) into the HTTPS `server` block of `/etc/nginx/sites-available/quarry`, below the
+`location /` block, then `sudo nginx -t && sudo systemctl reload nginx`.
+
 Migrations run at startup. The managed cluster's daily backups cover the database.
 
 ## Locked out
