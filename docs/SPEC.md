@@ -209,8 +209,8 @@ quarry/                      # public GitHub repo (code only)
     entry's thread through the planning, sparks and questions from a passage, loose ends in the Journal, a front page
     for getting back into a world, "since this was written" on journal entries, "Include planned" on the Continuity
     checks, cause arrows on the Timeline, entries of more than one kind, and a focus per world (writing or
-    planning). Designed in §14, with a *done when* per
-    part; built after phase 12 is merged, as two build phases, 13a and 13b (§14.11).
+    planning), and names shared by two entries, settled by a line in the text. Designed in §14, with a *done when* per
+    part; built after phase 12 is merged, as build phases 13a, 13b and 13c (§14.12).
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -1932,7 +1932,8 @@ names Varren, Isolde and the Lamp Guild; the book has only a few chapters so far
   entry (Ctrl+F), the word count, and *stash a thought* (Ctrl+Shift+S), whose spark is tied to the entry.
 - **What stays with chapters**: POV, summary, status, *set in* and *told as*, "is at" and *Moved…*, *Cut to bin*,
   find and replace across chapters, changes since a checkpoint, experiments and retiring, margin notes (a `%%` line in
-  the Journal is ordinary text: the whole entry is a note to yourself), and word history (it counts the book).
+  the Journal is ordinary text: the whole entry is a note to yourself; only a choice line for a shared name, §14.10,
+  is read there), and word history (it counts the book).
 - **The side panel** has the names in the entry (the cast, below), the items linked to it, History, the note for next
   time (§14.4) and *Since this was written* (§14.5).
 - **The companion's tabs** in a journal entry:
@@ -2398,7 +2399,97 @@ planning links, the Timeline after Decisions, the projects last), turns *Include
 the world again on the desk lands on the front page, while the phone shows *Planning* too; switching back to
 *Writing* puts the projects first, turns *Include planned* off, and the world opens at the last chapter used.
 
-### 14.10 Data model, in one place
+### 14.10 Names shared by two entries
+
+Two characters can share a first name: Isolde Marr and Isolde Senn. Today a first name matches only when one entry
+claims it, so where the book calls her just *Isolde*, the cast, the mentions and the checks miss both. An other name
+given to two entries (two characters each called *the Warden*) is worse: it silently goes to whichever entry comes
+first. From phase 13 such a name is **shared**, and the writer says in the text which entry it means from that point
+on. (From the analysis of Thomas's screenplay notes, where several characters share first names.)
+
+- **What is shared.** A form that two or more entries claim: a character's first name (WORLD-MODEL.md §2) or an other
+  name. An entry's own name is never shared: where a form is one entry's name and another's other name or first
+  name, the name wins, as first names already give way today. Switching *first name matches* off on one of two
+  characters makes the other's first name theirs alone again. Names stay unique, as today.
+- **Before any choice: ambiguous.** A bare *Isolde* with no choice above it is **ambiguous**. The editor colours it
+  by kind (the claimants' kind, or the plain name colour when they differ), and while Revising it also has a faint
+  dotted underline, like a possible new name. Its card lists every claimant with their one-liner, then the strip
+  below. An ambiguous name can stay ambiguous for good: nothing asks.
+- **A choice is a margin-note line**: `%% Isolde: Isolde Marr`.
+  - After the colon, one or more claimants, separated by commas, each by its full name or by any word of it that
+    singles it out (`%% Isolde: Marr`, `%% Isolde: Marr, Senn`, capitals ignored). `?` makes the name ambiguous again.
+  - It holds from the line to the next choice line for the same name, or to the end of the chapter. Nothing carries
+    over between chapters, so every chapter starts ambiguous, and a chapter that never uses the bare name needs no
+    line.
+  - The name before the colon is read as names are matched (capitals per entry), and its plural and possessive forms
+    follow it: *Isolde's* follows the choice for *Isolde*.
+  - A `%%` line that doesn't start with a shared name and a colon is an ordinary margin note, as today. A choice line
+    whose words single out no claimant does nothing, has a wavy underline while Revising, and its strip offers the
+    claimants to put in instead.
+  - Being margin notes, choice lines stay in the text, so they survive edits, cuts, experiments (a draft starts as a
+    copy of the chapter), offline use, export and Restore. They are dimmed, and left out of the word count, the
+    compiled manuscript and `manuscript.md`, like any margin note. A choice line names nobody: its names aren't
+    mentions. A rename's *Replace in the text…* (§11.7) includes margin notes, so choice lines follow a renamed
+    entry.
+- **Making the choice.** On an ambiguous name, the quick-fix strip (pointing at it, Alt+Enter, F8, a long-press on the
+  phone) offers `From here: Marr · Senn · Both` (with three claimants, each of them and *All*). One click inserts
+  `%% Isolde: Isolde Marr` on its own line above the paragraph (*Both* writes every claimant), and the name is
+  coloured as that entry's at once. On a shared name that a line has settled, the card is the chosen entry's and the
+  strip offers the others, *Both* and *Unsure*, which insert a new line above this paragraph the same way. When the
+  line right above the paragraph is already a choice for this name, the click rewrites that line instead of adding a
+  second. As everywhere in the editor (WORLD-MODEL.md §5), nothing appears while typing.
+- **F8** stops at ambiguous names with the other marked words. A choice holds for the rest of the chapter, so a sweep
+  meets only the first ambiguous use in each stretch.
+- **How each state counts**:
+  - **chosen** (one entry): a mention of that entry like any other, for the cast, the mentions strip, first
+    appearance, the thread readings, entries across chapters, connections and the Continuity checks;
+  - **several** (*Both*): a mention of each;
+  - **ambiguous**: shown faintly for each claimant, and counted for none. The mentions strip (§12.1) draws a chapter
+    whose only uses are ambiguous as a faint cell, and the line above it adds `+ 6 unsettled in 3 chapters`; the
+    side panel's cast lists the claimants once, as `Isolde? Marr · Senn`. Ambiguous uses drive no Continuity
+    findings, no unrecorded connections, no first appearance and no gaps. The thread readings (§11.4, §14.2) leave
+    them out and say so: `+ 4 paragraphs where "Isolde" isn't settled`.
+- **Both matchers agree.** The server's matcher (`mentions.py`) and the browser's (`matcher.ts`) read shared names and
+  choice lines the same way: the cards carry each character's first name whether or not it is shared, and each side
+  works out what is shared from them. The same table of cases is run by pytest and Vitest. A likely misspelling of a
+  shared name (*Isolda*) still offers *Replace*, which is the same word whoever is meant; it is stored against the
+  first claimant, as before.
+- **Outside chapters.** In the Journal, once its entries are in the editor (§14.1.1), choice lines are read and
+  dimmed as in a chapter, while other `%%` lines stay ordinary text there. In items, decisions and an entry's notes a
+  shared name is always ambiguous, except that in an entry's own notes a shared name that is one of its own means the
+  entry itself (Isolde Marr's notes calling her *Isolde* aren't about Isolde Senn).
+- **Changing names.** Renaming, adding or removing an other name, or switching *first name matches* can make a name
+  shared or no longer shared; mentions are worked out again, as for any change of names. A choice line for a name
+  that is no longer shared is an ordinary margin note.
+- **Typing.** Choice lines are found per changed line, as names are; the editor keeps their places and settles each
+  shared name by the nearest choice line above it, so the typing budget (DECISIONS, 2026-10-22) holds, with 400
+  entries and a 10,000-word chapter, also at 4× slower CPU.
+
+**Data:**
+
+```sql
+mentions   kind + 'ambiguous'      -- the CHECK widens: exact | alias | near_miss | ambiguous
+```
+
+Nothing else is stored: the choices are in the text. A chosen name is stored as an `alias` mention of the chosen
+entry, several as one `alias` mention per chosen entry at the same place, and an ambiguous name as one `ambiguous`
+mention per claimant at the same place. Everything that counts mentions today (`kind != 'near_miss'`) counts `exact`
+and `alias` only; the mentions strip, the entry page and the cast read `ambiguous` as well. The upgrade widens the
+CHECK and works out every world's mentions again once, so a bare first name that matched nothing before shows as
+ambiguous, and an other name that went to the first of two entries becomes ambiguous until a line settles it.
+Export and Restore carry the lines as part of the text; nothing changes in the files.
+
+*Done when* a chapter that calls her *Isolde*, with no choice line, colours the name as a character, its card lists
+Isolde Marr and Isolde Senn, both entry pages show it faintly as unsettled, and Checks gives no finding for it though
+Isolde Senn is recorded dead from an earlier chapter; *From here: Marr* inserts `%% Isolde: Isolde Marr` above the
+paragraph, after which that and every later bare *Isolde* in the chapter count for Isolde Marr only, and the next
+chapter starts ambiguous again; a later `%% Isolde: Senn` switches to Isolde Senn, giving the *named after being
+recorded dead* finding; *Both* counts the name for each; `%% Isolde: ?` makes it ambiguous again; the line is dimmed,
+not in the word count and not in the compiled manuscript; two characters both given the other name *the Warden*
+share it the same way; a choice line in a journal entry settles the name there; the server's mentions and the
+editor's colours agree on every case in the shared table; and exporting and restoring the world keeps the choices.
+
+### 14.11 Data model, in one place
 
 ```sql
 revisions      doc_table + 'journal'                                        -- §14.1.1
@@ -2410,6 +2501,7 @@ worlds         + premise text NULL                                          -- �
 session_notes  + journal_id NULL; chapter_id NULL-able, exactly one of them -- §14.4
 entities       + also_kinds text[]                                          -- §14.8
 world_members  + focus text default 'writing'                               -- §14.9; writing | planning
+mentions       kind + 'ambiguous'                                           -- §14.10; one row per claimant
 ```
 
 Endpoints: the journal is saved like a chapter, with revisions, and joins `GET /offline` (§14.1.1); facts and
@@ -2417,7 +2509,8 @@ relationships take where they were planned and *make canon*, and `POST /events/r
 (§14.1.2); `GET /planning` (§14.2); `POST /items` takes a chapter or journal entry with a passage (§14.3); `GET
 /worlds/<slug>/front`, `premise` on `PATCH /worlds/<slug>`, and the journal's session notes (§14.4); `GET
 /journal/<id>/since` and counts on `GET /journal` (§14.5); `planned=1` on `GET /checks` (§14.6); one more check
-(§14.7); `also_kinds` on `PATCH /entities/<id>` (§14.8); `PUT /worlds/<slug>/focus` (§14.9). The planning reading, loose ends, *Lately*, *since this was
+(§14.7); `also_kinds` on `PATCH /entities/<id>` (§14.8); `PUT /worlds/<slug>/focus` (§14.9); first names on every
+character's card, shared or not (§14.10). The planning reading, loose ends, *Lately*, *since this was
 written* and the cause arrows are worked out when read, never stored.
 
 **Phase 13 is done when** each part's *done when* above holds, and the demo world (The Ninefold Delta) shows it: a
@@ -2425,13 +2518,15 @@ premise; a few journal entries over several years (made up), one with a fact and
 and one with `??` markers; a planned fact made canon in a chapter; a question made from a passage in a chapter and one
 parked spark from the Journal; a note for next time left in a journal entry; an old entry with decisions and changes
 since; a planned death that *Include planned* turns into a finding; three events joined by *caused* and *followed
-from*, one of them before its cause; and an entry that is a place and also a character.
+from*, one of them before its cause; an entry that is a place and also a character; and a second character sharing a
+first name with one already there, with a chapter that uses the bare first name before, between and after choice
+lines.
 
-### 14.11 Two build phases
+### 14.12 Three build phases
 
-Phase 13 is built **after phase 12 is merged**, as two build phases, by one build session, as **stacked pull
-requests**: 13a off master, 13b off 13a's branch. These are only the order the code is written in; nothing in the
-app is split by them.
+Phase 13 is built **after phase 12 is merged**, as three build phases, by one build session, each a pull request
+merged before the next is begun: 13a, then 13b, then 13c. These are only the order the code is written in; nothing
+in the app is split by them.
 
 1. **13a, the Journal as a workplace** (§14.1–§14.3): journal entries in the editor with revisions and the offline
    copy, planned in the Journal and canon in the book with *Record a fact* and *Make it canon here*, the planning
@@ -2441,16 +2536,20 @@ app is split by them.
    time, *since this was written*, *Include planned*, cause arrows and their check, entries of more than one kind, and
    the focus.
    Each is small and works from existing links.
+3. **13c, names shared by two entries** (§14.10): the shared names in both matchers, choice lines, the strip's
+   *From here*, and how each state counts. Added after the spec of 13a and 13b, and built last because it reads
+   the Journal's editor from 13a.
 
 Each phase updates the demo world with its own parts, and each pull request lists what it leaves for the next.
 
-### 14.12 Open questions for phase 13
+### 14.13 Open questions for phase 13
 
 None left. Thomas's answers are in DECISIONS.md (2026-10-25): something is planned until it is in the book or marked
 canon, with *Make it canon here* (§14.1.2); cause arrows show on hover and can be kept, and a click still opens
 (§14.7); an effect before its cause is a Continuity finding (§14.7); an entry can add a kind and stay one entry
 (§14.8); a focus per world, *Writing* or *Planning*, decides where the world opens, the nav's order and where
-*Include planned* starts (§14.9); and two build phases (§14.11).
+*Include planned* starts (§14.9); two build phases (§14.12), with shared names added after them as a third (§14.10,
+§14.12); and a shared name is settled by a visible margin-note line in the text (§14.10).
 
 ## 15. Out of scope (for now)
 
