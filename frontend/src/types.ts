@@ -8,6 +8,8 @@ export const PROJECT_KINDS: { value: ProjectKind; label: string }[] = [
 ];
 
 export interface Project {
+  /** one line under the title, as on a cover (docs/SPEC.md §19) */
+  byline?: string | null;
   id: string;
   name: string;
   slug: string;

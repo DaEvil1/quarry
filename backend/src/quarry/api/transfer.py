@@ -26,7 +26,8 @@ the texts as they are now.
                                                       the dropped ones whose row is gone are read back
     <world>/Planning/<status>/<date> <text> (<id>).md items for the whole world; `from:` the chapter or journal entry
                                                       an item came from (by id), with `passage:`
-    <world>/Projects/<Name>/project.md                name, slug, kind, position, statuses (in order), gap_chapters
+    <world>/Projects/<Name>/project.md                name, slug, kind, position, statuses (in order), gap_chapters,
+                                                      byline (when it has one, docs/SPEC.md §19)
     <world>/Projects/<Name>/Manuscript/<NN> <Title>.md id, title, state, position, pov, summary, status, time (at,
                                                       end, label, approx, or "outside"), told_as
     <world>/Projects/<Name>/Experiments/<Title> (<id>).md  drafts: item and position among the item's drafts
@@ -110,7 +111,7 @@ from .chart import SHAPES as CHART_SHAPES
 from .world import clean_role, has_role_label, seed_relation_types
 from .deps import current_user
 from .pictures import gallery_of
-from .worlds import WorldOut, _unique, _world_out, member_world, slugify
+from .worlds import WorldOut, _unique, _world_out, clean_byline, member_world, slugify
 
 router = APIRouter(prefix="/api/worlds")
 
@@ -491,11 +492,15 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
         statuses = list(db.scalars(select(ChapterStatus).where(ChapterStatus.project_id == p.id)
                                    .order_by(ChapterStatus.position, ChapterStatus.created_at)))
         status_label = {s.id: s.label for s in statuses}
-        files[f"{d}/project.md"] = _doc({"name": p.name, "slug": p.slug, "kind": p.kind, "position": p.position,
-                                         "statuses": [s.label for s in statuses], "gap_chapters": p.gap_chapters}, "")
+        pmeta = {"name": p.name, "slug": p.slug, "kind": p.kind, "position": p.position,
+                 "statuses": [s.label for s in statuses], "gap_chapters": p.gap_chapters}
+        if p.byline:
+            pmeta["byline"] = p.byline
+        files[f"{d}/project.md"] = _doc(pmeta, "")
         chapters = list(db.scalars(select(Chapter).where(Chapter.project_id == p.id)
                                    .order_by(Chapter.position, Chapter.created_at)))
-        compiled = [f"# {p.name}", ""]
+        # the byline under the title, in italics (docs/SPEC.md §19)
+        compiled = [f"# {p.name}", "", *([f"*{p.byline}*", ""] if p.byline else [])]
         n = 0
         for ch in chapters:
             meta = {"id": str(ch.id), "title": ch.title, "state": ch.state, "position": ch.position,
@@ -775,7 +780,8 @@ def restore_files(db: Session, user: User, files: dict[str, str],
             p = Project(world_id=world.id, name=str(meta.get("name") or folder), slug=pslug,
                         kind=meta.get("kind") if meta.get("kind") in ("novel", "novella", "short", "other") else "novel",
                         position=int(meta["position"]) if meta.get("position") is not None else len(project_ids),
-                        gap_chapters=_gap(meta.get("gap_chapters")), created_by=user.id,
+                        gap_chapters=_gap(meta.get("gap_chapters")), byline=clean_byline(meta.get("byline")),
+                        created_by=user.id,
                         updated_by=user.id)
             db.add(p)
             db.flush()
