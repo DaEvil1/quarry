@@ -348,6 +348,8 @@ class JournalEntry(Base):
     title: Mapped[str | None] = mapped_column(String(300))
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # a plan (docs/SPEC.md §18.1): kept on its own, so a plan with no chapter yet is still a plan
+    is_plan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()
@@ -859,3 +861,16 @@ class EntityPicture(Base):
                                                   index=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     caption: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+
+
+class ChapterPlan(Base):
+    """A plan (a journal entry) linked to a chapter it is for (docs/SPEC.md §18.5): many to many both ways, since a
+    plan can cover several chapters and a chapter can have a first plan and a second."""
+
+    __tablename__ = "chapter_plans"
+
+    chapter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chapters.id", ondelete="CASCADE"), primary_key=True)
+    journal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("journal.id", ondelete="CASCADE"), primary_key=True,
+                                                  index=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()

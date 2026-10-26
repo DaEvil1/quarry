@@ -163,7 +163,7 @@ def test_deleting_an_entry_keeps_what_was_planned_in_it(world: Client):
                                            "taking": [{"entity_id": guild["id"]}]})
     world.post(f"{W}/items", json={"body": "Why three hundred?", "kind": "question", "journal_id": j["id"],
                                    "passage": "three hundred years"})
-    assert world.get(f"{W}/journal/{j['id']}/ties").json() == {"facts": 1, "relationships": 2, "notes": 1, "items": 1}
+    assert world.get(f"{W}/journal/{j['id']}/ties").json() == {"facts": 1, "relationships": 2, "notes": 1, "items": 1, "plan_for": []}
     assert world.delete(f"{W}/journal/{j['id']}").status_code == 204
     f = world.get(f"{W}/entities/{guild['id']}").json()["facts"][0]
     assert (f["planned_in_journal_id"], f["planned_evidence"]) == (None, "kept")
