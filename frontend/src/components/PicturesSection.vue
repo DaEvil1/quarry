@@ -144,8 +144,8 @@ function textLink(t: PictureUses["texts"][number]) {
           </div>
         </div>
         <span class="actions">
-          <button type="button" class="btn btn-sm" data-testid="picture-rename" @click="(renaming = p.id), (newName = p.name)">Rename</button>
-          <button v-if="!used(p)" type="button" class="btn btn-sm" data-testid="picture-delete" @click="remove(p)">Delete</button>
+          <button type="button" class="btn btn-sm" data-testid="picture-rename" :aria-label="`Rename ${p.name}`" @click="(renaming = p.id), (newName = p.name)">Rename</button>
+          <button v-if="!used(p)" type="button" class="btn btn-sm" data-testid="picture-delete" :aria-label="`Delete ${p.name}`" @click="remove(p)">Delete</button>
         </span>
       </li>
     </ul>
