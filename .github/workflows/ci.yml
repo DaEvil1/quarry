@@ -129,20 +129,32 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
-      # pip and the browser (or on a cache hit its system libraries) install while npm installs and builds; the
-      # frontend job typechecks, so the build alone is enough here
+      # pip and the browser install while npm installs and builds; the frontend job typechecks, so the build alone is
+      # enough here. The runner image already has nearly every library the browser needs, so apt (whose mirrors now
+      # and then stall for a quarter of an hour) runs only when ldd finds one missing, and then with a time limit.
+      # Each background piece prints its log and how long it took, so a slow one names itself.
       - name: install and build
         run: |
-          pip install -q -e backend > pip.log 2>&1 &
+          browser() {
+            npx playwright install --only-shell chromium || return 1
+            shell=$(find ~/.cache/ms-playwright -type f \( -name chrome-headless-shell -o -name headless_shell \) | head -1)
+            if [ -n "$shell" ] && ! ldd "$shell" | grep "not found"; then
+              echo "every library the browser needs is here; apt skipped"; return 0
+            fi
+            timeout 240 npx playwright install-deps chromium || timeout 240 npx playwright install-deps chromium
+          }
+          show() { echo "::group::$1 ($(($(cat "$2.time") - start)) s)"; cat "$2"; echo "::endgroup::"; }
+          start=$SECONDS
+          { pip install -q -e backend && s=0 || s=$?; echo $SECONDS > pip.log.time; exit $s; } > pip.log 2>&1 &
           pip=$!
           cd frontend
           npm ci --no-audit --no-fund
-          if [ "${{ steps.browsers.outputs.cache-hit }}" = "true" ]; then npx playwright install-deps chromium > ../browser.log 2>&1 &
-          else npx playwright install --with-deps --only-shell chromium > ../browser.log 2>&1 & fi
+          { browser && s=0 || s=$?; echo $SECONDS > ../browser.log.time; exit $s; } > ../browser.log 2>&1 &
           browser=$!
           npx vite build
-          wait $pip || { cat ../pip.log; exit 1; }
-          wait $browser || { cat ../browser.log; exit 1; }
+          wait $pip && pip=0 || pip=$?; show pip ../pip.log
+          wait $browser && browser=0 || browser=$?; show browser ../browser.log
+          [ $pip = 0 ] && [ $browser = 0 ]
 
       - name: end to end
         working-directory: frontend
