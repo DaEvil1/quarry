@@ -76,7 +76,8 @@ your way while you write:
 ### Safe and portable
 - **Passkey sign-in**, no passwords.
 - **An installable PWA** whose chapters and recent history work offline on the phone.
-- **Export and Restore:** a whole world as Markdown with frontmatter, read back losslessly.
+- **Export and Restore:** a whole world as Markdown with frontmatter, with each day's version of every chapter, read
+  back losslessly.
 
 ## Try it
 
@@ -121,5 +122,5 @@ For development with hot reload and the tests, see [docs/development.md](docs/de
 
 ## Status
 
-Phases 1–17 and the Guide are built and in use. Quarry is a personal tool for a single writer, with the data model ready for co-writing
+Phases 1–18 and the Guide are built and in use. Quarry is a personal tool for a single writer, with the data model ready for co-writing
 later. The code is public; no story content is ever committed, and every example and test uses made-up names.

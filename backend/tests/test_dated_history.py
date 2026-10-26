@@ -59,7 +59,7 @@ def test_dated_versions_come_back_on_their_days(signed_in: Client):
     assert days == [("2025-03-02", 3, 0), ("2025-03-05", 3, 0), ("2025-03-09", 2, 0)]
     assert sorted((r["reason"], r["label"]) for r in revs) == [("autosnap", None), ("autosnap", None), ("checkpoint", "first draft done")]
     assert sorted(r["created_at"][:10] for r in revs) == ["2025-03-02", "2025-03-05", "2025-03-09"]
-    assert out.get("history", 3) == 3
+    assert out["history"] == 3
 
 
 def test_a_start_counts_nothing_and_newer_text_is_a_start_of_today(signed_in: Client):

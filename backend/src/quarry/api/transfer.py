@@ -638,6 +638,8 @@ class RestoreOut(WorldOut):
     # the pictures made, and the files under Pictures/ that weren't taken (docs/SPEC.md §17.6)
     pictures: int = 0
     skipped: list[str] = []
+    # the dated earlier versions made into revisions (docs/SPEC.md §20)
+    history: int = 0
 
 
 @router.post("/restore", status_code=201)
@@ -661,7 +663,7 @@ def restore_world(file: UploadFile = File(...), user: User = Depends(current_use
         db.commit()
     db.refresh(world)
     return RestoreOut(**_world_out(world, "owner").model_dump(), pictures=report.get("pictures", 0),
-                      skipped=report.get("skipped", []))
+                      skipped=report.get("skipped", []), history=report.get("history", 0))
 
 
 def _restore_pictures(db: Session, user: User, world: World, root: str, wmeta: dict,
