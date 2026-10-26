@@ -18,6 +18,8 @@ import {
 } from "../bible";
 import { resolutions, resolve, type Resolution } from "../companion";
 import DecisionFollowups from "../components/DecisionFollowups.vue";
+import EntityGallery from "../components/EntityGallery.vue";
+import PictureText from "../components/PictureText.vue";
 import FactsPanel from "../components/FactsPanel.vue";
 import InlineText from "../components/InlineText.vue";
 import MentionStrip from "../components/MentionStrip.vue";
@@ -41,6 +43,8 @@ import { isPronunciation, missingKey, missingLabels } from "../world/labels";
 import { speciesText } from "../world/species";
 import type { At } from "../world/time";
 import { unitOf } from "../world/when";
+import { imageFiles, NEEDS_NETWORK, pictureUrl, uploadPicture } from "../pictures";
+import { useViewer } from "../stores/viewer";
 import NotFoundView from "./NotFoundView.vue";
 
 const route = useRoute();
@@ -219,6 +223,44 @@ function removeFrom(field: "aliases" | "exclusions", v: string) {
 
 const editingNotes = ref(false);
 const notes = ref("");
+
+// ---- pictures (docs/SPEC.md §17.2): the main picture at the top, the gallery after the notes ----
+const viewer = useViewer();
+const main = computed(() => detail.value?.pictures?.[0] ?? null);
+function openMain() {
+  const list = detail.value?.pictures ?? [];
+  viewer.show(list.map((g) => ({ id: g.id, caption: g.caption, name: g.name })), 0);
+}
+function galleryChanged(gallery: NonNullable<EntityDetail["pictures"]>) {
+  if (detail.value) detail.value = { ...detail.value, pictures: gallery };
+}
+// pasting a picture into the notes while they are edited puts a picture line at the cursor
+const notesBox = ref<HTMLTextAreaElement | null>(null);
+async function pasteIntoNotes(e: ClipboardEvent) {
+  const files = imageFiles(e.clipboardData);
+  if (!files.length) return;
+  e.preventDefault();
+  if (navigator.onLine === false) {
+    error.value = NEEDS_NETWORK;
+    return;
+  }
+  for (const file of files) {
+    try {
+      notice.value = `Uploading ${file.name || "a picture"}…`;
+      const p = await uploadPicture(worldSlug.value, file);
+      cards.putPicture(p);
+      const box = notesBox.value;
+      const at = box ? box.selectionStart : notes.value.length;
+      const before = notes.value.slice(0, at);
+      const line = `${before && !before.endsWith("\n") ? "\n" : ""}![](picture:${p.id})\n`;
+      notes.value = before + line + notes.value.slice(at);
+      notice.value = "";
+    } catch (err) {
+      notice.value = "";
+      error.value = (err as Error).message;
+    }
+  }
+}
 
 async function remove() {
   const e = detail.value?.entity;
@@ -418,6 +460,12 @@ async function notForThisOne(label: string) {
           <input v-model="newAlias" class="chip-input" placeholder="+ other name" aria-label="Add another name" maxlength="200" @keydown.enter.prevent="addTo('aliases')" @blur="addTo('aliases')" />
         </div>
       </div>
+      <figure v-if="main" class="main-picture" data-testid="main-picture" :data-picture="main.id">
+        <button type="button" class="picture-box opens" :style="{ aspectRatio: `${main.width} / ${main.height}` }" :aria-label="`Open ${main.caption || main.name}`" @click="openMain">
+          <img :src="pictureUrl(main.id, 'view')" :alt="main.caption || main.name" />
+        </button>
+        <figcaption v-if="main.caption" data-testid="main-caption">{{ main.caption }}</figcaption>
+      </figure>
       <div class="actions">
         <RouterLink class="btn btn-sm" :to="{ name: 'entity-read', params: { world: world.slug, id: detail.entity.id } }" data-testid="read-thread">
           Read where {{ detail.entity.name }} appears
@@ -621,15 +669,17 @@ async function notForThisOne(label: string) {
       </div>
       <form v-if="editingNotes" class="form wide" @submit.prevent="(editingNotes = false), save({ body: notes })">
         <label for="e-body" class="visually-hidden">Notes</label>
-        <textarea id="e-body" v-model="notes" class="capture-box" rows="10" />
+        <textarea id="e-body" ref="notesBox" v-model="notes" class="capture-box" rows="10" @paste="pasteIntoNotes" />
         <div class="actions">
           <button class="btn btn-primary btn-sm" type="submit">Save</button>
           <button class="btn btn-sm" type="button" @click="editingNotes = false">Cancel</button>
         </div>
       </form>
-      <p v-else-if="detail.entity.body" class="prose item-text">{{ detail.entity.body }}</p>
+      <div v-else-if="detail.entity.body" class="entry-notes" data-testid="entry-notes"><PictureText :text="detail.entity.body" :world="world.slug" /></div>
       <p v-else class="empty">No notes.</p>
     </section>
+
+    <EntityGallery :world="world.slug" :entity-id="detail.entity.id" :entity-name="detail.entity.name" :pictures="detail.pictures ?? []" @changed="galleryChanged" />
 
     <section v-if="detail.decisions.length" class="card">
       <div class="card-head"><h2>Decisions</h2></div>

@@ -325,8 +325,22 @@ export const undoReplace = (world: string, p: string, done: Replaced) =>
 
 export const exportUrl = (world: string) => `${base(world)}/export`;
 
+/** What Restore says it brought (docs/SPEC.md §17.6): the pictures it made and the files under Pictures/ it skipped. */
+export interface Restored extends World {
+  pictures?: number;
+  skipped?: string[];
+}
+
+/** "Restored, with 48 pictures", and the files it didn't take. */
+export function restoredText(r: Restored): string {
+  const n = r.pictures ?? 0;
+  const said = n ? `Restored, with ${n} picture${n === 1 ? "" : "s"}` : "Restored";
+  const skipped = r.skipped ?? [];
+  return skipped.length ? `${said}. Skipped: ${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? ` and ${skipped.length - 8} more` : ""}` : said;
+}
+
 /** Upload an export zip; Quarry makes a new world from it. */
-export async function restoreWorld(file: File): Promise<World> {
+export async function restoreWorld(file: File): Promise<Restored> {
   const form = new FormData();
   form.append("file", file);
   const res = await fetch("/api/worlds/restore", { method: "POST", body: form, credentials: "same-origin" });
@@ -335,5 +349,5 @@ export async function restoreWorld(file: File): Promise<World> {
     const detail = (data as { detail?: unknown } | null)?.detail;
     throw new ApiError(res.status, typeof detail === "string" ? detail : `Restore failed (${res.status}).`, data);
   }
-  return data as World;
+  return data as Restored;
 }

@@ -82,7 +82,7 @@ test("14.4 done when: the demo world's front page, with a premise, where you lef
   await expect(page.getByRole("heading", { name: "World settings" })).toBeVisible();
   await expect(page.getByTestId("time-unit")).toBeVisible();
   await expect(page.getByTestId("delete-world")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Rename" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Rename", exact: true })).toBeVisible();
   // Continue opens the journal entry at the place
   await page.goto(`/w/${demo}`);
   await page.getByTestId("continue").click();

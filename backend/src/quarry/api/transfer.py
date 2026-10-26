@@ -34,21 +34,34 @@ the texts as they are now.
                                                       put_back_at, put_back_to, before, after; the cut text
     <world>/Projects/<Name>/Planning/<status>/...     items for the project
     <world>/Projects/<Name>/manuscript.md             the current chapters in order (not read back)
+    <world>/Pictures/<name>-<id8>.<ext>               each picture's full file (docs/SPEC.md §17.6), stored without
+                                                      being compressed again; world.md lists them (pictures: file
+                                                      and name), an entry's frontmatter has its gallery (pictures:
+                                                      file and caption, the main picture first), and a picture line
+                                                      in any .md file links its picture by a path relative to that
+                                                      file. Restore makes a picture of every JPEG, PNG and WebP under
+                                                      Pictures/ and turns an image link on a line of its own that
+                                                      points at one of them into a picture line.
 """
 
 from __future__ import annotations
 
-import io
 import math
+import os
+import posixpath
 import re
+import tempfile
 import uuid
 import zipfile
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, date, datetime
+from urllib.parse import unquote
 
 import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -66,6 +79,7 @@ from ..models import (
     DecisionFollowup,
     DecisionLink,
     Entity,
+    EntityPicture,
     ExperimentRange,
     Fact,
     FactLabel,
@@ -74,6 +88,8 @@ from ..models import (
     ItemLink,
     JournalEntry,
     NameIgnore,
+    Picture,
+    PictureFile,
     Presence,
     Project,
     RelationType,
@@ -84,12 +100,14 @@ from ..models import (
     World,
     WorldMember,
 )
-from ..margin import without_margin_notes
+from ..margin import PICTURE_RE, without_margin_notes
+from ..pictures import MAX_BYTES as MAX_PICTURE, PictureError, file_name, make, name_from_file, store
 from .manuscript import snapshot
 from ..vocabulary import STARTING_TYPES, place_new_types
 from .chart import SHAPES as CHART_SHAPES
 from .world import clean_role, has_role_label, seed_relation_types
 from .deps import current_user
+from .pictures import gallery_of
 from .worlds import WorldOut, _unique, _world_out, member_world, slugify
 
 router = APIRouter(prefix="/api/worlds")
@@ -97,8 +115,13 @@ router = APIRouter(prefix="/api/worlds")
 FORMAT = 1
 KIND_FOLDERS = {"character": "Characters", "place": "Places", "faction": "Factions", "culture": "Cultures",
                 "species": "Species", "event": "Events", "object": "Objects", "term": "Terms", "other": "Other"}
-MAX_UPLOAD = 50 * 1024 * 1024
+# the zip is kept on disk and read a file at a time (docs/SPEC.md §17.6): up to 1 GB with its pictures, the .md files
+# together at most 200 MB unpacked, each picture at most 25 MB, read no further than that whatever the zip claims
+MAX_UPLOAD = 1024 * 1024 * 1024
 MAX_UNPACKED = 200 * 1024 * 1024
+PICTURE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+# an image link on a line of its own: ![caption](path), the path maybe in <…> (or, leniently, with plain spaces)
+IMAGE_LINE_RE = re.compile(r"^([ \t]*)!\[([^\]\n]*)\]\((<[^>\n]+>|[^)\n]+)\)[ \t]*$", re.M)
 DECISION_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(?: · \[([^\]]*)\])? (.*?)\s*<!-- (.*?) -->\s*$")
 # a decision's follow-up under its line (docs/SPEC.md §16.6); "<!-- row -->" marks one whose row is in the export
 FOLLOWUP_RE = re.compile(r"^\s+- (to do|done|dropped)(?: (\d{4}-\d{2}-\d{2}))?: (.*?)\s*(<!-- row -->)?\s*$")
@@ -267,7 +290,7 @@ def followup_lines(db: Session, d: Decision) -> list[str]:
 
 
 @router.get("/{slug}/export")
-def export_world(slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> Response:
+def export_world(slug: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> FileResponse:
     world, _ = member_world(db, user, slug)
     root = _safe(world.slug)
     files: dict[str, str] = {}
@@ -283,6 +306,9 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                                .order_by(FactLabel.kind, FactLabel.label)))
     roles = list(db.scalars(select(Role).where(Role.world_id == world.id).order_by(Role.role)))
     pins = list(db.scalars(select(ChartPin).where(ChartPin.world_id == world.id).order_by(ChartPin.updated_at)))
+    pictures = list(db.scalars(select(Picture).where(Picture.world_id == world.id)
+                               .order_by(Picture.created_at, Picture.name)))
+    picture_file = {str(p.id): f"Pictures/{file_name(p)}" for p in pictures}
     files[f"{root}/world.md"] = _doc({
         "quarry_export": FORMAT, "name": world.name, "slug": world.slug,
         "exported_at": datetime.now(UTC).isoformat(), "ignored_words": ignored,
@@ -294,7 +320,8 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
         "time_unit": world.time_unit, "time_units": world.time_units, "premise": world.premise,
         "chart": {"settings": {"shapes": dict((world.chart or {}).get("shapes") or {})},
                   "pins": [{"place": str(p.place_id), "container": str(p.container_id) if p.container_id else None,
-                            "x": p.x, "y": p.y} for p in pins]}}, "")
+                            "x": p.x, "y": p.y} for p in pins]},
+        "pictures": [{"file": picture_file[str(p.id)], "name": p.name} for p in pictures]}, "")
 
     # follow-ups (docs/SPEC.md §16.6): each row says which decisions it follows, and when one was dropped by hand
     fus = list(db.scalars(select(DecisionFollowup).join(Decision, Decision.id == DecisionFollowup.decision_id)
@@ -378,6 +405,9 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             meta["tellings"] = tellings[e.id]
         if event_notes.get(e.id):
             meta["notes"] = event_notes[e.id]
+        gallery = gallery_of(db, e.id)
+        if gallery:
+            meta["pictures"] = [{"file": picture_file[g["id"]], "caption": g["caption"]} for g in gallery]
         files[f"{root}/Bible/{KIND_FOLDERS[e.kind]}/{_safe(e.name)}.md"] = _doc(meta, e.body)
 
     for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id).order_by(JournalEntry.entry_date)):
@@ -480,50 +510,173 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                  "put_back_to": str(c.put_back_to) if c.put_back_to else None, "before": c.before,
                  "after": c.after}, c.body)
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for path, text in files.items():
-            z.writestr(path, text)
+    # written to a file on disk, a picture at a time, and sent from there: never held in memory whole
+    fd, tmp = tempfile.mkstemp(prefix="quarry-export-", suffix=".zip")
+    try:
+        with os.fdopen(fd, "wb") as out, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+            for path, text in files.items():
+                z.writestr(path, _export_links(path, text, root, picture_file))
+            for p in pictures:
+                data = db.scalar(select(PictureFile.data).where(PictureFile.picture_id == p.id,
+                                                                 PictureFile.kind == "full"))
+                if data is not None:
+                    z.writestr(f"{root}/{picture_file[str(p.id)]}", bytes(data), compress_type=zipfile.ZIP_STORED)
+                del data
+    except BaseException:
+        os.unlink(tmp)
+        raise
     name = f"quarry-{world.slug}-{date.today().isoformat()}.zip"
-    return Response(buf.getvalue(), media_type="application/zip",
-                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+    return FileResponse(tmp, media_type="application/zip", filename=name, background=BackgroundTask(os.unlink, tmp))
+
+
+def _export_links(path: str, text: str, root: str, picture_file: dict[str, str]) -> str:
+    """Picture lines link their picture by its path relative to the file (docs/SPEC.md §17.6), so the export shows its
+    pictures in any Markdown reader. A picture that is gone stays `picture:<id>`."""
+    if "picture:" not in text:
+        return text
+    here = posixpath.dirname(path)
+
+    def link(m: re.Match) -> str:
+        target = picture_file.get(m.group(2))
+        if target is None:
+            return m.group(0)
+        return m.group(0).replace(f"picture:{m.group(2)}", posixpath.relpath(f"{root}/{target}", here), 1)
+
+    return PICTURE_RE.sub(link, text)
 
 
 # restore -------------------------------------------------------------------------------------------------------
 
 
-def _read_zip(data: bytes) -> dict[str, str]:
+def _zip_path(name: str) -> str | None:
+    """A file's path in the zip with forward slashes, or None for a folder or a path that climbs out."""
+    name = name.replace("\\", "/")
+    if name.endswith("/") or ".." in name.split("/") or name.startswith("/"):
+        return None
+    return name
+
+
+def _read_capped(z: zipfile.ZipFile, info: zipfile.ZipInfo, cap: int) -> bytes | None:
+    """A file of the zip, or None when it is longer than `cap` (read no further, whatever the zip claims)."""
     try:
-        z = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile:
-        raise HTTPException(422, "That file is not a zip.") from None
-    total = sum(i.file_size for i in z.infolist())
-    if total > MAX_UNPACKED:
-        raise HTTPException(422, "That zip is too big to restore.")
-    files = {}
+        with z.open(info) as f:
+            data = f.read(cap + 1)
+    except (zipfile.BadZipFile, OSError, NotImplementedError, RuntimeError):
+        return None
+    return None if len(data) > cap else data
+
+
+def read_zip(z: zipfile.ZipFile) -> tuple[dict[str, str], dict[str, Callable[[], bytes | None]]]:
+    """The .md files of a zip (path -> text), read one at a time and no further than 200 MB together, and its other
+    files as loaders, read only when asked: a loader gives None for a file over 25 MB."""
+    texts: dict[str, str] = {}
+    others: dict[str, Callable[[], bytes | None]] = {}
+    left = MAX_UNPACKED
     for info in z.infolist():
-        name = info.filename.replace("\\", "/")
-        if info.is_dir() or not name.endswith(".md") or ".." in name.split("/") or name.startswith("/"):
+        name = _zip_path(info.filename)
+        if name is None:
             continue
-        files[name] = z.read(info).decode("utf-8")
-    return files
+        if not name.endswith(".md"):
+            others[name] = lambda i=info: _read_capped(z, i, MAX_PICTURE)  # type: ignore[misc]
+            continue
+        data = _read_capped(z, info, left) if info.file_size <= left else None
+        if data is None:
+            raise HTTPException(422, "That zip is too big to restore.")
+        left -= len(data)
+        texts[name] = data.decode("utf-8", errors="replace")
+    return texts, others
+
+
+class RestoreOut(WorldOut):
+    # the pictures made, and the files under Pictures/ that weren't taken (docs/SPEC.md §17.6)
+    pictures: int = 0
+    skipped: list[str] = []
 
 
 @router.post("/restore", status_code=201)
-async def restore_world(file: UploadFile = File(...), user: User = Depends(current_user),
-                        db: Session = Depends(get_db)) -> WorldOut:
-    """Make a new world from an export zip. Ids are new; links between the files are kept."""
-    data = await file.read(MAX_UPLOAD + 1)
-    if len(data) > MAX_UPLOAD:
+def restore_world(file: UploadFile = File(...), user: User = Depends(current_user),
+                  db: Session = Depends(get_db)) -> RestoreOut:
+    """Make a new world from an export zip. Ids are new; links between the files are kept. Not async: the upload is
+    on disk already (FastAPI keeps it there), and the zip is read a file at a time in the thread pool."""
+    f = file.file
+    f.seek(0, os.SEEK_END)
+    if f.tell() > MAX_UPLOAD:
         raise HTTPException(422, "That zip is too big to restore.")
-    world = restore_files(db, user, _read_zip(data))
-    db.commit()
+    f.seek(0)
+    try:
+        z = zipfile.ZipFile(f)
+    except zipfile.BadZipFile:
+        raise HTTPException(422, "That file is not a zip.") from None
+    report: dict = {}
+    with z:
+        texts, others = read_zip(z)
+        world = restore_files(db, user, texts, others, report)
+        db.commit()
     db.refresh(world)
-    return _world_out(world, "owner")
+    return RestoreOut(**_world_out(world, "owner").model_dump(), pictures=report.get("pictures", 0),
+                      skipped=report.get("skipped", []))
 
 
-def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
-    """Make a new world for `user` from the files of an export (path -> text). Flushed, not committed."""
+def _restore_pictures(db: Session, user: User, world: World, root: str, wmeta: dict,
+                      others: dict[str, Callable[[], bytes | None]], report: dict) -> dict[str, uuid.UUID]:
+    """Every JPEG, PNG and WebP under <world>/Pictures/ (at any depth) made into a picture, one at a time and flushed
+    as it goes, named as world.md says or else from its file name. Returns the new pictures by their path in the
+    zip; `report` gets how many and the files skipped."""
+    named: dict[str, str] = {}
+    for p in wmeta.get("pictures") or []:
+        if isinstance(p, dict) and p.get("file") and str(p.get("name") or "").strip():
+            named[posixpath.normpath(f"{root}/{p['file']}")] = " ".join(str(p["name"]).split())[:200]
+    made: dict[str, uuid.UUID] = {}
+    skipped: list[str] = []
+    for path in sorted(others):
+        if not path.startswith(f"{root}/Pictures/"):
+            continue
+        rel = path[len(root) + 1:]
+        data = others[path]() if path.lower().endswith(PICTURE_EXTENSIONS) else None
+        try:
+            picture = make(data) if data is not None else None
+        except PictureError:
+            picture = None
+        del data
+        if picture is None:
+            skipped.append(rel)
+            continue
+        made[path] = store(db, world.id, user.id, picture, named.get(path) or name_from_file(path)).id
+        del picture
+    report["pictures"] = len(made)
+    report["skipped"] = skipped
+    return made
+
+
+def _restore_links(path: str, text: str, root: str, made: dict[str, uuid.UUID]) -> str:
+    """An image link on a line of its own whose path, read relative to its file (or else to the world folder), is a
+    picture in the zip becomes a picture line. Paths with %20 or in <…> are read too; links to web addresses or to
+    files that aren't in the zip stay as written."""
+    if "](" not in text:
+        return text
+    here = posixpath.dirname(path)
+
+    def link(m: re.Match) -> str:
+        target = m.group(3).strip()
+        if target.startswith("<"):
+            target = target[1:-1]
+        if "://" in target or target.startswith(("picture:", "data:", "/", "#")):
+            return m.group(0)
+        target = unquote(target)
+        for base in (here, root):
+            pid = made.get(posixpath.normpath(posixpath.join(base, target)))
+            if pid is not None:
+                return f"{m.group(1)}![{m.group(2)}](picture:{pid})"
+        return m.group(0)
+
+    return IMAGE_LINE_RE.sub(link, text)
+
+
+def restore_files(db: Session, user: User, files: dict[str, str],
+                  others: dict[str, Callable[[], bytes | None]] | None = None, report: dict | None = None) -> World:
+    """Make a new world for `user` from the files of an export (path -> text) and its other files (path -> a loader of
+    their bytes: the pictures). Flushed, not committed. `report` gets the pictures made and the files skipped."""
+    report = {} if report is None else report
     world_files = [p for p in files if p.endswith("/world.md") and p.count("/") == 1]
     if len(world_files) != 1:
         raise HTTPException(422, "This is not a Quarry export (no world.md at the top).")
@@ -550,6 +703,11 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
     db.add(world)
     db.flush()
     db.add(WorldMember(world_id=world.id, user_id=user.id, role="owner"))
+
+    # the pictures first (docs/SPEC.md §17.6), then every text's image links to them become picture lines
+    made = _restore_pictures(db, user, world, root, wmeta, others or {}, report)
+    if made:
+        files = {path: _restore_links(path, text, root, made) for path, text in files.items()}
 
     # projects, by their slug in the export
     # the relationship vocabulary: the export's, or the starting one for exports made before phase 6
@@ -663,6 +821,15 @@ def restore_files(db: Session, user: User, files: dict[str, str]) -> World:
             entity_by_old[str(meta["id"])] = e.id
         world_model.append((e, meta))
     db.flush()
+    # galleries in order with their captions; a picture that isn't in the zip, or is named twice, is left out
+    for e, meta in world_model:
+        seen: list[uuid.UUID] = []
+        for g in meta.get("pictures") or []:
+            pid = made.get(posixpath.normpath(f"{root}/{g['file']}")) if isinstance(g, dict) and g.get("file") else None
+            if pid is not None and pid not in seen:
+                db.add(EntityPicture(entity_id=e.id, picture_id=pid, position=len(seen),
+                                     caption=" ".join(str(g.get("caption") or "").split())))
+                seen.append(pid)
 
     # items: the world's own Planning/ and each project's
     item_by_old: dict[str, uuid.UUID] = {}

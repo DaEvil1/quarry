@@ -2,7 +2,9 @@
 // live and works offline. Rules only: nothing here suggests story content or rewrites a sentence. The Continuity
 // checks are over recorded data and come from the server.
 
+import { blankPictures } from "../pictures";
 import { ENTITY_KINDS, type EntityRef, type Presence } from "../types";
+import { storyText } from "../words";
 import type { Card } from "./cards";
 import { missingKey, missingLabels } from "./labels";
 import type { Hit, Matcher } from "./matcher";
@@ -69,8 +71,8 @@ const pairKey = (a: string, b: string) => (a < b ? `${a}:${b}` : `${b}:${a}`);
 export const linkKey = pairKey;
 
 const MARGIN = /^[ \t]*%%[^\n]*/gm;
-/** The chapter without its margin notes (%% lines), every other character where it was. */
-export const storyText = (text: string) => text.replace(MARGIN, (m) => " ".repeat(m.length));
+/** The chapter without its margin notes (%% lines) and picture lines, every other character where it was. */
+export { storyText };
 
 const WORD = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
 const STOP = new Set(
@@ -137,8 +139,9 @@ const around = (text: string, from: number, to: number) => text.slice(Math.max(0
 export function analyse(input: AnalyseInput): Finding[] {
   // choice lines settle shared names (docs/SPEC.md §14.10); they name nobody, in a journal entry too
   const choices = input.matcher.choices(input.text);
+  // picture lines are read by nobody (docs/SPEC.md §17.3)
   const text = input.journal
-    ? choices.reduce((t, c) => t.slice(0, c.start) + " ".repeat(c.end - c.start) + t.slice(c.end), input.text)
+    ? choices.reduce((t, c) => t.slice(0, c.start) + " ".repeat(c.end - c.start) + t.slice(c.end), blankPictures(input.text))
     : storyText(input.text);
   const layout = new Layout(text);
   const out: Finding[] = [];

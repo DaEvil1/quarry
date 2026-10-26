@@ -29,6 +29,7 @@ from .api import (
     journal,
     labels,
     manuscript,
+    pictures,
     restructure,
     revising,
     storytime,
@@ -78,18 +79,21 @@ class SecurityHeaders:
         async def wrapped(message):  # type: ignore[no-untyped-def]
             if message["type"] == "http.response.start":
                 h = list(message.get("headers", []))
-                h += [
+                have = {k.lower() for k, _ in h}
+                h += [(k, v) for k, v in [
                     (b"x-content-type-options", b"nosniff"),
                     (b"referrer-policy", b"same-origin"),
                     # framed only by Quarry itself: the Guide shows the phone screens in a frame (docs/SPEC.md §15)
                     (b"x-frame-options", b"SAMEORIGIN"),
                     # styles stay inline-friendly: the editor (CodeMirror) injects its own style elements
                     (b"content-security-policy",
-                     b"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                     b"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
                      b"script-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; "
                      b"frame-ancestors 'self'; base-uri 'self'; form-action 'self'"),
-                ]
-                if path.startswith("/assets/"):
+                ] if k not in have]
+                if b"cache-control" in have:
+                    pass  # the response knows better: a picture's files never change (docs/SPEC.md §17.4)
+                elif path.startswith("/assets/"):
                     h.append((b"cache-control", b"public, max-age=31536000, immutable"))
                 elif path.startswith("/api/"):
                     h.append((b"cache-control", b"no-store"))
@@ -114,13 +118,16 @@ def run_migrations() -> None:
 class Compressed(GZipMiddleware):
     """Responses of a kilobyte or more, gzipped for a browser that takes it: a world's cards and its offline copy
     shrink five to seven times on the way to a phone. Not sign-in and setup, whose answers carry secrets (recovery
-    codes), so nothing a page can make the server repeat is ever compressed beside them."""
+    codes), so nothing a page can make the server repeat is ever compressed beside them; and not pictures or the
+    export, which are compressed already."""
 
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app, minimum_size=1024, compresslevel=6)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and scope["path"].startswith(("/api/auth", "/api/setup")):
+        # pictures and the export zip are compressed already (docs/SPEC.md §17.4)
+        if scope["type"] == "http" and (scope["path"].startswith(("/api/auth", "/api/setup", "/api/pictures/"))
+                                        or scope["path"].endswith("/export")):
             await self.app(scope, receive, send)
             return
         await super().__call__(scope, receive, send)
@@ -202,5 +209,6 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.include_router(labels.router)
     app.include_router(history.router)
     app.include_router(chart.router)
+    app.include_router(pictures.router)
     _mount_frontend(app)
     return app

@@ -6,6 +6,7 @@
 // for "The Lock Years"). A name two entries claim is shared (docs/SPEC.md §14.10): ambiguous until a choice line,
 // `%% Isolde: Isolde Marr`, settles it.
 
+import { blankPictures } from "../pictures";
 import type { Card } from "./cards";
 
 export interface Hit {
@@ -295,12 +296,14 @@ export class Matcher {
   /** The mentions in a whole stored text, exactly as the server stores them: a chapter without its margin notes and a
    * journal entry without its choice lines, both following their choice lines; anything else as it is. */
   scanSource(text: string, source: string, nearMisses = true): Hit[] {
+    // picture lines are read by nobody (docs/SPEC.md §17.3), in an entry's notes too
+    if (source === "entity") return this.scan(blankPictures(text), 0, nearMisses);
     if (source !== "chapter" && source !== "journal") return this.scan(text, 0, nearMisses);
     const choices = this.choices(text);
     const blank = (s: string) => " ".repeat(s.length);
     const story = source === "chapter"
-      ? text.replace(MARGIN, blank)
-      : choices.reduce((t, c) => t.slice(0, c.start) + blank(t.slice(c.start, c.end)) + t.slice(c.end), text);
+      ? blankPictures(text.replace(MARGIN, blank))
+      : choices.reduce((t, c) => t.slice(0, c.start) + blank(t.slice(c.start, c.end)) + t.slice(c.end), blankPictures(text));
     return this.resolve(this.scan(story, 0, nearMisses), choices);
   }
 

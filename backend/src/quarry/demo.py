@@ -57,7 +57,12 @@ Toll-House and a room in it), and births for seven of the characters.
 
 from __future__ import annotations
 
+import io
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from functools import cache
+
+from PIL import Image, ImageDraw
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -332,6 +337,9 @@ BIBLE: list[dict] = [
         "summary": "The great locks of the lower delta, kept by the River Wardens.",
         "facts": [{"label": "type", "value": "fort"}],
         "relationships": [{"type": "inside", "type_kinds": ["place", "place"], "to": "delta"}],
+        # a gallery (docs/SPEC.md §17.2): the gate is the main picture, the plan second
+        "pictures": [{"file": "Pictures/the-upper-gate.png", "caption": "The upper gate"},
+                     {"file": "Pictures/locks-from-above.png", "caption": "The locks from above"}],
         "body": _p(""),
     },
     {
@@ -574,6 +582,7 @@ BIBLE: list[dict] = [
     {
         "id": "compass", "name": "The Brass Compass", "kind": "object", "aliases": ["the compass", "the brass compass"],
         "summary": "Oskar's compass. Its needle points home, never north.",
+        "pictures": [{"file": "Pictures/compass-rose.png", "caption": "The compass, closed"}],
         "facts": [
             {"label": "material", "value": "brass, with a cracked glass"},
             {"label": "power", "value": "always points to home", "standing": "rumour"},
@@ -658,6 +667,8 @@ CHAPTERS: list[dict] = [
     {
         "id": "b1-c3", "time": {"at": 412}, "summary": 'Tamsin at Saltreach Abbey with Brother Cade and the compass.', "status": 'rewritten', "project": BOOK_ONE, "title": "What the River Kept", "position": 2, "pov": "Tamsin Vey",
         "body": _p(
+            # a picture line (docs/SPEC.md §17.3), linked as an export links it: relative to the chapter's file
+            "![The brass compass](../../../Pictures/compass-rose.png)",
             "They never found Oskar. A boatman called Rook found the boat, upside down against the reeds below "
             "Marrow Locks, and towed it back without a word and without asking to be paid. Pell said that was "
             "how you knew Rook was frightened of something.",
@@ -937,6 +948,7 @@ def demo_files() -> dict[str, str]:
         "roles": ROLES,
         "premise": PREMISE,
         "chart": {"settings": {"shapes": {}}, "pins": CHART_PINS},
+        "pictures": [{"file": f"Pictures/{name}.png", "name": name} for name in PICTURES],
     }, "")
     names = {e["id"]: e["name"] for e in BIBLE}
     for e in BIBLE:
@@ -966,7 +978,7 @@ def demo_files() -> dict[str, str]:
         if e.get("is_at"):
             meta["is_at"] = [{"chapter": p["chapter"], "place": p["place"], "place_name": names[p["place"]],
                               "note": p.get("note")} for p in e["is_at"]]
-        for k in ("when", "colour", "tellings", "notes"):
+        for k in ("when", "colour", "tellings", "notes", "pictures"):
             if e.get(k):
                 meta[k] = e[k]
         files[f"{ROOT}/Bible/{KIND_FOLDERS[e['kind']]}/{e['name']}.md"] = _doc(meta, e.get("body", ""))
@@ -1028,6 +1040,80 @@ def demo_files() -> dict[str, str]:
     return files
 
 
+# ---- pictures: three made-up drawings, made in code when the demo is loaded (docs/SPEC.md §17.8) -------------------
+
+
+def _upper_gate() -> Image.Image:
+    """A lock gate in flat shapes: sky, stone walls, two timber leaves meeting in a point, water below."""
+    img = Image.new("RGB", (1200, 800), (196, 214, 222))
+    d = ImageDraw.Draw(img)
+    d.rectangle((0, 560, 1200, 800), fill=(62, 96, 112))
+    for x in (0, 900):
+        d.rectangle((x, 180, x + 300, 640), fill=(132, 124, 112))
+        for y in range(200, 640, 60):
+            d.line((x, y, x + 300, y), fill=(112, 104, 94), width=4)
+    d.polygon([(300, 220), (600, 300), (600, 640), (300, 640)], fill=(104, 72, 48))
+    d.polygon([(900, 220), (600, 300), (600, 640), (900, 640)], fill=(92, 62, 40))
+    for y in (330, 420, 510, 590):
+        d.line((300, y, 600, y + 20), fill=(70, 46, 30), width=10)
+        d.line((900, y, 600, y + 20), fill=(64, 42, 28), width=10)
+    d.rectangle((280, 150, 920, 180), fill=(84, 80, 74))
+    for x in range(40, 1200, 160):
+        d.line((x, 690, x + 90, 690), fill=(140, 176, 190), width=3)
+    return img
+
+
+def _locks_from_above() -> Image.Image:
+    """A plan of the locks: the channel, three chambers and the gates between them, with the walls either side."""
+    img = Image.new("RGB", (1000, 1000), (222, 214, 190))
+    d = ImageDraw.Draw(img)
+    d.rectangle((380, 0, 620, 1000), fill=(70, 110, 128))
+    for top in (120, 400, 680):
+        d.rectangle((360, top, 640, top + 220), outline=(90, 84, 76), width=14)
+    for y in (120, 340, 400, 620, 680, 900):
+        d.line((380, y, 500, y + 30), fill=(104, 72, 48), width=12)
+        d.line((620, y, 500, y + 30), fill=(104, 72, 48), width=12)
+    d.rectangle((150, 430, 330, 560), fill=(150, 140, 126))
+    d.rectangle((40, 0, 120, 1000), fill=(160, 186, 150))
+    d.rectangle((880, 0, 960, 1000), fill=(160, 186, 150))
+    return img
+
+
+def _compass_rose() -> Image.Image:
+    """A brass compass, closed, as a rose on a round lid; transparent around it."""
+    img = Image.new("RGBA", (800, 800), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse((40, 40, 760, 760), fill=(181, 140, 62, 255), outline=(120, 88, 34, 255), width=18)
+    d.ellipse((120, 120, 680, 680), outline=(140, 104, 44, 255), width=8)
+    c = 400
+    for i, (dx, dy) in enumerate(((0, -1), (1, 0), (0, 1), (-1, 0))):
+        tip = (c + dx * 250, c + dy * 250)
+        side = (c + dy * 46, c - dx * 46)
+        other = (c - dy * 46, c + dx * 46)
+        d.polygon([tip, side, (c, c)], fill=(236, 214, 160, 255))
+        d.polygon([tip, other, (c, c)], fill=(150, 112, 50, 255))
+    for dx, dy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+        d.polygon([(c + dx * 150, c + dy * 150), (c + dx * 34, c), (c, c + dy * 34)], fill=(206, 176, 110, 255))
+    d.ellipse((c - 28, c - 28, c + 28, c + 28), fill=(120, 88, 34, 255))
+    d.rectangle((370, 6, 430, 60), fill=(150, 112, 50, 255))
+    return img
+
+
+PICTURES = {"the-upper-gate": _upper_gate, "locks-from-above": _locks_from_above, "compass-rose": _compass_rose}
+
+
+@cache
+def _drawn(name: str) -> bytes:
+    buf = io.BytesIO()
+    PICTURES[name]().save(buf, "PNG")
+    return buf.getvalue()
+
+
+def demo_pictures() -> dict[str, Callable[[], bytes | None]]:
+    """The demo's pictures as the other files of an export (path -> a loader of their bytes)."""
+    return {f"{ROOT}/Pictures/{name}.png": (lambda n=name: _drawn(n)) for name in PICTURES}
+
+
 def _paragraphs(body: str) -> list[str]:
     return body.rstrip("\n").split("\n\n")
 
@@ -1066,7 +1152,7 @@ def _history(db: Session, world: World, user: User) -> None:
 
 def create_demo(db: Session, user: User) -> World:
     """Load the demo world for `user`, plus what an export doesn't carry. Flushed, not committed."""
-    world = restore_files(db, user, demo_files())
+    world = restore_files(db, user, demo_files(), demo_pictures())
     _history(db, world, user)
     chapters = {c.title: c for c in db.scalars(select(Chapter).join(Project, Project.id == Chapter.project_id)
                                                 .where(Project.world_id == world.id))}

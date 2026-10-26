@@ -2,6 +2,7 @@
 // Plain DOM, so they appear instantly inside the editor. Buttons keep the keyboard in the text (mousedown is
 // cancelled), so using one never moves the cursor or interrupts typing.
 
+import { pictureUrl } from "../pictures";
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "../types";
 import type { Card } from "../world/cards";
 import { shortNames } from "../world/cast";
@@ -76,6 +77,17 @@ export function cardDom(
   const kinds = speciesText(card);
   if (kinds) who.append(el("span", "qcard-species", kinds));
   head.append(who, el("span", `qkind k-${card.kind}`, kindLabel(card.kind)));
+  // its main picture's thumb, cropped to its middle, in the corner (docs/SPEC.md §17.2)
+  if (card.picture) {
+    const img = document.createElement("img");
+    img.className = "qcard-pic";
+    img.src = pictureUrl(card.picture, "thumb");
+    img.alt = "";
+    img.loading = "lazy";
+    img.dataset.testid = "card-picture";
+    img.addEventListener("error", () => img.remove());
+    head.append(img);
+  }
   root.append(head);
   // an entry of more than one kind: the main kind's colour, and what else it is (docs/SPEC.md §14.8)
   if (card.also_kinds?.length) root.append(el("div", "qcard-also", `also a ${card.also_kinds.map((k) => kindLabel(k).toLowerCase()).join(", ")}`));

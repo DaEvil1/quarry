@@ -5,6 +5,7 @@ import { defineStore } from "pinia";
 
 import { get } from "../api";
 import { localDb } from "../localdb";
+import type { PictureInfo } from "../pictures";
 import type { EntityKind, EntityRef, Gender, RelationType, Span, StoryChapter } from "../types";
 import { ageAt, eraAt, erasOf, eventTime, type Era } from "./eras";
 import { timeText, type Unit } from "./when";
@@ -36,6 +37,8 @@ export interface Card {
   /** an event's when (a chapter, a time, or outside time), and an era's colour (docs/SPEC.md §13.2.1) */
   when?: { chapter: string | null; at: number | null; end: number | null; label: string | null; approx: boolean; outside: boolean };
   era_colour?: string;
+  /** its main picture (docs/SPEC.md §17.2), for the corner of its card */
+  picture?: string | null;
   /** as of a chapter: a character's age there ("age 34", "not born yet", "died at 61") */
   age?: string;
   /** an event's time in words with its era ("year 312 · the Lamp Years"), worked out when the cards load */
@@ -94,6 +97,8 @@ interface Kept {
   drafts?: DraftPoint[];
   /** what the world counts time in */
   unit?: Unit;
+  /** the world's pictures: name and size, so a picture line has its shape before it loads (docs/SPEC.md §17.3) */
+  pictures?: PictureInfo[];
 }
 
 const key = (world: string) => `cards:${world}`;
@@ -111,11 +116,13 @@ export const useCards = defineStore("cards", {
     switches: [] as LabelSwitch[],
     drafts: [] as DraftPoint[],
     unit: { unit: "year", units: "years" } as Unit,
+    pictures: [] as PictureInfo[],
     /** bumped on every change, so editors know to rebuild their matcher */
     version: 0,
   }),
   getters: {
     byId: (s) => new Map(s.cards.map((c) => [c.id, c])),
+    pictureById: (s) => new Map(s.pictures.map((p) => [p.id, p])),
     names: (s): EntityRef[] => s.cards.map(({ id, name, kind }) => ({ id, name, kind })),
     /** a chapter's place on the clock, happened order (undefined for one that isn't on it: outside time, retired,
      * a draft), with the time each place is set at */
@@ -198,6 +205,10 @@ export const useCards = defineStore("cards", {
     },
   },
   actions: {
+    /** A picture just uploaded (or renamed) is known at once, without waiting for the next refresh. */
+    putPicture(p: PictureInfo) {
+      this.pictures = [...this.pictures.filter((x) => x.id !== p.id), { id: p.id, name: p.name, width: p.width, height: p.height }];
+    },
     /** Load a world's cards: the copy on this device first (instant, offline), then the server's. */
     async load(world: string, force = false): Promise<void> {
       if (world !== this.world) {
@@ -208,6 +219,7 @@ export const useCards = defineStore("cards", {
         this.timeline = [];
         this.switches = [];
         this.drafts = [];
+        this.pictures = [];
         try {
           const kept = (await localDb.kv.get(key(world)))?.value as Kept | undefined;
           if (kept && this.world === world) this.apply(kept);
@@ -225,7 +237,7 @@ export const useCards = defineStore("cards", {
       if (!world) return;
       try {
         const base = `/api/worlds/${encodeURIComponent(world)}`;
-        const [cards, ignored, types, timeline, labels, drafts, w] = await Promise.all([
+        const [cards, ignored, types, timeline, labels, drafts, w, pictures] = await Promise.all([
           get<Card[]>(`${base}/cards`),
           get<string[]>(`${base}/name-ignores`),
           get<RelationType[]>(`${base}/relation-types`),
@@ -233,12 +245,13 @@ export const useCards = defineStore("cards", {
           get<LabelsPage>(`${base}/labels`),
           get<DraftPoint[]>(`${base}/draft-clock`).catch(() => [] as DraftPoint[]),
           get<{ time_unit?: string; time_units?: string }>(base).catch(() => ({}) as { time_unit?: string; time_units?: string }),
+          get<PictureInfo[]>(`${base}/pictures/index`).catch(() => [] as PictureInfo[]),
         ]);
         if (world !== this.world) return;
         const switches = switchesOf(labels);
         const unit = { unit: w.time_unit || "year", units: w.time_units || "years" };
-        this.apply({ cards, ignored, types, timeline, switches, drafts, unit });
-        await localDb.kv.put({ key: key(world), value: JSON.parse(JSON.stringify({ cards, ignored, types, timeline, switches, drafts, unit })) });
+        this.apply({ cards, ignored, types, timeline, switches, drafts, unit, pictures });
+        await localDb.kv.put({ key: key(world), value: JSON.parse(JSON.stringify({ cards, ignored, types, timeline, switches, drafts, unit, pictures })) });
       } catch {
         /* offline: keep what we have */
       }
@@ -251,6 +264,7 @@ export const useCards = defineStore("cards", {
       this.switches = kept.switches ?? [];
       this.drafts = kept.drafts ?? [];
       this.unit = kept.unit ?? { unit: "year", units: "years" };
+      this.pictures = kept.pictures ?? [];
       // an event's time in words, with its era, for its card
       const chapters = new Map(this.timeline.map((c) => [c.id, c]));
       const eras = erasOf(this.cards, this.timeline);

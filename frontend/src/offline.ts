@@ -13,8 +13,9 @@ import {
   type PendingEntry,
   type PendingRevision,
 } from "./localdb";
+import { pictureIds, pictureUrl } from "./pictures";
 import type { JournalDetail } from "./types";
-import { countWords } from "./words";
+import { countWords, storyText } from "./words";
 import type { Chapter, ChapterInfo, Experiment, Manuscript, RevisionInfo } from "./manuscript";
 
 export const LOCAL_REVISIONS = 30;
@@ -89,10 +90,73 @@ export async function syncWorld(world: string): Promise<boolean> {
     });
     for (const id of new Set(pack.revisions.map((r) => r.chapter_id))) await prune(id);
     await sendPendingRevisions();
+    // the pictures its texts show, after the texts and one at a time, so a sync is never held up by them
+    void keepPictures(world);
     return true;
   } catch (e) {
     if (e instanceof ApiError && !unreachable(e)) throw e;
     return false;
+  }
+}
+
+// ---- pictures (docs/SPEC.md §17.5) ------------------------------------------------------------------------------
+// The view copy of every picture used in the world's chapters and journal entries on this device, in a cache of their
+// own (the service worker answers from it offline); one no longer used is dropped at the next sync. What is kept is
+// listed per world in `pictures:<world>` (id -> bytes), for Settings.
+
+export const OFFLINE_PICTURES = "quarry-pictures-offline";
+const keptKey = (world: string) => `pictures:${world}`;
+const keeping = new Map<string, Promise<void>>();
+
+/** Bring the world's pictures on this device up to date with its texts (one run at a time per world). */
+export function keepPictures(world: string): Promise<void> {
+  const running = keeping.get(world);
+  if (running) return running;
+  const run = keepPicturesNow(world).finally(() => keeping.delete(world));
+  keeping.set(world, run);
+  return run;
+}
+
+async function keepPicturesNow(world: string): Promise<void> {
+  if (typeof caches === "undefined") return;
+  try {
+    const [chapters, journal] = await Promise.all([localDb.chapters.where("world").equals(world).toArray(), localDb.journal.where("world").equals(world).toArray()]);
+    const used = new Set([...chapters, ...journal].flatMap((t) => pictureIds(t.body)));
+    const kept = { ...(((await localDb.kv.get(keptKey(world)))?.value as Record<string, number> | undefined) ?? {}) };
+    const cache = await caches.open(OFFLINE_PICTURES);
+    for (const id of Object.keys(kept)) {
+      if (used.has(id)) continue;
+      await cache.delete(pictureUrl(id, "view"));
+      delete kept[id];
+    }
+    await localDb.kv.put({ key: keptKey(world), value: { ...kept } });
+    for (const id of used) {
+      if (kept[id] !== undefined) continue;
+      const url = pictureUrl(id, "view");
+      let res: Response;
+      try {
+        res = await fetch(url, { credentials: "same-origin" });
+      } catch {
+        return; // offline again: the rest at the next sync
+      }
+      if (!res.ok) continue;
+      const size = (await res.clone().blob()).size;
+      await cache.put(url, res);
+      kept[id] = size;
+      await localDb.kv.put({ key: keptKey(world), value: { ...kept } });
+    }
+  } catch {
+    /* no cache storage here: pictures are shown online only */
+  }
+}
+
+/** The pictures kept on this device for a world: how many, and their size. */
+export async function localPictures(world: string): Promise<{ count: number; bytes: number }> {
+  try {
+    const kept = ((await localDb.kv.get(keptKey(world)))?.value as Record<string, number> | undefined) ?? {};
+    return { count: Object.keys(kept).length, bytes: Object.values(kept).reduce((a, b) => a + b, 0) };
+  } catch {
+    return { count: 0, bytes: 0 };
   }
 }
 
@@ -115,9 +179,10 @@ export async function clearOfflineCopy(): Promise<void> {
     await localDb.chapters.clear();
     await localDb.journal.clear();
     await localDb.revisions.clear();
-    const keys = (await localDb.kv.toCollection().primaryKeys()).filter((k) => String(k).startsWith("synced:"));
+    const keys = (await localDb.kv.toCollection().primaryKeys()).filter((k) => String(k).startsWith("synced:") || String(k).startsWith("pictures:"));
     await localDb.kv.bulkDelete(keys);
   });
+  if (typeof caches !== "undefined") await caches.delete(OFFLINE_PICTURES).catch(() => false);
 }
 
 /** The open experiments among a project's chapters kept on the device: each draft carries its experiment. */
@@ -128,7 +193,7 @@ function localExperiments(all: LocalChapter[], strip: (c: LocalChapter) => Chapt
     if (!e) continue;
     const x = out.get(e.id) ?? { id: e.id, title: e.title, status: e.status, range: e.range, range_words: e.range.reduce((n, r) => n + r.words, 0), insert: e.insert, drafts: [], words: 0, lost: e.lost, replaced_by: e.replaced_by };
     x.drafts.push(strip(c));
-    x.words += countWords(c.body);
+    x.words += countWords(storyText(c.body));
     out.set(e.id, x);
   }
   return [...out.values()];
@@ -138,7 +203,7 @@ function localExperiments(all: LocalChapter[], strip: (c: LocalChapter) => Chapt
 export async function localManuscript(world: string, project: string): Promise<Manuscript> {
   const all = (await localDb.chapters.where("world").equals(world).toArray()).filter((c) => c.project === project);
   const strip = ({ body, mentions, harvest_notes, experiment, experiment_status, world: _w, ...info }: LocalChapter) =>
-    ({ ...info, words: countWords(body) }) as ChapterInfo;
+    ({ ...info, words: countWords(storyText(body)) }) as ChapterInfo;
   const current = all.filter((c) => c.state === "current").sort((a, b) => a.position - b.position).map(strip);
   const tally = new Map<string, number>();
   for (const c of current) if (c.pov) tally.set(c.pov.name, (tally.get(c.pov.name) ?? 0) + 1);

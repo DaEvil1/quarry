@@ -30,6 +30,9 @@ import { EditorView } from "@codemirror/view";
 import { around, chapterCuts, cutLabel, findPlace, listCuts, markPutBack, removeCut, type Cut } from "../cuts";
 import { changesLine, changesSince } from "../editor/changes";
 import { createProse, countWords, type Prose, type WorldHooks } from "../editor/prose";
+import { editorPictureHooks } from "../editor/pictureHooks";
+import PicturePicker from "../components/PicturePicker.vue";
+import type { Picture } from "../pictures";
 import { passageActions, itemBody, type PassageContext } from "../editor/passage";
 import type { HistoryActions } from "../editor/strips";
 import { ChapterSaver, type SaveStatus } from "../editor/saver";
@@ -90,6 +93,9 @@ const words = ref(0);
 const status = ref<SaveStatus>("saved");
 const notice = ref("");
 const error = ref("");
+// a picture on its way in (docs/SPEC.md §17.3): "Uploading harbour.jpg…" at the foot, or why it wasn't taken
+const pictureStatus = ref<{ text: string; error: boolean } | null>(null);
+const pickingPicture = ref(false);
 const host = ref<HTMLElement | null>(null);
 const prose = shallowRef<Prose | null>(null);
 let saver: ChapterSaver | null = null;
@@ -342,6 +348,18 @@ watch(
 );
 watch(() => ({ ...prefs.$state }), () => prose.value?.refreshPrefs(), { deep: true });
 const names = computed(() => cards.names);
+// the world's pictures loaded or changed: picture lines get their shapes
+watch(() => cards.pictures, () => prose.value?.refreshPictures());
+/** Picture…: one of the world's, or an upload, put in after the paragraph the cursor is in. */
+function pickedPicture(p: Picture) {
+  pickingPicture.value = false;
+  cards.putPicture(p);
+  prose.value?.insertPicture(p.id);
+}
+function uploadPictures(files: File[]) {
+  pickingPicture.value = false;
+  void prose.value?.addPictures(files);
+}
 
 async function worldChange(fn: () => Promise<unknown>) {
   error.value = "";
@@ -400,6 +418,7 @@ const worldHooks: WorldHooks = {
     return companionHooks;
   },
   cut: (from, to) => void cutToBin(from, to),
+  pictures: editorPictureHooks(() => worldSlug.value, (text, failed) => (pictureStatus.value = text ? { text, error: !!failed } : null), () => prose.value?.refreshPictures()),
   several: (kind, label) => cards.several(kind, label),
   history: (from, to, raw) => historyActions(from, to, raw),
   passage: (_from, _to, raw) => passageActions(passageContext(), raw),
@@ -1376,6 +1395,7 @@ const experimentText = computed(() => {
           <label class="toggle"><input v-model="focusMode" type="checkbox" /> Focus</label>
           <label class="toggle desk-only"><input v-model="typewriter" type="checkbox" /> Typewriter</label>
           <button type="button" class="btn btn-sm desk-only" :aria-pressed="showPanel" @click="showPanel = !showPanel">Panel</button>
+          <button v-if="!readOnly" type="button" class="btn btn-sm" title="Put in a picture: one of the world's, or upload one" data-testid="picture-button" @click="pickingPicture = true">Picture…</button>
           <button type="button" class="btn btn-sm" @click="showHistory = !showHistory">History</button>
         </div>
       </div>
@@ -1442,6 +1462,8 @@ const experimentText = computed(() => {
         <input v-model="title" class="chapter-title" aria-label="Chapter title" maxlength="300" :readonly="readOnly" />
       </div>
       <div ref="host" class="editor-host" :class="{ focus: focusMode }" :style="editorStyle" data-testid="editor" />
+      <div v-if="pictureStatus" class="foot-status small" :class="{ 'error-text': pictureStatus.error }" role="status" data-testid="picture-status" @click="pictureStatus = null">{{ pictureStatus.text }}</div>
+      <PicturePicker v-if="pickingPicture && world" :world="world.slug" upload title="Picture" :named="[...new Set((chapter?.mentions ?? []).map((m) => m.entity_id))]" @pick="pickedPicture" @files="uploadPictures" @close="pickingPicture = false" />
     </div>
 
     <CompanionPanel

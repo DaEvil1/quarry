@@ -38,6 +38,26 @@ export default defineConfig({
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//, /^\/healthz/],
         globPatterns: ["**/*.{js,css,html,svg,png,webmanifest}"],
+        // pictures (docs/SPEC.md §17.5): a view copy or thumb is answered from any cache that has it (the offline
+        // copy's, kept by the sync, or the pictures seen lately); else from the network, and kept among the 300 seen
+        // most lately. A picture's files never change, so a kept one is never stale.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => /^\/api\/pictures\/[0-9a-f-]{36}\/(view|thumb)$/.test(url.pathname),
+            handler: async ({ request }) => {
+              const kept = await caches.match(request);
+              if (kept) return kept;
+              const res = await fetch(request);
+              if (res.ok) {
+                const seen = await caches.open("quarry-pictures-seen");
+                await seen.put(request, res.clone());
+                const keys = await seen.keys();
+                for (const old of keys.slice(0, Math.max(0, keys.length - 300))) await seen.delete(old);
+              }
+              return res;
+            },
+          },
+        ],
       },
     }),
   ],

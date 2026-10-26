@@ -31,6 +31,54 @@ const steps: Step[] = [
     target: { css: tid("first-appearance") },
     say: "Where she first appears in each book, and below it every chapter, journal entry and note that names her.",
   },
+  // pictures (docs/SPEC.md §17.2): Marrow Locks' gallery
+  {
+    go: "/w/{w}/bible/k/place",
+    target: { css: `${tid("bible-list")} a.kname`, text: "Marrow Locks" },
+    act: { click: true },
+    wait: { css: tid("main-picture") },
+    say: "An entry can have pictures, like a wiki's. Open Marrow Locks.",
+  },
+  {
+    target: { css: tid("main-picture") },
+    say: "Its main picture sits at the top of its page, and in the corner of its card wherever its name is shown.",
+  },
+  {
+    target: { css: `${tid("main-picture")} button` },
+    act: { click: true },
+    wait: { css: tid("picture-viewer") },
+    say: "A click opens the full view.",
+    read: 1200,
+  },
+  {
+    target: { css: tid("viewer-next") },
+    act: { click: true },
+    wait: { css: tid("viewer-caption"), text: "The locks from above" },
+    say: "‹ › (or the arrow keys, or a swipe on the phone) step through all of the entry's pictures. Open full size has the whole picture.",
+  },
+  {
+    target: { css: tid("viewer-close") },
+    act: { click: true },
+    wait: { css: tid("gallery") },
+    say: "Close it.",
+    read: 800,
+  },
+  {
+    target: { css: `${tid("gallery-item")}:nth-child(2) ${tid("gallery-more")}` },
+    act: { click: true },
+    wait: { css: tid("make-main") },
+    say: "The gallery is under the notes. Each picture has a caption of its own here, and More… to change it.",
+  },
+  {
+    target: { css: tid("make-main") },
+    act: { click: true },
+    wait: { css: tid("main-caption"), text: "The locks from above" },
+    say: "Make main puts the plan at the top of the page instead.",
+  },
+  {
+    target: { css: tid("gallery-add") },
+    say: "Add pictures… takes files from the computer, or the camera or the gallery on a phone. A picture pasted into a chapter goes on a line of its own, drawn under the line.",
+  },
   {
     go: `${CHARACTERS}?book=the-ferrymans-daughter`,
     target: { css: `${tid("section-else")} tr`, text: "Corin Dray" },
@@ -111,8 +159,8 @@ const steps: Step[] = [
 export const bible: Tour = {
   id: "bible",
   title: "The bible",
-  blurb: "Entries and their pages, names that aren't names, the name check, renaming, and labels.",
+  blurb: "Entries and their pages, pictures, names that aren't names, the name check, renaming, and labels.",
   minutes: 2,
-  covers: ["Entries", "Mentions strip", "Book-only entries", "Name check", "Labels"],
+  covers: ["Entries", "Mentions strip", "Pictures", "Book-only entries", "Name check", "Labels"],
   steps,
 };

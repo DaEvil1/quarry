@@ -793,7 +793,9 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
                                                  "other": r.a.model_dump(mode="json"), "standing": r.standing, **span,
                                                  **role})
     from .history import event_when
+    from .pictures import main_pictures
 
+    mains = main_pictures(db, world.id)
     out = []
     for e in entities:
         card = {"id": str(e.id), "name": e.name, "kind": e.kind, "aliases": list(e.aliases),
@@ -801,7 +803,9 @@ def cards(slug: str, user: User = Depends(current_user), db: Session = Depends(g
                 "summary": e.summary, "facts": facts.get(e.id, []), "relations": card_relations(e, relations.get(e.id, [])),
                 "also_kinds": list(e.also_kinds or []),
                 "labels": sorted(labels.get(e.id, ())), "project": projects.get(e.project_id) if e.project_id else None,
-                "gender": e.gender}
+                "gender": e.gender,
+                # its main picture, for the corner of its card (docs/SPEC.md §17.2)
+                "picture": str(mains[e.id]) if e.id in mains else None}
         # an event's "when" and an era's colour, so a time's era is found on the device (docs/SPEC.md §13.2.1)
         if planned.get(e.id):
             card["planned"] = planned[e.id]

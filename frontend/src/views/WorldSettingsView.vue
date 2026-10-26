@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { del, patch } from "../api";
 import InlineText from "../components/InlineText.vue";
+import PicturesSection from "../components/PicturesSection.vue";
 import { exportUrl } from "../manuscript";
 import { useSession } from "../stores/session";
 import type { World } from "../types";
@@ -114,6 +115,8 @@ async function deleteWorld() {
         <span class="muted"> · chapters and history are set in numbers of these (year 312, year −800); nothing is converted.</span>
       </p>
     </section>
+
+    <PicturesSection :world="world.slug" />
 
     <section v-if="world.role === 'owner'" class="card danger" data-testid="delete-world">
       <button v-if="!deleting" type="button" class="linkish small" @click="deleting = true">Delete this world…</button>

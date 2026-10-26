@@ -37,6 +37,7 @@ from ..models import (
     User,
     World,
 )
+from ..margin import without_pictures
 from ..wordhistory import word_changes
 from .deps import current_user
 from .items import WORLD_ONLY, project_by_slug
@@ -49,8 +50,9 @@ WORD_RE = re.compile(r"[^\W_]+(?:['’-][^\W_]+)*")
 
 
 def journal_words(text: str) -> int:
-    """Words in an entry. A `%%` line is ordinary text in the Journal: the whole entry is a note to yourself."""
-    return len(WORD_RE.findall(text))
+    """Words in an entry. A `%%` line is ordinary text in the Journal: the whole entry is a note to yourself. A picture
+    line isn't counted (docs/SPEC.md §17.3)."""
+    return len(WORD_RE.findall(without_pictures(text)))
 
 
 class EntryOut(BaseModel):

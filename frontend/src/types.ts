@@ -254,6 +254,8 @@ export interface EntityDetail {
   tellings?: import("./history").Telling[];
   /** an event's notes in the Journal (Noted in, docs/SPEC.md §14.1.2) */
   notes?: { id: string; passage: string; journal: { id: string; date: string; title: string | null }; at: number; changed: boolean }[];
+  /** its gallery, the main picture first (docs/SPEC.md §17.2) */
+  pictures?: import("./pictures").GalleryPicture[];
 }
 
 export interface NearMissGroup {
