@@ -173,7 +173,9 @@ Bible pages show:
   `chapters:`, §18).
   From phase 17, `project.md` carries the project's byline (`byline:`), and the compiled manuscript has it under the
   title (§19).
-- **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. Revision history stays in the database and is not part of an export.
+  From phase 18, the export has a `History/` folder with each chapter's and journal entry's last version of every day
+  and its labelled checkpoints, and Restore makes them revisions on their dates (§20).
+- **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. The full revision history stays in the database; from phase 18 an export carries a day-by-day sample of it (each day's last version and the labelled checkpoints), which Restore brings back on its dates (§20).
 - **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
 
@@ -238,6 +240,9 @@ quarry/                      # public GitHub repo (code only)
     *done when* per part.
 17. **A byline**: one optional line on a project, set in its Edit form and shown under its title on the project page,
     the Read page and the compiled manuscript, and carried by the export (§19).
+18. **Dated earlier versions in the export**: the export carries each chapter's and journal entry's last version of
+    every day and its labelled checkpoints under `History/`, and Restore makes them revisions on their dates, counted in
+    the word history on their days, so a book brought in from elsewhere keeps when it was written (§20).
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -392,6 +397,8 @@ How many words went into the project each day, worked out from revisions. Nothin
   - Conflict copies are skipped: they are side copies, not the chapter's line.
   - A chapter that doesn't start empty (Restore, the demo, an experiment started as a copy) gets a first revision
     with the new reason `start`, which counts as no words. So restoring a world or copying a chapter isn't a huge day.
+    From phase 18 a restored chapter's dated earlier versions come first, counted on their own days (§20); its start
+    is only for text newer than them.
   - It is a rough picture: moving a passage from one chapter to another, a restore, a put-back cut or a find and
     replace count as cut in one place and written in another.
 - **Existing history.** The migration works out the words for every existing revision. Each chapter's first revision
@@ -1793,7 +1800,7 @@ the end of the story (or as of the chosen point, §13.7.4).
 - **Smooth** at a few hundred places: the same budget as the graph's.
 - **From the Timeline**: brushing a span there drives the chart's *as of* (§13.7.5).
 - **Not a drawn map.** The chart doesn't replace an uploaded map image with pinned places, which stays on the later
-  list (WORLD-MODEL.md §6; §20).
+  list (WORLD-MODEL.md §6; §21).
 
 **Data:**
 
@@ -3518,7 +3525,7 @@ walkthrough 4 plays the new step with no skipped step in the end-to-end run.
 
 ### 17.10 Toward a drawn map
 
-The drawn map (an uploaded map image with places pinned on it, WORLD-MODEL.md §6) stays on the later list (§20), and
+The drawn map (an uploaded map image with places pinned on it, WORLD-MODEL.md §6) stays on the later list (§21), and
 isn't specified here. This work makes it smaller: the map image is a picture, uploaded, kept, copied for the phone,
 cached offline and carried by the export and Restore as above. What is left for it is the pins (a picture, a place
 entry, and where on the picture it sits, as fractions of its width and height), the view that draws them with *as of*,
@@ -3799,7 +3806,63 @@ projects + byline text NULL   -- at most 200 characters, NULL for none
 under `# The Salt Road` in the exported `manuscript.md`; clearing it removes it everywhere; and exporting and restoring
 keeps it, while an older export restores with none.
 
-## 20. Out of scope (for now)
+## 20. Dated earlier versions in the export (phase 18)
+
+Today an export carries each chapter's text as it is now, and Restore starts its history over: a chapter's text comes
+in as a `start` revision dated the day of the restore, which counts as no words (§11.5). Moving the novel in (§8)
+brings years of writing whose history is known day by day, and Thomas wants it kept: History should go back to when
+it was written, and the word chart (§11.5) should show the days it was written on.
+
+Phase 18 lets the export carry **dated earlier versions** of chapters and journal entries, and Restore read them back
+as revisions on their dates. Revisions are still kept in the database, and the database's backups stay the way to
+restore everything (§8); the export carries the history that matters for moving a world.
+
+**In the zip.** One file per revision, under `<world>/History/` at any depth. Folder and file names are for people;
+Restore reads the frontmatter:
+
+```
+<world>/History/The Salt Road/04 The Quay (3f2a9c1e)/2026-03-05 2210.md
+---
+chapter: 3f2a9c1e-8b4d-4c1a-9e57-2d6f0b8a41c3   # the chapter's id in the export (or journal: <id> for an entry)
+at: 2026-03-05T22:10:00+01:00                  # when; a bare date (2026-03-05) means 12:00 UTC that day
+reason: checkpoint                              # optional: autosnap (the default), checkpoint or start
+label: first draft done                         # optional, with a checkpoint
+title: The Quay                                 # optional: its title then (the chapter's own when left out)
+---
+
+The whole text at that moment, as in the chapter's own file.
+```
+
+**Restore** reads them after the chapters and the Journal, a file at a time:
+
+- Each chapter's (and journal entry's) revisions are made in the order of `at`, dated `at`. A file whose id matches no
+  chapter or entry in the zip is skipped.
+- **The word history counts them on their days.** The first one counts its words as written on its day (from an empty
+  chapter), unless it says `reason: start`, which counts none (for text that came from elsewhere); each later one counts
+  what changed since the one before, on its own day. A journal entry's revisions fill its History only: the Journal
+  never counts (§14.1.1).
+- **The chapter's own file is its current text.** When it is the same as the last dated revision, nothing more is
+  added; when it differs, it comes in as a `start` revision dated the restore, which counts none, as today.
+- A chapter or entry with no History files, and an export from before phase 18, restore as before.
+- History files are read one at a time, each at most 10 MB, and don't count toward the 200 MB of the other `.md`
+  files (§17.6).
+
+**Export** writes them too, so exporting and restoring keeps History and the word chart: for each chapter (in every
+state) and journal entry, its **last revision of every day** it has revisions on (days in UTC), and **every labelled
+checkpoint**, each with its `at`, `reason` and `label`. Conflict copies are left out. A world written over two years is
+some thousands of small files: a few tens of MB before compression.
+
+So the history of a book brought in from elsewhere needs one file per day it changed, the last one the same as the
+chapter's file.
+
+*Done when* a hand-made zip with three dated versions of a chapter (the last one its current text) restores with those
+three revisions in History on their dates, and the project's word chart shows the words written on each of those days;
+one marked `reason: start` counts none; a chapter whose file differs from its last version gets a `start` of today; a
+journal entry's versions fill its History; exporting a world and restoring it keeps each chapter's last version of each
+day and its labelled checkpoints, and the word chart shows the same days of writing (each day's words as what
+changed over the day, a rough picture as ever); and an export without `History/` restores as before.
+
+## 21. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -3820,7 +3883,7 @@ keeps it, while an older export restores with none.
   - calendars, or packs of real history: time stays a sortable number (§13.1.1);
   - a soundtrack feature: the share target already records where a link came from.
 
-## 21. Open questions
+## 22. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?

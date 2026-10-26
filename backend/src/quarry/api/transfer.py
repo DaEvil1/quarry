@@ -2,8 +2,8 @@
 
 The export is meant to be read without Quarry: plain Markdown with YAML frontmatter, one file per chapter, bible
 entry, journal entry and item, plus Decisions.md and a compiled manuscript.md per project. Restore reads exactly
-that layout back (the compiled manuscript is ignored). Revision history stays in the database: an export carries
-the texts as they are now.
+that layout back (the compiled manuscript is ignored). The full revision history stays in the database; an export
+carries the texts as they are now, and under History/ a day-by-day sample of how they got there.
 
     <world>/world.md                                  name, slug, words marked "not a typo", relationship types
                                                       (with has_role), the per-label switches (fact_labels), the
@@ -36,6 +36,11 @@ the texts as they are now.
                                                       put_back_at, put_back_to, before, after; the cut text
     <world>/Projects/<Name>/Planning/<status>/...     items for the project
     <world>/Projects/<Name>/manuscript.md             the current chapters in order (not read back)
+    <world>/History/<Project>/<Title> (<id8>)/<at>.md dated earlier versions (docs/SPEC.md §20): chapter (or journal),
+    <world>/History/Journal/<date> <title> (<id8>)/…  at, reason, label, title; the text. The export writes each
+                                                      chapter's and journal entry's last revision of every day (UTC)
+                                                      and every labelled checkpoint; Restore makes them revisions on
+                                                      their dates, counted in the word history on their days
     <world>/Pictures/<name>-<id8>.<ext>               each picture's full file (docs/SPEC.md §17.6), stored without
                                                       being compressed again; world.md lists them (pictures: file
                                                       and name), an entry's frontmatter has its gallery (pictures:
@@ -69,9 +74,11 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..mentions import refresh_world
+from ..wordhistory import word_changes
 from .followups import state_of, what_of
 from ..models import (
     GENDERS,
+    Revision,
     STARTING_STATUSES,
     Chapter,
     ChapterPlan,
@@ -123,6 +130,9 @@ KIND_FOLDERS = {"character": "Characters", "place": "Places", "faction": "Factio
 MAX_UPLOAD = 1024 * 1024 * 1024
 MAX_UNPACKED = 200 * 1024 * 1024
 PICTURE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+# a dated earlier version (docs/SPEC.md §20): read one at a time, apart from the 200 MB of the other .md files
+MAX_HISTORY_FILE = 10 * 1024 * 1024
+REVISION_FILE_REASONS = ("autosnap", "checkpoint", "start")
 # an image link on a line of its own: ![caption](path), the path maybe in <…> (or, leniently, with plain spaces)
 IMAGE_LINE_RE = re.compile(r"^([ \t]*)!\[([^\]\n]*)\]\((<[^>\n]+>|[^)\n]+)\)[ \t]*$", re.M)
 DECISION_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(?: · \[([^\]]*)\])? (.*?)\s*<!-- (.*?) -->\s*$")
@@ -532,11 +542,22 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
                  "put_back_to": str(c.put_back_to) if c.put_back_to else None, "before": c.before,
                  "after": c.after}, c.body)
 
+    # the documents whose dated versions go under History/ (docs/SPEC.md §20)
+    history_docs: list[tuple[str, uuid.UUID, str]] = []
+    for p in world.projects:
+        for c in db.scalars(select(Chapter).where(Chapter.project_id == p.id).order_by(Chapter.position, Chapter.created_at)):
+            history_docs.append(("chapter", c.id, f"{_safe(p.name)}/{_safe(c.title, 60)} ({str(c.id)[:8]})"))
+    for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id).order_by(JournalEntry.entry_date)):
+        history_docs.append(("journal", j.id, f"Journal/{j.entry_date} {_safe(j.title or j.body.split(chr(10), 1)[0][:40], 50)} ({str(j.id)[:8]})"))
+
     # written to a file on disk, a picture at a time, and sent from there: never held in memory whole
     fd, tmp = tempfile.mkstemp(prefix="quarry-export-", suffix=".zip")
     try:
         with os.fdopen(fd, "wb") as out, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
             for path, text in files.items():
+                z.writestr(path, _export_links(path, text, root, picture_file))
+            # dated earlier versions (docs/SPEC.md §20), a document at a time
+            for path, text in _history_files(db, root, history_docs):
                 z.writestr(path, _export_links(path, text, root, picture_file))
             for p in pictures:
                 data = db.scalar(select(PictureFile.data).where(PictureFile.picture_id == p.id,
@@ -601,6 +622,10 @@ def read_zip(z: zipfile.ZipFile) -> tuple[dict[str, str], dict[str, Callable[[],
         if not name.endswith(".md"):
             others[name] = lambda i=info: _read_capped(z, i, MAX_PICTURE)  # type: ignore[misc]
             continue
+        if name.count("/") >= 2 and name.split("/")[1] == "History":
+            # dated earlier versions are read when their turn comes, one at a time (docs/SPEC.md §20)
+            others[name] = lambda i=info: _read_capped(z, i, MAX_HISTORY_FILE)  # type: ignore[misc]
+            continue
         data = _read_capped(z, info, left) if info.file_size <= left else None
         if data is None:
             raise HTTPException(422, "That zip is too big to restore.")
@@ -613,6 +638,8 @@ class RestoreOut(WorldOut):
     # the pictures made, and the files under Pictures/ that weren't taken (docs/SPEC.md §17.6)
     pictures: int = 0
     skipped: list[str] = []
+    # the dated earlier versions made into revisions (docs/SPEC.md §20)
+    history: int = 0
 
 
 @router.post("/restore", status_code=201)
@@ -636,7 +663,7 @@ def restore_world(file: UploadFile = File(...), user: User = Depends(current_use
         db.commit()
     db.refresh(world)
     return RestoreOut(**_world_out(world, "owner").model_dump(), pictures=report.get("pictures", 0),
-                      skipped=report.get("skipped", []))
+                      skipped=report.get("skipped", []), history=report.get("history", 0))
 
 
 def _restore_pictures(db: Session, user: User, world: World, root: str, wmeta: dict,
@@ -692,6 +719,133 @@ def _restore_links(path: str, text: str, root: str, made: dict[str, uuid.UUID]) 
         return m.group(0)
 
     return IMAGE_LINE_RE.sub(link, text)
+
+
+def _at(v) -> datetime | None:  # type: ignore[no-untyped-def]
+    """A dated version's `at`: a timestamp (UTC when it says no zone), or a bare date meaning 12:00 UTC that day."""
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=UTC)
+    if isinstance(v, date):
+        return datetime(v.year, v.month, v.day, 12, tzinfo=UTC)
+    try:
+        text = str(v or "").strip()
+        if len(text) == 10:
+            return datetime.fromisoformat(text).replace(hour=12, tzinfo=UTC)
+        d = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=UTC)
+
+
+def _restore_history(db: Session, user: User, root: str, files: dict[str, str],
+                     others: dict[str, Callable[[], bytes | None]], chapter_by_old: dict[str, uuid.UUID],
+                     journal_by_old: dict[str, uuid.UUID], report: dict) -> dict[tuple[str, uuid.UUID], str]:
+    """Each chapter's and journal entry's dated earlier versions, as revisions on their dates, in order. The first
+    counts its words as written on its day (from empty) unless it is a start; each later one what changed since the
+    one before. Files are read twice, one at a time: first for when and whose, then for the text, so a long history
+    never sits in memory whole. Returns each document's last text, to compare with its current one."""
+    from .journal import journal_words
+    from .manuscript import words
+
+    prefix = f"{root}/History/"
+    loaders: dict[str, Callable[[], bytes | None]] = {p: f for p, f in others.items() if p.startswith(prefix) and p.endswith(".md")}
+    for p, text in files.items():
+        if p.startswith(prefix) and p.endswith(".md"):
+            loaders[p] = lambda t=text: t.encode("utf-8")  # type: ignore[misc]
+
+    def read(path: str) -> tuple[dict, str] | None:
+        data = loaders[path]()
+        if data is None:
+            return None
+        return _parse(data.decode("utf-8", errors="replace"))
+
+    found: dict[tuple[str, uuid.UUID], list[tuple[datetime, str]]] = defaultdict(list)
+    skipped = 0
+    for path in sorted(loaders):
+        parsed = read(path)
+        if parsed is None:
+            skipped += 1
+            continue
+        meta, _ = parsed
+        at = _at(meta.get("at"))
+        key: tuple[str, uuid.UUID] | None = None
+        if meta.get("chapter") and str(meta["chapter"]) in chapter_by_old:
+            key = ("chapter", chapter_by_old[str(meta["chapter"])])
+        elif meta.get("journal") and str(meta["journal"]) in journal_by_old:
+            key = ("journal", journal_by_old[str(meta["journal"])])
+        if key is None or at is None:
+            skipped += 1
+            continue
+        found[key].append((at, path))
+    last: dict[tuple[str, uuid.UUID], str] = {}
+    made = 0
+    for (table, doc_id), versions in found.items():
+        doc = db.get(Chapter if table == "chapter" else JournalEntry, doc_id)
+        assert doc is not None
+        previous: str | None = None
+        for at, path in sorted(versions):
+            parsed = read(path)
+            if parsed is None:
+                continue
+            meta, body = parsed
+            reason = str(meta.get("reason") or "autosnap")
+            reason = reason if reason in REVISION_FILE_REASONS else "autosnap"
+            added = removed = 0
+            if reason != "start":
+                added, removed = word_changes(previous or "", body)
+            label = " ".join(str(meta.get("label") or "").split())[:200] or None
+            title = " ".join(str(meta.get("title") or "").split())[:300] or (doc.title or "")
+            info = ({"state": doc.state, "words": words(body)} if table == "chapter" else {"words": journal_words(body)})
+            rev = Revision(doc_table=table, doc_id=doc_id, version=doc.version, title=title, body=body,
+                           meta={**info, "added": added, "removed": removed}, reason=reason,
+                           label=label if reason == "checkpoint" else None, created_by=user.id, created_at=at)
+            db.add(rev)
+            db.flush()
+            db.expunge(rev)
+            previous = body
+            made += 1
+        if previous is not None:
+            last[(table, doc_id)] = previous
+    report["history"] = made
+    if skipped:
+        report["history_skipped"] = skipped
+    return last
+
+
+def _history_files(db: Session, root: str, docs: list[tuple[str, uuid.UUID, str]]):  # type: ignore[no-untyped-def]
+    """The dated versions an export carries (docs/SPEC.md §20): for each document, its last revision of every day it
+    has revisions on (days in UTC) and every labelled checkpoint; never a conflict copy. Yields (path, text), one
+    document's revisions read at a time."""
+    for table, doc_id, folder in docs:
+        rows = db.execute(select(Revision.created_at, Revision.body, Revision.reason, Revision.label, Revision.title)
+                          .where(Revision.doc_table == table, Revision.doc_id == doc_id, Revision.reason != "conflict")
+                          .order_by(Revision.created_at)).all()
+        keep: dict[int, tuple] = {}
+        last_of_day: dict[date, int] = {}
+        for i, r in enumerate(rows):
+            last_of_day[r.created_at.astimezone(UTC).date()] = i
+            if r.label:
+                keep[i] = r
+        for i in last_of_day.values():
+            keep[i] = rows[i]
+        seen: set[str] = set()
+        for i in sorted(keep):
+            r = keep[i]
+            at = r.created_at.astimezone(UTC)
+            name = f"{at:%Y-%m-%d %H%M%S}"
+            while name in seen:
+                name += "+"
+            seen.add(name)
+            meta = {table: str(doc_id), "at": at.isoformat()}
+            if r.reason in ("checkpoint", "start"):
+                meta["reason"] = r.reason
+            if r.label:
+                meta["reason"] = "checkpoint"
+                meta["label"] = r.label
+            if r.title:
+                meta["title"] = r.title
+            yield f"{root}/History/{folder}/{name}.md", _doc(meta, r.body)
+        del rows
 
 
 def restore_files(db: Session, user: User, files: dict[str, str],
@@ -894,6 +1048,7 @@ def restore_files(db: Session, user: User, files: dict[str, str],
 
     # chapters: current, experiments, salvage
     chapter_by_old: dict[str, uuid.UUID] = {}
+    restored: list[Chapter] = []
     pending_replaces: list[tuple[Chapter, str]] = []
     for folder, pslug in project_dirs.items():
         pid = project_ids[pslug]
@@ -912,9 +1067,8 @@ def restore_files(db: Session, user: User, files: dict[str, str],
                     ch.retired_at = datetime.now(UTC)
                 db.add(ch)
                 db.flush()
-                if ch.body.strip():
-                    # restored text is where the chapter starts, not a day's writing
-                    snapshot(db, ch, "start", user)
+                # restored text is where the chapter starts, not a day's writing: after its dated versions, if any
+                restored.append(ch)
                 if meta.get("id"):
                     chapter_by_old[str(meta["id"])] = ch.id
                 if meta.get("replaces"):
@@ -1108,6 +1262,12 @@ def restore_files(db: Session, user: User, files: dict[str, str],
                 db.add(DecisionFollowup(decision_id=decision_by_old[old], what=what_of(db, world, table, row),
                                         dropped_on=_day(dropped.get(old)) if dropped.get(old) else None,
                                         created_by=user.id, **{f"{table}_id": row.id}))
+
+    # dated earlier versions (docs/SPEC.md §20), then each chapter's start where its text is newer than them
+    last = _restore_history(db, user, root, files, others or {}, chapter_by_old, journal_by_old, report)
+    for ch in restored:
+        if ch.body.strip() and last.get(("chapter", ch.id)) != ch.body:
+            snapshot(db, ch, "start", user)
 
     for token in wmeta.get("ignored_words") or []:
         db.add(NameIgnore(world_id=world.id, token=str(token)))

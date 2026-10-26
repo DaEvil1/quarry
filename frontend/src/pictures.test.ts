@@ -43,5 +43,6 @@ describe("Restore's result (docs/SPEC.md §17.6)", () => {
     expect(restoredText({ ...w, pictures: 48, skipped: [] })).toBe("Restored, with 48 pictures");
     expect(restoredText({ ...w, pictures: 1, skipped: ["Pictures/notes.txt"] })).toBe("Restored, with 1 picture. Skipped: Pictures/notes.txt");
     expect(restoredText({ ...w })).toBe("Restored");
+    expect(restoredText({ ...w, pictures: 2, history: 340 })).toBe("Restored, with 2 pictures and 340 earlier versions");
   });
 });
