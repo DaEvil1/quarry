@@ -333,12 +333,16 @@ export const exportUrl = (world: string) => `${base(world)}/export`;
 export interface Restored extends World {
   pictures?: number;
   skipped?: string[];
+  /** dated earlier versions made into revisions (docs/SPEC.md §20) */
+  history?: number;
 }
 
 /** "Restored, with 48 pictures", and the files it didn't take. */
 export function restoredText(r: Restored): string {
   const n = r.pictures ?? 0;
-  const said = n ? `Restored, with ${n} picture${n === 1 ? "" : "s"}` : "Restored";
+  const h = r.history ?? 0;
+  const parts = [n ? `${n} picture${n === 1 ? "" : "s"}` : "", h ? `${h} earlier version${h === 1 ? "" : "s"}` : ""].filter(Boolean);
+  const said = parts.length ? `Restored, with ${parts.join(" and ")}` : "Restored";
   const skipped = r.skipped ?? [];
   return skipped.length ? `${said}. Skipped: ${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? ` and ${skipped.length - 8} more` : ""}` : said;
 }
