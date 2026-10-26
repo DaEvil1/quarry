@@ -69,6 +69,8 @@ your way while you write:
 - **A front page** for coming back after a break: the premise, where you left off, recent decisions and open
   questions.
 - **The Journal in the full editor,** so planning notes get the same name tools as chapters.
+- **A chapter's plan beside it:** a journal entry marked as the plan for a chapter, opened half and half beside it
+  while writing (flipped to on the phone), and a plan written before its chapter waiting until the chapter starts.
 - **Planned facts** that become canon when the text shows them, and checks that can include them.
 
 ### Safe and portable
@@ -80,7 +82,7 @@ your way while you write:
 
 - **The demo world.** Load *The Ninefold Delta* from **New world**: a small made-up story with something of every
   feature planted in it.
-- **The Guide.** Thirteen short walkthroughs, at the foot of the nav or under Settings on a phone. Watch one play
+- **The Guide.** Fourteen short walkthroughs, at the foot of the nav or under Settings on a phone. Watch one play
   itself, or try it step by step, always on a throwaway copy of the demo world.
 
 ## Run it locally
@@ -119,5 +121,5 @@ For development with hot reload and the tests, see [docs/development.md](docs/de
 
 ## Status
 
-Phases 1–15 and the Guide are built and in use. Next is phase 16, a chapter's plan beside it ([SPEC §18](docs/SPEC.md)). Quarry is a personal tool for a single writer, with the data model ready for co-writing
+Phases 1–16 and the Guide are built and in use. Quarry is a personal tool for a single writer, with the data model ready for co-writing
 later. The code is public; no story content is ever committed, and every example and test uses made-up names.
