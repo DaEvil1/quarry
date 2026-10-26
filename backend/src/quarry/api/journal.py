@@ -22,6 +22,8 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..mentions import forget_source, refresh_source
 from ..models import (
+    Chapter,
+    ChapterPlan,
     Decision,
     DecisionLink,
     Entity,
@@ -67,6 +69,9 @@ class EntryOut(BaseModel):
     updated_at: datetime
     # decisions and changes since its date touching what it names (docs/SPEC.md §14.5); on the list only
     since: int | None = None
+    # a plan, and the chapters it is for (docs/SPEC.md §18.1)
+    is_plan: bool = False
+    chapters: list[dict] = Field(default_factory=list)
 
 
 class EntryDetail(EntryOut):
@@ -93,6 +98,8 @@ class EntryUpdate(BaseModel):
 class AboutIn(BaseModel):
     entry_date: date | None = None
     project: str | None = None
+    # the Plan switch (docs/SPEC.md §18.1): off removes its links to chapters
+    is_plan: bool | None = None
 
 
 class SnapshotIn(BaseModel):
@@ -106,11 +113,36 @@ class RestoreIn(BaseModel):
     revision_id: uuid.UUID
 
 
-def _out(j: JournalEntry, world: World) -> EntryOut:
+def chapter_ref(ch: Chapter, slugs: dict[uuid.UUID, str]) -> dict:
+    """A chapter as a plan names it: `chapter 4, The Quay`, a draft, or `in Salvage`."""
+    return {"id": str(ch.id), "title": ch.title, "state": ch.state, "project": slugs.get(ch.project_id),
+            "n": ch.position + 1 if ch.state == "current" else None}
+
+
+def plan_chapters(db: Session, world: World, ids: list[uuid.UUID]) -> dict[uuid.UUID, list[dict]]:
+    """The chapters each of these entries is a plan for, in book order (current first, then drafts, then Salvage)."""
+    if not ids:
+        return {}
+    slugs = {p.id: p.slug for p in world.projects}
+    order = {"current": 0, "experiment": 1, "retired": 2}
+    rows = db.execute(select(ChapterPlan.journal_id, Chapter).join(Chapter, Chapter.id == ChapterPlan.chapter_id)
+                      .where(ChapterPlan.journal_id.in_(ids))).all()
+    out: dict[uuid.UUID, list[dict]] = defaultdict(list)
+    for jid, ch in sorted(rows, key=lambda r: (order.get(r[1].state, 3), r[1].position, r[1].title)):
+        out[jid].append(chapter_ref(ch, slugs))
+    return out
+
+
+def _out(j: JournalEntry, world: World, chapters: list[dict] | None = None) -> EntryOut:
     slugs = {p.id: p.slug for p in world.projects}
     return EntryOut(id=j.id, entry_date=j.entry_date, title=j.title, body=j.body,
                     project=slugs.get(j.project_id) if j.project_id else None, version=j.version,
-                    words=journal_words(j.body), created_at=j.created_at, updated_at=j.updated_at)
+                    words=journal_words(j.body), created_at=j.created_at, updated_at=j.updated_at,
+                    is_plan=j.is_plan, chapters=chapters or [])
+
+
+def entry_out(db: Session, world: World, j: JournalEntry) -> EntryOut:
+    return _out(j, world, plan_chapters(db, world, [j.id]).get(j.id))
 
 
 def entry_detail(db: Session, world: World, j: JournalEntry) -> EntryDetail:
@@ -120,7 +152,7 @@ def entry_detail(db: Session, world: World, j: JournalEntry) -> EntryDetail:
     ).all()
     mentions = [{"entity_id": str(m.entity_id), "entity_name": name, "entity_kind": ekind, "start": m.start,
                  "end": m.end, "matched_text": m.matched_text, "kind": m.kind} for m, name, ekind in found]
-    return EntryDetail(**_out(j, world).model_dump(), mentions=mentions)
+    return EntryDetail(**entry_out(db, world, j).model_dump(), mentions=mentions)
 
 
 def _entry(db: Session, world: World, entry_id: uuid.UUID) -> JournalEntry:
@@ -178,12 +210,20 @@ def _query(world: World, project: str | None):  # type: ignore[no-untyped-def]
 
 @router.get("/journal")
 def list_journal(slug: str, project: str | None = None, limit: int = Query(200, ge=1, le=5000),
+                 plans: str | None = Query(None, pattern="^(1|unlinked)$"),
                  user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[EntryOut]:
+    """Newest first. `plans=1`: only plans; `plans=unlinked`: plans linked to no chapter (docs/SPEC.md §18.3)."""
     world, _ = member_world(db, user, slug)
-    q = _query(world, project).order_by(JournalEntry.entry_date.desc(), JournalEntry.created_at.desc()).limit(limit)
+    q = _query(world, project)
+    if plans:
+        q = q.where(JournalEntry.is_plan.is_(True))
+    if plans == "unlinked":
+        q = q.where(~JournalEntry.id.in_(select(ChapterPlan.journal_id)))
+    q = q.order_by(JournalEntry.entry_date.desc(), JournalEntry.created_at.desc()).limit(limit)
     entries = list(db.scalars(q))
     counts = Since(db, world).counts(entries)
-    return [_out(j, world).model_copy(update={"since": counts.get(j.id, 0)}) for j in entries]
+    chapters = plan_chapters(db, world, [j.id for j in entries if j.is_plan])
+    return [_out(j, world, chapters.get(j.id)).model_copy(update={"since": counts.get(j.id, 0)}) for j in entries]
 
 
 @router.post("/journal", status_code=201)
@@ -253,9 +293,13 @@ def update_about(slug: str, entry_id: uuid.UUID, body: AboutIn, user: User = Dep
     if "project" in body.model_fields_set:
         p = project_by_slug(world, body.project)
         j.project_id = p.id if p else None
+    if body.is_plan is not None:
+        j.is_plan = body.is_plan
+        if not body.is_plan:
+            db.execute(delete(ChapterPlan).where(ChapterPlan.journal_id == j.id))
     j.updated_by = user.id
     db.commit()
-    return _out(j, world)
+    return entry_out(db, world, j)
 
 
 def ties(db: Session, j: JournalEntry) -> dict:
@@ -267,7 +311,12 @@ def ties(db: Session, j: JournalEntry) -> dict:
             "relationships": count(select(Relationship.id).where(Relationship.planned_in_journal_id == j.id)),
             "notes": count(select(Telling.id).where(Telling.journal_id == j.id)),
             "items": count(select(ItemLink.item_id).where(ItemLink.target_table == "journal",
-                                                          ItemLink.target_id == j.id))}
+                                                          ItemLink.target_id == j.id)),
+            # the chapters it is the plan for (docs/SPEC.md §18.1)
+            "plan_for": [{"id": str(c.id), "title": c.title, "state": c.state,
+                          "n": c.position + 1 if c.state == "current" else None}
+                         for c in db.scalars(select(Chapter).join(ChapterPlan, ChapterPlan.chapter_id == Chapter.id)
+                                             .where(ChapterPlan.journal_id == j.id).order_by(Chapter.position))]}
 
 
 @router.get("/journal/{entry_id}/ties")

@@ -78,13 +78,34 @@ export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 /** Look for `t` until it shows, up to `ms`; null if it never does or `stopped()` says to give up. */
 export async function waitFor(doc: () => Document | null, t: Target, ms = 15_000, stopped = () => false): Promise<HTMLElement | null> {
   const end = Date.now() + ms;
+  let revealed = 0;
   while (Date.now() < end && !stopped()) {
     const d = doc();
     const el = d && find(d, t);
     if (el) return el;
+    // a line of a long text is only drawn near the screen: bring it there (once a second at most)
+    if (d && Date.now() - revealed > 1000) {
+      revealed = Date.now();
+      revealLine(d, t);
+    }
     await sleep(50);
   }
   return null;
+}
+
+/** For a target that is an editor's line holding some text: scroll that text into the editor's view, so it is drawn. */
+function revealLine(doc: Document, t: Target) {
+  const at = t.css.lastIndexOf(".cm-line");
+  if (at < 0 || !t.text) return;
+  const scope = t.css.slice(0, at).trim();
+  for (const dom of doc.querySelectorAll<HTMLElement>(scope ? `${scope} .cm-editor, ${scope}.cm-editor` : ".cm-editor")) {
+    const view = EditorView.findFromDOM(dom);
+    const pos = view ? view.state.doc.toString().indexOf(t.text) : -1;
+    if (view && pos >= 0) {
+      view.dispatch({ effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+      return;
+    }
+  }
 }
 
 /** A plain-words line for the try-it-yourself hint. */

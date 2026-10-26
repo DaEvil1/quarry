@@ -6,6 +6,7 @@ import type { About, Chapter, StatusRef } from "../manuscript";
 import type { EntityRef, Presence, TimeValue } from "../types";
 import type { Era } from "../world/eras";
 import type { Unit } from "../world/when";
+import { journalDay } from "../journal";
 import InlineText from "./InlineText.vue";
 import TimeField from "./TimeField.vue";
 import { castOf } from "../world/cast";
@@ -40,6 +41,10 @@ const emit = defineEmits<{
   putBack: [cut: Cut, where: "place" | "cursor"];
   copy: [cut: Cut];
   since: [label: string];
+  /** a chapter's plans (docs/SPEC.md §18.1): open one beside the chapter, make a new one, link one */
+  openPlan: [id: string];
+  newPlan: [];
+  linkPlan: [];
 }>();
 
 // shared names nothing settles are listed once, with their claimants (docs/SPEC.md §14.10)
@@ -74,6 +79,20 @@ const open = ref<string | null>(null);
         <option value="flashback">a flashback</option>
         <option value="tale">a tale (told by a character)</option>
       </select>
+    </section>
+    <section data-testid="chapter-plans">
+      <h3 class="small muted">Plans</h3>
+      <ul v-if="props.chapter.plan_list?.length" class="plain-list small">
+        <li v-for="p in props.chapter.plan_list" :key="p.id" data-testid="chapter-plan">
+          <RouterLink :to="{ name: 'journal-entry', params: { world: props.world, id: p.id } }">{{ p.title }}</RouterLink>
+          <span class="muted"> · {{ journalDay(p.date) }}</span> ·
+          <button type="button" class="linkish" data-testid="open-beside" @click="emit('openPlan', p.id)">Open beside</button>
+        </li>
+      </ul>
+      <p v-if="!props.readOnly" class="small">
+        <button type="button" class="linkish" data-testid="new-plan" @click="emit('newPlan')">New plan</button> ·
+        <button type="button" class="linkish" data-testid="link-plan" @click="emit('linkPlan')">Link a plan…</button>
+      </p>
     </section>
     <section>
       <h3 class="small muted">Point of view</h3>

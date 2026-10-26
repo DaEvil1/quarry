@@ -2679,7 +2679,7 @@ Guide itself doesn't need them.
 
 ### 15.6 The walkthroughs
 
-Thirteen walkthroughs, about 25 minutes in all when watched at 1×, in the order the Guide lists them. Each names what it does in the
+Fourteen walkthroughs (the fourteenth from phase 16, §18.6), about 27 minutes in all when watched at 1×, in the order the Guide lists them. Each names what it does in the
 sandbox, and what it only points at (a download, a file picker, a confirmation, a drag), where doing it would leave the
 app or the sandbox.
 

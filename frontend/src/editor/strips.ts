@@ -578,15 +578,19 @@ export interface PassageActions {
   values: (kind: EntityKind, label: string) => string[];
   /** in a chapter: what is there already as planned (a fact with the same label), to make canon here instead */
   planned?: (entityId: string, label: string) => Promise<{ id: string; value: string; where: string } | null>;
+  /** in a plan beside its chapter: that chapter, offered for when a fact holds, used only after a click (§18.4) */
+  beside?: { id: string; label: string };
+  /** in a plan: its chapters, as chips on a spark, question or task, and whether each starts ticked (§18.4) */
+  chapters?: { id: string; label: string; ticked: boolean }[];
   recordFact: (f: {
     entity: EntityRef;
     label: string;
     value: string;
-    span: { here: boolean; from: number | null; until: number | null };
+    span: { here: boolean; from: number | null; until: number | null; fromChapter?: string; untilChapter?: string };
     standing: "canon" | "planned";
     makeCanon?: string;
   }) => Promise<unknown>;
-  saveItem: (i: { kind: "spark" | "question" | "task"; line: string; entities: string[]; park: boolean }) => Promise<unknown>;
+  saveItem: (i: { kind: "spark" | "question" | "task"; line: string; entities: string[]; park: boolean; chapters: string[] }) => Promise<unknown>;
 }
 
 /** The chips a selection offers for passage actions. */
@@ -714,10 +718,17 @@ function factForm(root: HTMLElement, p: PassageActions, done: () => void) {
   suggest(value, values, () => (entity && label.value.trim() ? p.values(entity.kind, label.value.trim()) : []), () => value.focus());
   label.addEventListener("change", () => void checkPlanned());
   // 3. when it holds: in a chapter from this chapter (or throughout); a time on either side instead
-  const span = choices<"here" | "throughout">(
-    p.where === "chapter" ? [{ value: "here", label: "from this chapter" }, { value: "throughout", label: "throughout" }] : [{ value: "throughout", label: "holds throughout" }],
+  // in a plan beside its chapter: that chapter is offered, and used only after a click (docs/SPEC.md §18.4)
+  const span = choices<"here" | "throughout" | "fromBeside" | "untilBeside">(
+    p.where === "chapter"
+      ? [{ value: "here", label: "from this chapter" }, { value: "throughout", label: "throughout" }]
+      : [
+          { value: "throughout", label: "holds throughout" },
+          ...(p.beside ? [{ value: "fromBeside" as const, label: `from ${p.beside.label}` }, { value: "untilBeside" as const, label: `until ${p.beside.label}` }] : []),
+        ],
     p.where === "chapter" ? "here" : "throughout",
   );
+  if (p.beside) span.row.prepend(el("span", "qcard-also", "The chapter beside:"));
   span.row.dataset.testid = "fact-span";
   const from = el("input", "qinput time-num");
   from.placeholder = "from (time)";
@@ -770,7 +781,11 @@ function factForm(root: HTMLElement, p: PassageActions, done: () => void) {
       entity,
       label: l,
       value: value.value.trim(),
-      span: { here: span.value() === "here" && fromT === null, from: fromT, until: timeNumber(until.value) },
+      span: {
+        here: span.value() === "here" && fromT === null, from: fromT, until: timeNumber(until.value),
+        ...(p.beside && span.value() === "fromBeside" ? { fromChapter: p.beside.id } : {}),
+        ...(p.beside && span.value() === "untilBeside" ? { untilChapter: p.beside.id } : {}),
+      },
       standing: standing.value(),
       makeCanon: plannedId && !asNew ? plannedId : undefined,
     });
@@ -808,18 +823,31 @@ function itemForm(root: HTMLElement, p: PassageActions, start: "spark" | "questi
     label.append(box, ` ${n.name}`);
     who.append(label);
   }
+  // in a plan: its chapters, ticked as the page says (the one beside; the only one), so it shows in their Loose ends
+  const forChapters = new Set((p.chapters ?? []).filter((c) => c.ticked).map((c) => c.id));
+  const chaptersRow = el("div", "qrow who-chips");
+  chaptersRow.dataset.testid = "item-chapters";
+  for (const c of p.chapters ?? []) {
+    const label = el("label", "qchip who-chip");
+    const box = el("input");
+    box.type = "checkbox";
+    box.checked = c.ticked;
+    box.addEventListener("change", () => (box.checked ? forChapters.add(c.id) : forChapters.delete(c.id)));
+    label.append(box, ` ${c.label}`);
+    chaptersRow.append(label);
+  }
   const parkLabel = el("label", "qchip quiet");
   const park = el("input");
   park.type = "checkbox";
   parkLabel.append(park, " Park it");
   const save = async () => {
-    await p.saveItem({ kind: kind.value(), line: line.value.trim(), entities: [...ticked], park: park.checked });
+    await p.saveItem({ kind: kind.value(), line: line.value.trim(), entities: [...ticked], park: park.checked, chapters: [...forChapters] });
     done();
   };
   const row = el("div", "qrow");
   row.append(parkLabel, chip("Save", save, "primary"), chip("Cancel", done, "quiet"));
   formKeys(root, save, done);
-  root.append(el("span", "qstrip-q", "From this passage"), kind.row, line, who, row);
+  root.append(el("span", "qstrip-q", "From this passage"), kind.row, line, who, ...(p.chapters?.length ? [chaptersRow] : []), row);
   setTimeout(() => line.focus());
 }
 

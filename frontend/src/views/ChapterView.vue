@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter, type RouteLocationRaw } from "vue-router";
 
 import { addFact, addRelationship, createEntity, endBefore as endBeforeRole, fixes, getEntity, setLabelSwitches, typeOptions, updateEntity, updateFact } from "../bible";
@@ -79,6 +79,12 @@ import { includePlanned, setIncludePlanned } from "../focus";
 import { norm } from "../world/time";
 import { analyse, linkKey, storyText, type Finding } from "../world/findings";
 import NotFoundView from "./NotFoundView.vue";
+import PlanPicker from "../components/PlanPicker.vue";
+import { createEntry, linkPlan } from "../journal";
+import type { JournalEntry, PlanChapter } from "../types";
+
+// the plan pane is the journal editor (docs/SPEC.md §18.2), loaded only when a split opens
+const JournalEntryView = defineAsyncComponent(() => import("./JournalEntryView.vue"));
 
 const route = useRoute();
 const router = useRouter();
@@ -210,6 +216,8 @@ async function load() {
   }
   chapter.value = ch;
   toast.value = null;
+  // the split as this chapter was left on the device, before anything slower, so a click on Plan isn't undone
+  restorePlan(ch);
   void loadPresence(ch.id);
   await nextTick();
   mount(ch);
@@ -278,6 +286,8 @@ onMounted(async () => {
   await load();
   document.addEventListener("visibilitychange", onHide);
   window.addEventListener("beforeunload", onUnload);
+  window.addEventListener("resize", onResize);
+  window.addEventListener("keydown", planKey, true);
 });
 watch(() => route.params.id, async (id, old) => {
   if (id && id !== old) {
@@ -302,6 +312,8 @@ onBeforeRouteLeave(async (to) => {
 onBeforeUnmount(() => {
   document.removeEventListener("visibilitychange", onHide);
   window.removeEventListener("beforeunload", onUnload);
+  window.removeEventListener("resize", onResize);
+  window.removeEventListener("keydown", planKey, true);
   saver?.close();
   prose.value?.destroy();
 });
@@ -328,6 +340,168 @@ watch(typewriter, (on) => {
   prefs.set("typewriter", on);
 });
 
+// ---- the chapter's plan beside it (docs/SPEC.md §18.2) ----
+// Whether the split is open, and on which plan, is kept per chapter on the device; the divider's place per device. A
+// chapter never opens its plan by itself the first time. Under 1,000 px the Plan button flips between the two.
+const SPLIT_KEY = "quarry.planSplit";
+const planStore = (id: string) => `quarry.plan.${id}`;
+const pageEl = ref<HTMLElement | null>(null);
+const planOpen = ref(false);
+const planId = ref<string | null>(null);
+const pickingPlan = ref(false);
+const panelOverSplit = ref(false);
+const narrow = ref(typeof window !== "undefined" && window.innerWidth < 1000);
+const onResize = () => (narrow.value = window.innerWidth < 1000);
+function readSplit(): number {
+  try {
+    const n = Number(localStorage.getItem(SPLIT_KEY));
+    return n >= 30 && n <= 70 ? n : 50;
+  } catch {
+    return 50;
+  }
+}
+const split = ref(readSplit());
+function setSplit(n: number) {
+  split.value = Math.max(30, Math.min(70, n));
+  try {
+    localStorage.setItem(SPLIT_KEY, String(Math.round(split.value * 10) / 10));
+  } catch {
+    /* kept for now */
+  }
+}
+function dragSplit(e: PointerEvent) {
+  const page = pageEl.value;
+  if (!page) return;
+  e.preventDefault();
+  const box = page.getBoundingClientRect();
+  const move = (m: PointerEvent) => (split.value = Math.max(30, Math.min(70, ((m.clientX - box.left) / box.width) * 100)));
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    setSplit(split.value);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+}
+const plans = computed(() => chapter.value?.plan_list ?? []);
+const beside = computed<PlanChapter | null>(() => {
+  const ch = chapter.value;
+  return ch ? { id: ch.id, title: ch.title, state: ch.state, project: ch.project, n: ch.state === "current" ? ch.position + 1 : null } : null;
+});
+const shortDay = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+function rememberPlan() {
+  const ch = chapter.value;
+  if (!ch) return;
+  try {
+    localStorage.setItem(planStore(ch.id), JSON.stringify({ open: planOpen.value, id: planId.value }));
+  } catch {
+    /* not remembered */
+  }
+}
+// the chapter whose split was opened or closed by hand while it loaded: restoring leaves that alone
+let planTouched: string | null = null;
+/** As the chapter was left on this device; ?plan=<journal id> opens the split on that plan. */
+function restorePlan(ch: Chapter) {
+  const asked = typeof route.query.plan === "string" ? route.query.plan : null;
+  if (planTouched === ch.id && !asked) {
+    if (!planId.value || !(ch.plan_list ?? []).some((p) => p.id === planId.value)) planId.value = ch.plan_list?.[0]?.id ?? null;
+    return;
+  }
+  let kept: { open?: boolean; id?: string | null } = {};
+  try {
+    kept = JSON.parse(localStorage.getItem(planStore(ch.id)) ?? "{}") as typeof kept;
+  } catch {
+    kept = {};
+  }
+  const list = ch.plan_list ?? [];
+  const known = (id: string | null | undefined) => (id && list.some((p) => p.id === id) ? id : null);
+  // on the phone (and in narrow windows) a chapter opens on itself; Plan flips to the plan
+  planOpen.value = !!asked || (!!kept.open && !narrow.value);
+  planId.value = (asked && asked !== "open" ? asked : null) ?? known(kept.id) ?? list[0]?.id ?? null;
+  if (asked) {
+    void router.replace({ query: { ...route.query, plan: undefined } });
+    rememberPlan();
+    void focusPlan();
+  }
+}
+function togglePlan() {
+  planTouched = String(route.params.id);
+  planOpen.value = !planOpen.value;
+  if (planOpen.value && !planId.value) planId.value = plans.value[0]?.id ?? null;
+  rememberPlan();
+  if (!planOpen.value) nextTick(() => prose.value?.view.focus());
+}
+function choosePlan(id: string) {
+  planId.value = id;
+  rememberPlan();
+}
+function openPlanBeside(id: string) {
+  planOpen.value = true;
+  choosePlan(id);
+  void focusPlan();
+}
+/** The cursor into the plan pane, once its editor is there. */
+async function focusPlan() {
+  for (let i = 0; i < 40; i++) {
+    await nextTick();
+    const el = pageEl.value?.querySelector<HTMLElement>(".plan-side .cm-content");
+    if (el) {
+      el.focus();
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+/** Ctrl+Shift+P: open the split with the cursor in the plan; again, back to the chapter, and so on. */
+function planKey(e: KeyboardEvent) {
+  if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.key.toLowerCase() !== "p" || !chapter.value) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const inPlan = !!(document.activeElement && pageEl.value?.querySelector(".plan-side")?.contains(document.activeElement));
+  if (!planOpen.value) {
+    togglePlan();
+    void focusPlan();
+  } else if (inPlan) {
+    if (narrow.value) togglePlan();
+    else prose.value?.view.focus();
+  } else void focusPlan();
+}
+/** A spark, question or task made in the plan for this chapter: into its Loose ends now. */
+async function planItem() {
+  const ch = chapter.value;
+  if (ch) items.value = await chapterItems(worldSlug.value, ch.id).catch(() => items.value);
+}
+async function refreshPlans(open?: string) {
+  const ch = chapter.value;
+  if (!ch) return;
+  const fresh = await getChapter(worldSlug.value, ch.id);
+  if (chapter.value?.id === ch.id) chapter.value = { ...chapter.value, plan_list: fresh.plan_list };
+  if (open) openPlanBeside(open);
+}
+/** New plan: a journal entry dated today in the chapter's project, titled after it, linked, and open beside it. */
+async function newPlan() {
+  const ch = chapter.value;
+  if (!ch) return;
+  error.value = "";
+  try {
+    const e = await createEntry(worldSlug.value, { id: crypto.randomUUID(), entry_date: localToday(), title: `Plan: ${ch.title}`, body: "", project: ch.project });
+    await linkPlan(worldSlug.value, e.id, ch.id);
+    await refreshPlans(e.id);
+  } catch (e) {
+    error.value = unreachable(e) ? "A new plan needs the network; try again when you're back online." : (e as Error).message;
+  }
+}
+async function linkPicked(e: JournalEntry) {
+  pickingPlan.value = false;
+  const ch = chapter.value;
+  if (!ch) return;
+  try {
+    await linkPlan(worldSlug.value, e.id, ch.id);
+    await refreshPlans(e.id);
+  } catch (err) {
+    error.value = unreachable(err) ? "Linking a plan needs the network." : (err as Error).message;
+  }
+}
 // ---- the world in the editor: names coloured by kind, cards and quick fixes (docs/WORLD-MODEL.md §5) ----
 let matcher = cards.matcher();
 let matcherVersion = cards.version;
@@ -1377,8 +1551,8 @@ const experimentText = computed(() => {
 
 <template>
   <NotFoundView v-if="!world || missing" what="chapter" />
-  <div v-else class="chapter-page" :class="{ 'with-history': showHistory }">
-    <div class="chapter-main">
+  <div v-else ref="pageEl" class="chapter-page" :class="{ 'with-history': showHistory, split: planOpen && !narrow, flipped: planOpen && narrow }">
+    <div v-show="!(planOpen && narrow)" class="chapter-main" :style="planOpen && !narrow ? { flex: `0 0 ${split}%` } : {}">
       <div class="chapter-bar">
         <div class="crumbs">
           <RouterLink v-if="project" :to="{ name: 'project', params: { world: world.slug, project: project.slug } }">{{ project.name }}</RouterLink>
@@ -1394,7 +1568,8 @@ const experimentText = computed(() => {
           </span>
           <label class="toggle"><input v-model="focusMode" type="checkbox" /> Focus</label>
           <label class="toggle desk-only"><input v-model="typewriter" type="checkbox" /> Typewriter</label>
-          <button type="button" class="btn btn-sm desk-only" :aria-pressed="showPanel" @click="showPanel = !showPanel">Panel</button>
+          <button type="button" class="btn btn-sm desk-only" :aria-pressed="planOpen && !narrow ? panelOverSplit : showPanel" @click="planOpen && !narrow ? (panelOverSplit = !panelOverSplit) : (showPanel = !showPanel)">Panel</button>
+          <button type="button" class="btn btn-sm" :aria-pressed="planOpen" title="The chapter's plan beside it (Ctrl+Shift+P)" data-testid="plan-button" @click="togglePlan">Plan</button>
           <button v-if="!readOnly" type="button" class="btn btn-sm" title="Put in a picture: one of the world's, or upload one" data-testid="picture-button" @click="pickingPicture = true">Picture…</button>
           <button type="button" class="btn btn-sm" @click="showHistory = !showHistory">History</button>
         </div>
@@ -1467,7 +1642,7 @@ const experimentText = computed(() => {
     </div>
 
     <CompanionPanel
-      v-if="chapter && !showHistory && showPanel && !focusMode"
+      v-if="chapter && !showHistory && (planOpen && !narrow ? panelOverSplit : showPanel) && !focusMode && !(planOpen && narrow)"
       :findings="findings"
       :checks="chapterChecks"
       :items="items"
@@ -1507,6 +1682,9 @@ const experimentText = computed(() => {
         @put-back="(c, where) => putBack(c, where)"
         @copy="copyCut"
         @since="chooseSince"
+        @open-plan="openPlanBeside"
+        @new-plan="newPlan"
+        @link-plan="pickingPlan = true"
       />
     </CompanionPanel>
     <UndoToast :label="toast?.label ?? null" :undo="toast?.undo ?? null" :actions="toast?.actions ?? []" :ms="toast?.actions ? 12000 : 6000" @dismiss="toast = null" />
@@ -1519,5 +1697,32 @@ const experimentText = computed(() => {
       @restore="restore"
       @close="showHistory = false"
     />
+
+    <!-- the chapter's plan beside it (docs/SPEC.md §18.2): half and half on the desk, flipped to on the phone -->
+    <template v-if="planOpen && chapter">
+      <div v-if="!narrow" class="plan-divider" role="separator" aria-orientation="vertical" aria-label="Drag to resize; double-click for half and half"
+        title="Drag to resize; double-click for half and half" data-testid="plan-divider" @pointerdown="dragSplit" @dblclick="setSplit(50)" />
+      <div class="plan-side" data-testid="plan-side">
+        <div class="plan-tabs" role="tablist">
+          <button v-if="narrow" type="button" role="tab" class="plan-tab" aria-selected="false" data-testid="flip-back" @click="togglePlan">{{ chapter.title }}</button>
+          <button v-for="p in plans" :key="p.id" type="button" role="tab" class="plan-tab" :aria-selected="p.id === planId" :data-plan="p.id" data-testid="plan-tab" @click="choosePlan(p.id)">
+            {{ p.title }} <span class="muted">· {{ shortDay(p.date) }}</span>
+          </button>
+          <span v-if="narrow && !plans.length" class="plan-tab" aria-selected="true">Plan</span>
+          <span class="grow" />
+          <RouterLink v-if="planId" class="small" :to="{ name: 'journal-entry', params: { world: world.slug, id: planId } }" data-testid="open-in-journal">Open in the Journal</RouterLink>
+          <button v-if="!narrow" type="button" class="chip-x" aria-label="Close the plan" data-testid="close-plan" @click="togglePlan">×</button>
+        </div>
+        <JournalEntryView v-if="planId" :key="planId" :entry-id="planId" :beside="beside" :page-mode="mode" @item="planItem" />
+        <div v-else class="plan-empty" data-testid="plan-empty">
+          <p class="muted">No plan for this chapter yet.</p>
+          <p v-if="!readOnly">
+            <button type="button" class="btn btn-sm" data-testid="new-plan-empty" @click="newPlan">New plan</button>
+            <button type="button" class="btn btn-sm" @click="pickingPlan = true">Link a plan…</button>
+          </p>
+        </div>
+      </div>
+    </template>
+    <PlanPicker v-if="pickingPlan && world" :world="world.slug" :exclude="plans.map((p) => p.id)" @pick="linkPicked" @close="pickingPlan = false" />
   </div>
 </template>

@@ -30,6 +30,7 @@ from .api import (
     labels,
     manuscript,
     pictures,
+    plans,
     restructure,
     revising,
     storytime,
@@ -210,5 +211,6 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     app.include_router(history.router)
     app.include_router(chart.router)
     app.include_router(pictures.router)
+    app.include_router(plans.router)
     _mount_frontend(app)
     return app

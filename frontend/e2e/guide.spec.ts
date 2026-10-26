@@ -25,6 +25,7 @@ const IDS = [
   "revising",
   "experiments",
   "journal",
+  "planning",
   "chart",
   "names",
   "safe",

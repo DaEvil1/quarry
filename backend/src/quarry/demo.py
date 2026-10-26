@@ -231,7 +231,9 @@ BIBLE: list[dict] = [
     {
         "id": "cade", "name": "Brother Cade", "kind": "character", "gender": "male",
         "summary": "A monk of the Ashen Order at Saltreach Abbey; takes Tamsin in.",
-        "facts": [{"label": "age", "value": "about sixty", "standing": "planned"},
+        # planned in chapter 3's second plan (docs/SPEC.md §18.6)
+        "facts": [{"label": "age", "value": "about sixty", "standing": "planned", "planned_in": "j-river-2",
+                   "planned_evidence": "Brother Cade is about sixty"},
                   # planned, not on the page: with Include planned, Ash Season naming him is a finding (§14.6); it
                   # follows a decision, and chapter 3 is written, so its Loose ends shows the gap (§16.4)
                   {"label": "status", "value": "dead", "standing": "planned", "from": "b1-c3",
@@ -933,6 +935,23 @@ JOURNAL = [
     {"id": "j2", "date": "2026-10-06", "title": "Ash as a clock", "project": "ash-season",
      "body": _p("In Ash Season the ash is the clock: thick in the first chapter, thinning as the book goes on. "
                 "Hesper's maps should change as the water clears.")},
+    # a chapter's plans (docs/SPEC.md §18.6): two for chapter 3, so its split shows two tabs, and one for a chapter
+    # not written yet
+    {"id": "j-river-1", "date": "2026-09-20", "title": "What the River Kept, first plan", "project": "the-ferrymans-daughter",
+     "plan": True, "chapters": ["b1-c3"],
+     "body": _p("Tamsin comes to Saltreach Abbey with the compass and nothing else.",
+                "Brother Cade takes her in. He has seen the compass before.",
+                "Ends on the boat found below Marrow Locks.")},
+    {"id": "j-river-2", "date": "2026-10-04", "title": "What the River Kept, again", "project": "the-ferrymans-daughter",
+     "plan": True, "chapters": ["b1-c3"],
+     "body": _p("Open on the boat instead: Rook finds it, Pell says what that means.",
+                "Brother Cade is about sixty, older than the abbey's walls look.",
+                "What does Cade want with the compass ??",
+                "Tamsin opens the compass in front of him, and he looks away.")},
+    {"id": "j-after-locks", "date": "2026-10-18", "title": "After the Locks", "project": "the-ferrymans-daughter",
+     "plan": True,
+     "body": _p("Tamsin takes the ferry back through Marrow Locks after the gates open.",
+                "Linnet Sorrel is on the gate. They don't speak.")},
 ]
 
 
@@ -1026,8 +1045,10 @@ def demo_files() -> dict[str, str]:
     files[f"{ROOT}/Decisions.md"] = "\n".join(lines) + "\n"
 
     for j in JOURNAL:
-        files[f"{ROOT}/Journal/{j['date']} {j['title'].replace('?', '')}.md"] = _doc(
-            {"id": j["id"], "date": j["date"], "title": j["title"], "project": j["project"]}, j["body"])
+        jmeta = {"id": j["id"], "date": j["date"], "title": j["title"], "project": j["project"]}
+        if j.get("plan"):
+            jmeta |= {"plan": True, "chapters": j.get("chapters", [])}
+        files[f"{ROOT}/Journal/{j['date']} {j['title'].replace('?', '')}.md"] = _doc(jmeta, j["body"])
 
     source = next(c for c in CHAPTERS if c["id"] == CUT["chapter"])
     paragraphs = _paragraphs(source["body"])

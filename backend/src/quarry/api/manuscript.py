@@ -86,6 +86,8 @@ class ChapterOut(BaseModel):
     version: int
     updated_at: datetime
     retired_at: datetime | None
+    # how many plans it has (docs/SPEC.md §18.3), on the manuscript list
+    plans: int = 0
 
 
 class NoteOut(BaseModel):
@@ -101,6 +103,8 @@ class ChapterDetail(ChapterOut):
     # for a draft: its experiment (the range it would replace or where it adds, its drafts) and the item's status
     experiment: dict | None = None
     experiment_status: str | None = None
+    # its plans, newest first: id, title and date (docs/SPEC.md §18.1)
+    plan_list: list[dict] = Field(default_factory=list)
 
 
 class ChapterIn(BaseModel):
@@ -233,8 +237,12 @@ def chapter_detail(db: Session, world: World, ch: Chapter) -> ChapterDetail:
         info = experiment_info(db, world, item)
         experiment = {k: info[k] for k in ("id", "title", "status", "range", "insert", "lost", "replaced_by")}
         experiment["drafts"] = [{"id": d["id"], "title": d["title"], "position": d["position"]} for d in info["drafts"]]
-    return ChapterDetail(**base.model_dump(), body=ch.body, mentions=mentions, harvest_notes=notes,
-                         experiment=experiment, experiment_status=item.status if item else None)
+    from .plans import plans_of
+
+    plan_list = plans_of(db, ch.id)
+    return ChapterDetail(**base.model_dump(exclude={"plans"}), body=ch.body, mentions=mentions, harvest_notes=notes,
+                         experiment=experiment, experiment_status=item.status if item else None,
+                         plans=len(plan_list), plan_list=plan_list)
 
 
 def last_revision(db: Session, chapter_id: uuid.UUID) -> Revision | None:
@@ -312,7 +320,11 @@ def manuscript(slug: str, project_slug: str, user: User = Depends(current_user),
     names = dict(db.execute(select(Entity.id, Entity.name).where(Entity.world_id == world.id)).all())
     statuses = project_statuses(db, project.id)
     by_id = {s.id: s for s in statuses}
-    current = [chapter_out(db, world, c, names, by_id) for c in rows if c.state == "current"]
+    from .plans import plan_counts
+
+    counts = plan_counts(db, [c.id for c in rows])
+    current = [chapter_out(db, world, c, names, by_id).model_copy(update={"plans": counts.get(c.id, 0)})
+               for c in rows if c.state == "current"]
     from .restructure import experiments_in
 
     # each open experiment: its range (or where it adds) and its drafts in order (docs/SPEC.md §13.6.1)

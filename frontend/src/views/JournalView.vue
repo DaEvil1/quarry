@@ -8,9 +8,10 @@ import ProjectFilter from "../components/ProjectFilter.vue";
 import { createEntry, journalDay, listJournal } from "../journal";
 import { localJournal, queueEntry } from "../offline";
 import { useSession } from "../stores/session";
-import { WORLD_ONLY, localToday, type JournalEntry, type Mention } from "../types";
+import { WORLD_ONLY, localToday, planChapterText, type JournalEntry, type Mention } from "../types";
 import { useCards } from "../world/cards";
 import { markers } from "../world/markers";
+import StartChapter from "../components/StartChapter.vue";
 import NotFoundView from "./NotFoundView.vue";
 
 // The Journal (docs/SPEC.md §14.1.1, §14.3.2): the entries in date order, newest first, with their first lines and the
@@ -30,6 +31,14 @@ const error = ref("");
 const offline = ref(false);
 const tab = ref<"entries" | "loose">(route.query.tab === "loose" ? "loose" : "entries");
 watch(tab, (t) => void router.replace({ query: { ...route.query, tab: t === "loose" ? "loose" : undefined } }));
+// All · Plans (docs/SPEC.md §18.1), kept in the address
+const plansOnly = computed(() => route.query.plans === "1");
+const setPlans = (on: boolean) => void router.replace({ query: { ...route.query, plans: on ? "1" : undefined } });
+/** "plan · chapter 4, The Quay", "plan · 3 chapters", "plan · no chapter yet" */
+function planTag(e: JournalEntry): string {
+  const cs = e.chapters ?? [];
+  return `plan · ${cs.length === 1 ? planChapterText(cs[0]!) : cs.length ? `${cs.length} chapters` : "no chapter yet"}`;
+}
 
 const projectName = (slug: string | null) => world.value?.projects.find((p) => p.slug === slug)?.name ?? slug;
 
@@ -54,7 +63,8 @@ watch([worldSlug, project], load, { immediate: true });
 
 const shown = computed(() => {
   const q = search.value.trim().toLowerCase();
-  return q ? entries.value.filter((e) => `${e.title ?? ""}\n${e.body}`.toLowerCase().includes(q)) : entries.value;
+  const list = plansOnly.value ? entries.value.filter((e) => e.is_plan) : entries.value;
+  return q ? list.filter((e) => `${e.title ?? ""}\n${e.body}`.toLowerCase().includes(q)) : list;
 });
 
 /** An entry's first lines, about 300 characters, ending on a word. */
@@ -128,11 +138,18 @@ const markerCount = computed(() => loose.value.reduce((n, x) => n + x.marks.leng
     <div v-if="offline" class="notice offline small" role="status">Offline: the entries kept on this device.</div>
 
     <template v-if="tab === 'entries'">
-      <input v-model="search" type="search" class="filter journal-search" placeholder="Search the Journal" aria-label="Search the Journal" />
+      <div class="actions journal-filters">
+        <input v-model="search" type="search" class="filter journal-search" placeholder="Search the Journal" aria-label="Search the Journal" />
+        <span class="mode-switch" role="group" aria-label="Show" data-testid="plans-filter">
+          <button type="button" :class="{ on: !plansOnly }" :aria-pressed="!plansOnly" @click="setPlans(false)">All</button>
+          <button type="button" :class="{ on: plansOnly }" :aria-pressed="plansOnly" @click="setPlans(true)">Plans</button>
+        </span>
+      </div>
       <article v-for="e in shown" :id="`entry-${e.id}`" :key="e.id" class="card journal-entry" data-testid="journal-entry">
         <RouterLink class="journal-link" :to="{ name: 'journal-entry', params: { world: world.slug, id: e.id } }">
           <div class="muted small">
             {{ journalDay(e.entry_date) }}<template v-if="e.project"> · {{ projectName(e.project) }}</template>
+            <span v-if="e.is_plan" class="plan-tag" data-testid="plan-tag"> · {{ planTag(e) }}</span>
             <span v-if="e.since" class="since-count" data-testid="since-count" title="Decisions and changes since this was written, touching what it names">{{ e.since }} since</span>
           </div>
           <h2>{{ e.title || "Untitled" }}</h2>
@@ -140,6 +157,7 @@ const markerCount = computed(() => loose.value.reduce((n, x) => n + x.marks.leng
         <p class="prose item-text">
           <MentionText :text="opening(e.body)" :mentions="namesIn(opening(e.body))" :world="world.slug" :source="{ table: 'journal', id: e.id }" />
         </p>
+        <p v-if="plansOnly && e.is_plan && !(e.chapters ?? []).length" class="small"><StartChapter :world="world.slug" :entry="e" :projects="world.projects" @error="(m) => (error = m)" /></p>
       </article>
       <p v-if="!shown.length && !error" class="empty">{{ search ? "No entry says that." : "No entries yet." }}</p>
     </template>

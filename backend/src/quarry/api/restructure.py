@@ -159,12 +159,18 @@ def new_experiment(db: Session, world: World, user: User, project: Project, titl
     for i, c in enumerate(rng):
         db.add(ExperimentRange(item_id=item.id, chapter_id=c.id, position=i))
     drafts: list[Chapter] = []
+    from .plans import link_drafts
+
     if start == "copy" and rng:
         # each draft keeps its chapter's title; a single chapter's draft takes the experiment's, as it always has
         for i, c in enumerate(rng):
             drafts.append(_copy_into(db, world, user, item, c, title if len(rng) == 1 else c.title, i, project.id))
+            # a draft from a copy gets its own chapter's plans (docs/SPEC.md §18.4)
+            link_drafts(db, drafts[-1:], [c], user)
     else:
         drafts.append(_copy_into(db, world, user, item, None, title, 0, project.id))
+        # from scratch: the plans of every chapter in the range (one that only adds links none)
+        link_drafts(db, drafts, rng, user)
     refresh_source(db, world.id, "item", item.id, item.body)
     return item, drafts
 

@@ -90,6 +90,8 @@ class ItemIn(BaseModel):
     chapter_id: uuid.UUID | None = None
     journal_id: uuid.UUID | None = None
     passage: str | None = Field(default=None, max_length=BODY_MAX)
+    # made from a plan's passage: the chapters ticked, so it shows in their Loose ends (docs/SPEC.md §18.4)
+    chapter_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
     # "Park it": kept as deferred instead of waiting in the inbox
     status: Literal["open", "deferred"] = "open"
 
@@ -295,6 +297,10 @@ def create_item(slug: str, body: ItemIn, user: User = Depends(current_user), db:
         j = db.get(JournalEntry, body.journal_id)
         if j is not None and j.world_id == world.id:
             db.add(ItemLink(item_id=item.id, target_table="journal", target_id=j.id, passage=passage))
+    for cid in dict.fromkeys(body.chapter_ids):
+        ch = db.get(Chapter, cid)
+        if cid != body.chapter_id and ch is not None and db.get(Project, ch.project_id).world_id == world.id:
+            db.add(ItemLink(item_id=item.id, target_table="chapter", target_id=ch.id))
     refresh_source(db, world.id, "item", item.id, item.body)
     db.commit()
     return one_out(db, world, item)
