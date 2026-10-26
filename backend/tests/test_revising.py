@@ -228,13 +228,16 @@ def test_done_when_two_days_of_writing_and_cutting_show_and_a_restore_shows_none
     assert rows == sorted([(before, "One", 6, 0), (before, "Two", 4, 0), (today, "One", 0, 2)])
     assert [(h["chapters"][p["chapter_id"]], p["added"], p["removed"]) for p in h["pending"]] == [("Two", 2, 0)]
 
-    # a restored world starts clean: its chapters' text is their start
+    # a restored world shows the same days (the export carries each day's last version, docs/SPEC.md §20), and
+    # nothing on the day it was restored: text newer than the last version is its start
     data = world.get(f"{W}/export").content
     world.post("/api/worlds/restore", files={"file": ("export.zip", data, "application/zip")})
     again = world.get("/api/worlds/coast-2/projects/book-one/word-history").json()
-    assert again["revisions"] == [] and again["pending"] == []
-    revs = world.get(f"/api/worlds/coast-2/chapters/{world.get('/api/worlds/coast-2/projects/book-one/chapters').json()['chapters'][0]['id']}/revisions").json()
-    assert [r["reason"] for r in revs] == ["start"]
+    assert sorted((r["at"][:10], again["chapters"][r["chapter_id"]], r["added"], r["removed"]) for r in again["revisions"]) == rows
+    assert again["pending"] == []
+    restored = {c["title"]: c["id"] for c in world.get("/api/worlds/coast-2/projects/book-one/chapters").json()["chapters"]}
+    reasons = lambda t: [r["reason"] for r in world.get(f"/api/worlds/coast-2/chapters/{restored[t]}/revisions").json()]  # noqa: E731
+    assert sorted(reasons("One")) == ["autosnap", "checkpoint"] and sorted(reasons("Two")) == ["autosnap", "start"]
 
 
 def test_an_experiment_from_a_copy_starts_at_no_words(world: Client):
