@@ -4,6 +4,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 import { EditorView } from "@codemirror/view";
 
 import { del, unreachable } from "../api";
+import { blankPictures } from "../pictures";
 import { addRelationship, createEntity, fixes, getEntity, setLabelSwitches, typeOptions, updateEntity } from "../bible";
 import CompanionPanel from "../components/CompanionPanel.vue";
 import HistoryPanel from "../components/HistoryPanel.vue";
@@ -12,6 +13,9 @@ import UndoToast from "../components/UndoToast.vue";
 import { linkedPairs, resolutions, resolve as resolveApi, type PanelActions } from "../companion";
 import { itemBody, passageActions, type PassageContext } from "../editor/passage";
 import { createProse, countWords, type Prose, type WorldHooks } from "../editor/prose";
+import { editorPictureHooks } from "../editor/pictureHooks";
+import PicturePicker from "../components/PicturePicker.vue";
+import type { Picture } from "../pictures";
 import { ChapterSaver, type SaveStatus } from "../editor/saver";
 import type { HistoryActions } from "../editor/strips";
 import { recordEvent, undoRecord } from "../history";
@@ -62,6 +66,9 @@ const words = ref(0);
 const status = ref<SaveStatus>("saved");
 const notice = ref("");
 const error = ref("");
+// a picture on its way in (docs/SPEC.md §17.3), at the foot
+const pictureStatus = ref<{ text: string; error: boolean } | null>(null);
+const pickingPicture = ref(false);
 const host = ref<HTMLElement | null>(null);
 const prose = shallowRef<Prose | null>(null);
 const offlineCopy = ref(false);
@@ -85,7 +92,7 @@ const projectName = computed(() => world.value?.projects.find((p) => p.slug === 
 
 function countLater(text: string) {
   clearTimeout(countTimer);
-  countTimer = window.setTimeout(() => (words.value = countWords(text)), 300);
+  countTimer = window.setTimeout(() => (words.value = countWords(blankPictures(text))), 300);
 }
 function keepDraft() {
   clearTimeout(draftTimer);
@@ -136,6 +143,16 @@ watch(
   },
 );
 watch(() => ({ ...prefs.$state }), () => prose.value?.refreshPrefs(), { deep: true });
+watch(() => cards.pictures, () => prose.value?.refreshPictures());
+function pickedPicture(p: Picture) {
+  pickingPicture.value = false;
+  cards.putPicture(p);
+  prose.value?.insertPicture(p.id);
+}
+function uploadPictures(files: File[]) {
+  pickingPicture.value = false;
+  void prose.value?.addPictures(files);
+}
 
 async function worldChange(fn: () => Promise<unknown>) {
   error.value = "";
@@ -178,6 +195,7 @@ const worldHooks: WorldHooks = {
   card: (id) => cards.inPlanning(cards.byId.get(id), readAt()),
   names: () => cards.names,
   prefs: () => prefs.$state,
+  pictures: editorPictureHooks(() => worldSlug.value, (text, failed) => (pictureStatus.value = text ? { text, error: !!failed } : null), () => prose.value?.refreshPictures()),
   open: (id) => void router.push({ name: "entity", params: { world: worldSlug.value, id } }),
   addName: (id, word) => worldChange(() => fixes.addSpelling(worldSlug.value, word, id)),
   notATypo: (word) => worldChange(() => fixes.notATypo(worldSlug.value, word)),
@@ -590,7 +608,7 @@ watch(typewriter, (on) => {
 function mount(e: JournalDetail) {
   prose.value?.destroy();
   saver?.close();
-  words.value = countWords(e.body);
+  words.value = countWords(blankPictures(e.body));
   wordsAtOpen = words.value;
   asked = false;
   if (!host.value) return;
@@ -863,6 +881,7 @@ const unit = computed(() => unitOf(world.value));
           <label class="toggle"><input v-model="focusMode" type="checkbox" /> Focus</label>
           <label class="toggle desk-only"><input v-model="typewriter" type="checkbox" /> Typewriter</label>
           <button type="button" class="btn btn-sm desk-only" :aria-pressed="showPanel" @click="showPanel = !showPanel">Panel</button>
+          <button type="button" class="btn btn-sm" title="Put in a picture: one of the world's, or upload one" data-testid="picture-button" @click="pickingPicture = true">Picture…</button>
           <button type="button" class="btn btn-sm" @click="showHistory = !showHistory">History</button>
         </div>
       </div>
@@ -915,6 +934,8 @@ const unit = computed(() => unitOf(world.value));
         </div>
       </div>
       <div ref="host" class="editor-host" :class="{ focus: focusMode }" :style="editorStyle" data-testid="editor" />
+      <div v-if="pictureStatus" class="foot-status small" :class="{ 'error-text': pictureStatus.error }" role="status" data-testid="picture-status" @click="pictureStatus = null">{{ pictureStatus.text }}</div>
+      <PicturePicker v-if="pickingPicture && world" :world="world.slug" upload title="Picture" :named="[...new Set((entry?.mentions ?? []).map((m) => m.entity_id))]" @pick="pickedPicture" @files="uploadPictures" @close="pickingPicture = false" />
     </div>
 
     <CompanionPanel

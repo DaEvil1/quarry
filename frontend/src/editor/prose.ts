@@ -31,6 +31,7 @@ import type { Card } from "../world/cards";
 import type { Hit, Matcher } from "../world/matcher";
 import { changeAt, changesField, setChanges, type Change } from "./changes";
 import { buildMarks, companionExtensions, marksChanged, markedAt, openKbd, Since, type CompanionHooks } from "./companion";
+import { onPictureLine, pictureExtensions, picturesChanged, insertPictureLine, addPictures, type PictureHooks } from "./pictures";
 import { choiceOn, choicesField, chooseChange, matcherFacet, namesChanged, settle } from "./shared";
 import { badChoiceStripDom, cardDom, cutStripDom, findingStripDom, passageStripDom, selectionStripDom, nearMissStripDom, settledRow, sharedCardDom, wasDom, type HistoryActions, type IsAtActions, type LinkActions, type PassageActions } from "./strips";
 
@@ -67,6 +68,8 @@ export interface WorldHooks {
   passage?(from: number, to: number, text: string): PassageActions;
   /** "is at" is per chapter: a journal entry has none (docs/SPEC.md §14.1.1) */
   noIsAt?: boolean;
+  /** picture lines drawn as pictures, and pictures pasted or dropped in (docs/SPEC.md §17.3) */
+  pictures?: PictureHooks;
 }
 
 /** A phone or tablet: long selections get a strip with "Cut to bin" (there is no Ctrl+Shift+X there). */
@@ -111,6 +114,8 @@ function namesPlugin(hooks: WorldHooks) {
               if (wavy && choice.ids && !choice.ids.length && line.to > line.from) b.add(line.from, line.to, badChoice);
               continue;
             }
+            // a picture line names nobody: its caption is the writer's note (docs/SPEC.md §17.3)
+            if (onPictureLine(line.text)) continue;
             for (const h of settle(view.state, matcher, matcher.scanLine(line.text, line.from, wavy))) b.add(h.start, h.end, markFor(h, prefs, dotted));
           }
         }
@@ -141,7 +146,7 @@ function markFor(h: Hit, prefs: WritingPrefs, dotted = false): Decoration {
 /** The name (or likely misspelling) under a position, found the same way the colours were. */
 function hitAt(state: EditorState, hooks: WorldHooks, pos: number, nearMisses = underlines(hooks)): Hit | undefined {
   const line = state.doc.lineAt(pos);
-  if (choiceOn(state, line.from)) return undefined;
+  if (choiceOn(state, line.from) || onPictureLine(line.text)) return undefined;
   const matcher = hooks.matcher();
   return settle(state, matcher, matcher.scanLine(line.text, line.from, nearMisses)).find((h) => h.start <= pos && pos < h.end);
 }
@@ -283,6 +288,7 @@ function full(hooks: WorldHooks): CompanionHooks | null {
           if (choice.ids && !choice.ids.length && line.from > after) return { from: line.from, to: line.to };
           continue;
         }
+        if (onPictureLine(line.text)) continue;
         const h = settle(state, matcher, matcher.scanLine(line.text, line.from, true)).find((x) => (x.kind === "near_miss" || x.kind === "ambiguous") && x.start > after);
         if (h) return { from: h.start, to: h.end };
       }
@@ -570,6 +576,12 @@ export interface Prose {
   markPassage(passage: string | null, scroll?: boolean): boolean;
   /** the passages with an open item, marked in the margin (null: none, as while Drafting) */
   setItemMarks(passages: string[] | null): void;
+  /** the world's pictures changed (loaded, uploaded, renamed): draw the picture lines again */
+  refreshPictures(): void;
+  /** a picture line for a picture of the world, after the paragraph the cursor is in */
+  insertPicture(id: string): void;
+  /** upload files and put each in as a picture line (Picture… › Upload…) */
+  addPictures(files: File[]): Promise<void>;
   destroy(): void;
 }
 
@@ -617,6 +629,7 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
     changesField,
     passageField,
     itemMarksField,
+    opts.world.pictures ? pictureExtensions(opts.world.pictures) : [],
     opts.onFindAll ? findAllButton(opts.onFindAll) : [],
     focusMode.of([]),
     typewriterMode.of([]),
@@ -683,6 +696,9 @@ export function createProse(parent: HTMLElement, opts: ProseOptions): Prose {
       return !!range;
     },
     setItemMarks: (passages) => view.dispatch({ effects: setItemMarks.of(passages) }),
+    refreshPictures: () => view.dispatch({ effects: picturesChanged.of(null) }),
+    insertPicture: (id) => insertPictureLine(view, id),
+    addPictures: (files) => (opts.world.pictures ? addPictures(view, files, opts.world.pictures) : Promise.resolve()),
     destroy: () => view.destroy(),
   };
 }

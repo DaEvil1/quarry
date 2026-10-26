@@ -13,6 +13,7 @@ import { restoreWritingPrefs, useGuide } from "../stores/guide";
 import { useSession } from "../stores/session";
 import GuideOverlay from "./GuideOverlay.vue";
 import Icon from "./Icon.vue";
+import PictureViewer from "./PictureViewer.vue";
 import UndoToast from "./UndoToast.vue";
 import UpdateBar from "./UpdateBar.vue";
 import WorldSwitcher from "./WorldSwitcher.vue";
@@ -212,6 +213,7 @@ async function signOut() {
     <main :class="`page-${route.meta.width ?? 'read'}`">
       <div class="page">
       <UpdateBar />
+      <PictureViewer />
       <div v-if="world?.sandbox && worldSlug && !guide.active" class="notice small" data-testid="sandbox-notice">
         This is the Guide's sandbox, a copy of the demo world. The next walkthrough replaces it.
         <RouterLink :to="{ name: 'guide' }">Guide</RouterLink> ·

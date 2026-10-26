@@ -38,6 +38,8 @@ your way while you write:
   and the passage that established them.
 - **Names found automatically.** Every mention of every name, including other spellings, is found in all your texts.
   Likely misspellings are caught and fixed in one click.
+- **Pictures, as in a wiki:** a gallery on any entry, its main picture at the top of its page and on its cards, and
+  a picture on a line of its own in a chapter or journal entry, never part of the compiled manuscript.
 - **Views:** a relationship graph, a family tree with relatives worked out, a place tree, *where everyone is* per
   chapter, a mentions strip for each entry, and labels you can filter, group and tidy.
 
@@ -117,6 +119,5 @@ For development with hot reload and the tests, see [docs/development.md](docs/de
 
 ## Status
 
-Phases 1–13 and the Guide are built and in use. Next is phase 14, decisions with follow-ups
-([SPEC §16](docs/SPEC.md)). Quarry is a personal tool for a single writer, with the data model ready for co-writing
+Phases 1–15 and the Guide are built and in use. Next is phase 16, a chapter's plan beside it ([SPEC §18](docs/SPEC.md)). Quarry is a personal tool for a single writer, with the data model ready for co-writing
 later. The code is public; no story content is ever committed, and every example and test uses made-up names.

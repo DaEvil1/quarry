@@ -145,7 +145,7 @@ def test_gallery_uses_rename_and_delete(signed_in: Client):
     uses = {p["name"]: p["uses"] for p in listing["pictures"]}
     assert [e["name"] for e in uses["harbour"]["entities"]] == ["Greywick"]
     assert [(t["table"], t["title"]) for t in uses["harbour"]["texts"]] == [("chapter", "The Drowned Bell")]
-    assert uses["gate"]["texts"] == []
+    assert uses["gate"]["texts"] == [] and uses["gate"]["captions"] == ["The gate"]
 
     r = signed_in.delete(f"/api/pictures/{one['id']}")
     assert r.status_code == 409 and r.json()["uses"]["texts"][0]["id"] == ch["id"]
@@ -234,7 +234,7 @@ def test_export_and_restore_pictures(signed_in: Client):
     listing = signed_in.get(f"{base}/pictures?uses=1").json()
     by_name = {p["name"]: p for p in listing["pictures"]}
     assert set(by_name) == {"Harbour at Dusk", "plan", "bell", "spare"}
-    assert by_name["spare"]["uses"] == {"entities": [], "texts": []}
+    assert by_name["spare"]["uses"] == {"entities": [], "texts": [], "captions": []}
     assert opened(signed_in, by_name["plan"]["id"], "full").mode == "RGBA"
     grey = next(e for e in signed_in.get(f"{base}/entities").json() if e["name"] == "Greywick")
     gallery = signed_in.get(f"{base}/entities/{grey['id']}").json()["pictures"]

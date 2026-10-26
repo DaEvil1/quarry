@@ -83,20 +83,29 @@ def main_pictures(db: Session, world_id: uuid.UUID) -> dict[uuid.UUID, uuid.UUID
     return {e: p for e, p in rows}
 
 
-def uses_in_world(db: Session, world: World) -> dict[str, dict[str, list[dict]]]:
+def uses_in_world(db: Session, world: World) -> dict[str, dict[str, list]]:
     """Where each picture is used: the galleries that have it, and the texts with a picture line for it (chapters in
-    every state, journal entries, entries' notes and the cuts bin; old revisions don't count)."""
-    uses: dict[str, dict[str, list[dict]]] = defaultdict(lambda: {"entities": [], "texts": []})
+    every state, journal entries, entries' notes and the cuts bin; old revisions don't count), with the captions it
+    has in those places (a picker filters by them)."""
+    uses: dict[str, dict[str, list]] = defaultdict(lambda: {"entities": [], "texts": [], "captions": []})
     for ep, e in db.execute(select(EntityPicture, Entity).join(Entity, Entity.id == EntityPicture.entity_id)
                             .where(Entity.world_id == world.id).order_by(func.lower(Entity.name))).all():
         uses[str(ep.picture_id)]["entities"].append({"id": str(e.id), "name": e.name, "kind": e.kind})
+        if ep.caption and ep.caption not in uses[str(ep.picture_id)]["captions"]:
+            uses[str(ep.picture_id)]["captions"].append(ep.caption)
     projects = {p.id: p.slug for p in world.projects}
 
     def scan(text: str, ref: dict) -> None:
         if "picture:" not in text:
             return
-        for pid in dict.fromkeys(m.group(2) for m in PICTURE_RE.finditer(text)):
-            uses[pid]["texts"].append(ref)
+        seen: set[str] = set()
+        for m in PICTURE_RE.finditer(text):
+            pid, caption = m.group(2), m.group(1).strip()
+            if pid not in seen:
+                uses[pid]["texts"].append(ref)
+                seen.add(pid)
+            if caption and caption not in uses[pid]["captions"]:
+                uses[pid]["captions"].append(caption)
 
     if projects:
         for c in db.scalars(select(Chapter).where(Chapter.project_id.in_(list(projects)))
@@ -154,7 +163,7 @@ def list_pictures(slug: str, uses: bool = False, user: User = Depends(current_us
     for p in pictures:
         row = picture_out(p).model_dump(mode="json")
         if uses:
-            row["uses"] = where.get(str(p.id), {"entities": [], "texts": []})
+            row["uses"] = where.get(str(p.id), {"entities": [], "texts": [], "captions": []})
         out.append(row)
     return {"pictures": out, "count": len(pictures), "bytes": sum(p.size for p in pictures)}
 

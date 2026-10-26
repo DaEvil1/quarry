@@ -7,7 +7,8 @@ import RecoveryCodes from "../components/RecoveryCodes.vue";
 import WritingSettings from "../components/WritingSettings.vue";
 import { deviceLabel, passkeysSupported, promptError, runAddPasskey } from "../passkey";
 import { readLastUsed } from "../lastUsed";
-import { clearOfflineCopy, lastSynced, localSummary, persistStorage, storageInfo, syncWorld } from "../offline";
+import { clearOfflineCopy, keepPictures, lastSynced, localPictures, localSummary, persistStorage, storageInfo, syncWorld } from "../offline";
+import { sizeText } from "../pictures";
 import { useSession } from "../stores/session";
 import type { PasskeyInfo, User } from "../types";
 
@@ -114,19 +115,21 @@ async function signOut() {
 
 // the offline copy of the world last opened on this device
 const offlineWorld = session.world(readLastUsed().world ?? "") ?? session.worlds[0];
-const offline = ref<{ synced: string | null; chapters: number; revisions: number; persisted: boolean; usage: number | null } | null>(null);
+const offline = ref<{ synced: string | null; chapters: number; revisions: number; persisted: boolean; usage: number | null; pictures: { count: number; bytes: number } } | null>(null);
 const offlineMsg = ref("");
 
 async function loadOffline() {
   if (!offlineWorld) return;
-  const [synced, summary, storage] = await Promise.all([lastSynced(offlineWorld.slug), localSummary(offlineWorld.slug), storageInfo()]);
-  offline.value = { synced, ...summary, ...storage };
+  const [synced, summary, storage, pictures] = await Promise.all([lastSynced(offlineWorld.slug), localSummary(offlineWorld.slug), storageInfo(), localPictures(offlineWorld.slug)]);
+  offline.value = { synced, ...summary, ...storage, pictures };
 }
 
 async function syncNow() {
   if (!offlineWorld) return;
   offlineMsg.value = (await syncWorld(offlineWorld.slug)) ? "Synced." : "Offline: try again when connected.";
   await persistStorage();
+  await loadOffline();
+  await keepPictures(offlineWorld.slug);
   await loadOffline();
 }
 
@@ -220,6 +223,8 @@ onMounted(() => Promise.all([loadKeys(), loadCodes(), loadOffline()]));
     </div>
     <p v-if="offline" class="small">
       {{ offline.chapters }} chapters and {{ offline.revisions }} snapshots (up to the last 30 of each) on this device · synced {{ when(offline.synced) }}
+      <br />
+      <span data-testid="offline-pictures">Pictures: {{ offline.pictures.count }} · {{ sizeText(offline.pictures.bytes) }}</span>
       <br />
       <span class="muted">
         Storage: {{ offline.persisted ? "kept by the browser" : "may be cleared when space runs low (install the app to keep it)" }} ·
