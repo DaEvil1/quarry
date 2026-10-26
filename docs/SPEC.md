@@ -171,6 +171,8 @@ Bible pages show:
   Restore links them up again, and takes zips of up to 1 GB (§17.6).
   From phase 16, journal entries also carry whether they are a plan and the chapters they are for (`plan:`,
   `chapters:`, §18).
+  From phase 17, `project.md` carries the project's byline (`byline:`), and the compiled manuscript has it under the
+  title (§19).
 - **Restore.** Imports an export zip as a new world (with new ids; every link between files is kept), recreating projects, chapters (current, experiments, salvage with harvest notes), entities, items with their tags, journal, decisions and "not a typo" words from the files and their frontmatter. It is the only import path: there is no importer for other tools' formats. Revision history stays in the database and is not part of an export.
 - **Moving the existing material in.** Quarry starts empty. Once the editor is usable (after phase 4), Thomas provides the current Google Doc and Claude converts it by hand into the export layout: chapters, bible entries, planning notes as items or journal entries, and old chapters as retired chapters, with anything uncertain listed for Thomas to decide. The result is loaded with Restore and merged with whatever was captured in Quarry in the meantime. This is a one-time migration, done outside the repo.
 - **Later, if wanted.** A scheduled export into a git repo (a local repo on the server, or a remote one) can be added as an optional setting. It is not part of the plan.
@@ -234,6 +236,8 @@ quarry/                      # public GitHub repo (code only)
     phone) in the journal editor so planning goes on while writing, a plan with no chapter yet waiting on the project
     page until *Start a chapter from it*, and items and facts from a plan reaching its chapter. Designed in §18, with a
     *done when* per part.
+17. **A byline**: one optional line on a project, set in its Edit form and shown under its title on the project page,
+    the Read page and the compiled manuscript, and carried by the export (§19).
 
 ## 11. Revising and salvaging (phase 10)
 
@@ -1789,7 +1793,7 @@ the end of the story (or as of the chosen point, §13.7.4).
 - **Smooth** at a few hundred places: the same budget as the graph's.
 - **From the Timeline**: brushing a span there drives the chart's *as of* (§13.7.5).
 - **Not a drawn map.** The chart doesn't replace an uploaded map image with pinned places, which stays on the later
-  list (WORLD-MODEL.md §6; §19).
+  list (WORLD-MODEL.md §6; §20).
 
 **Data:**
 
@@ -3514,7 +3518,7 @@ walkthrough 4 plays the new step with no skipped step in the end-to-end run.
 
 ### 17.10 Toward a drawn map
 
-The drawn map (an uploaded map image with places pinned on it, WORLD-MODEL.md §6) stays on the later list (§19), and
+The drawn map (an uploaded map image with places pinned on it, WORLD-MODEL.md §6) stays on the later list (§20), and
 isn't specified here. This work makes it smaller: the map image is a picture, uploaded, kept, copied for the phone,
 cached offline and carried by the export and Restore as above. What is left for it is the pins (a picture, a place
 entry, and where on the picture it sits, as fractions of its width and height), the view that draws them with *as of*,
@@ -3769,7 +3773,33 @@ None left. Thomas's answers are in DECISIONS.md (2026-10-26):
 - no links from plan lines to paragraphs; the link is the chapter (§18.4);
 - and on the phone, *Plan* flips between the chapter and the plan (§18.2).
 
-## 19. Out of scope (for now)
+## 19. A byline (phase 17)
+
+Thomas: "I'd like to have byline as a thing." A book can carry a line under its title, as a cover does: *A Salt Road
+Tale*, *As told by the ferryman's daughter*, or a pen name. Today a project has only its name.
+
+Phase 17 adds a **byline**: one optional line of text on a project. It is the writer's own words, shown as written;
+nothing is made from it.
+
+- **Where it is set.** The project's *Edit* form gains *Byline*, under *Name*: one line, up to 200 characters, empty
+  for none (the hint says `Shown under the title, as on a cover`).
+- **Where it shows.** Under the title on the project page and on the Read page (§13.6.1), in italics, and in the
+  compiled `manuscript.md` of the export as an italic line under `# <name>`. Nowhere else: not in the nav, the
+  chapter pages or the bible.
+- **Export and Restore.** `project.md` gains `byline:` (left out when empty). Restore reads it; an export from before
+  phase 17 has none, and the project has no byline.
+
+```sql
+projects + byline text NULL   -- at most 200 characters, NULL for none
+```
+
+`PATCH /projects/<slug>` takes `byline` (an empty string clears it); the project carries it wherever projects are sent.
+
+*Done when* a byline set in *The Salt Road*'s Edit form shows under its title on the project page and the Read page and
+under `# The Salt Road` in the exported `manuscript.md`; clearing it removes it everywhere; and exporting and restoring
+keeps it, while an older export restores with none.
+
+## 20. Out of scope (for now)
 
 - AI features of any kind in the story path
 - Co-writing features: inviting people, permissions beyond owner, comments, presence (the data model is ready for them; see §7)
@@ -3790,7 +3820,7 @@ None left. Thomas's answers are in DECISIONS.md (2026-10-26):
   - calendars, or packs of real history: time stays a sortable number (§13.1.1);
   - a soundtrack feature: the share target already records where a link came from.
 
-## 20. Open questions
+## 21. Open questions
 
 - Should experiments also be allowed for entities ("what if this character were…") or only for chapters?
 - Should journal entries be lockable after a period to keep them truly append-only, or stay freely editable?

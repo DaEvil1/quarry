@@ -155,6 +155,8 @@ class Project(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # how many chapters without an entry, between two that name it, make a gap on its mentions strip
     gap_chapters: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
+    # one optional line under the title, as on a cover (docs/SPEC.md §19)
+    byline: Mapped[str | None] = mapped_column(String(200))
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = _created()

@@ -430,6 +430,8 @@ const slug = ref("");
 const kind = ref<ProjectKind>("novel");
 // how many chapters without an entry make a gap on its mentions strip (docs/SPEC.md §12.1)
 const gap = ref(5);
+// one line under the title, as on a cover (docs/SPEC.md §19)
+const byline = ref("");
 watch(project, () => (editing.value = false));
 
 function startEdit() {
@@ -438,6 +440,7 @@ function startEdit() {
   slug.value = project.value.slug;
   kind.value = project.value.kind;
   gap.value = project.value.gap_chapters ?? 5;
+  byline.value = project.value.byline ?? "";
   error.value = "";
   editing.value = true;
 }
@@ -453,6 +456,7 @@ async function save() {
       slug: slug.value.trim(),
       kind: kind.value,
       gap_chapters: gap.value,
+      byline: byline.value.trim(),
     });
     session.putWorld(await get<World>(`/api/worlds/${w.slug}`));
     editing.value = false;
@@ -475,6 +479,7 @@ async function save() {
           · {{ kindLabel(project.kind) }}
         </div>
         <h1>{{ project.name }}</h1>
+        <p v-if="project.byline" class="byline" data-testid="byline">{{ project.byline }}</p>
         <p v-if="manuscript" class="muted" data-testid="manuscript-summary">
           {{ manuscript.chapters.length }} chapters · {{ manuscript.words.toLocaleString() }} words
         </p>
@@ -501,6 +506,11 @@ async function save() {
       <div class="field">
         <label for="p-name">Name</label>
         <input id="p-name" v-model="name" type="text" maxlength="200" required />
+      </div>
+      <div class="field">
+        <label for="p-byline">Byline</label>
+        <input id="p-byline" v-model="byline" type="text" maxlength="200" placeholder="Optional" />
+        <div class="hint">Shown under the title, as on a cover: on this page, when reading, and in the exported manuscript.</div>
       </div>
       <div class="field">
         <label for="p-kind">Kind</label>

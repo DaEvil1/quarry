@@ -121,5 +121,5 @@ For development with hot reload and the tests, see [docs/development.md](docs/de
 
 ## Status
 
-Phases 1–16 and the Guide are built and in use. Quarry is a personal tool for a single writer, with the data model ready for co-writing
+Phases 1–17 and the Guide are built and in use. Quarry is a personal tool for a single writer, with the data model ready for co-writing
 later. The code is public; no story content is ever committed, and every example and test uses made-up names.

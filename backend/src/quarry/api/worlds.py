@@ -65,6 +65,8 @@ class ProjectOut(BaseModel):
     kind: str
     position: int
     gap_chapters: int = 5
+    # one line under the title, as on a cover (docs/SPEC.md §19)
+    byline: str | None = None
 
 
 class WorldOut(BaseModel):
@@ -124,6 +126,14 @@ class ProjectUpdate(BaseModel):
     kind: Kind | None = None
     # the mentions strip's gap length (docs/SPEC.md §12.1)
     gap_chapters: int | None = Field(default=None, ge=1, le=999)
+    # the byline (docs/SPEC.md §19): an empty string clears it
+    byline: str | None = Field(default=None, max_length=200)
+
+
+def clean_byline(text: object) -> str | None:
+    """One line, spaces tidied, at most 200 characters; None for none."""
+    line = " ".join(str(text or "").split())[:200]
+    return line or None
 
 
 class ProjectOrder(BaseModel):
@@ -132,7 +142,7 @@ class ProjectOrder(BaseModel):
 
 def _project_out(p: Project) -> ProjectOut:
     return ProjectOut(id=p.id, name=p.name, slug=p.slug, kind=p.kind, position=p.position,
-                      gap_chapters=p.gap_chapters if p.gap_chapters is not None else 5)
+                      gap_chapters=p.gap_chapters if p.gap_chapters is not None else 5, byline=p.byline)
 
 
 def _world_out(w: World, role: str, focus: str = "writing") -> WorldOut:
@@ -291,6 +301,8 @@ def update_project(slug: str, project_slug: str, body: ProjectUpdate, user: User
         p.kind = body.kind
     if body.gap_chapters is not None:
         p.gap_chapters = body.gap_chapters
+    if body.byline is not None:
+        p.byline = clean_byline(body.byline)
     if body.slug is not None:
         new = _check_slug(body.slug)
         if new != p.slug and any(o.slug == new for o in w.projects):

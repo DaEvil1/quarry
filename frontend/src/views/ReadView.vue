@@ -41,6 +41,7 @@ const shown = (body: string) => body.split("\n").filter((l) => !/^[ \t]*%%/.test
           <RouterLink :to="{ name: 'project', params: { world: world.slug, project: project.slug } }">{{ project.name }}</RouterLink>
         </div>
         <h1>{{ project.name }}</h1>
+        <p v-if="project.byline" class="byline" data-testid="read-byline">{{ project.byline }}</p>
         <p v-if="item" class="muted" data-testid="read-as-if-line">Read as if “{{ title }}” were accepted: its drafts in place, read-only.</p>
       </div>
     </div>
