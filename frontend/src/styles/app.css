@@ -1120,3 +1120,30 @@ li:hover > .fu-add, li:focus-within > .fu-add, .fu-line:hover .fu-add, .fu-line:
 .picture-rows li { align-items: center; }
 .picture-row-thumb { width: 56px; height: 56px; padding: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex: none; cursor: zoom-in; }
 .picture-row-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* a chapter's plan beside it (docs/SPEC.md §18.2) ------------------------------------------------------------------ */
+.chapter-page.split > .chapter-main { min-width: 0; }
+.plan-divider { flex: 0 0 7px; cursor: col-resize; background: var(--border); opacity: .6; touch-action: none; }
+.plan-divider:hover { opacity: 1; background: var(--accent); }
+.plan-side { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
+.chapter-page.flipped .plan-side { border-left: none; }
+.plan-tabs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 8px 16px 0; border-bottom: 1px solid var(--border); }
+.plan-tab { border: 1px solid transparent; border-bottom: none; background: none; color: var(--muted); padding: 4px 10px;
+  border-radius: 6px 6px 0 0; font: inherit; font-size: 13px; cursor: pointer; }
+.plan-tab[aria-selected="true"] { color: var(--text); background: var(--surface); border-color: var(--border); margin-bottom: -1px; }
+.plan-side > .chapter-page { min-height: 0; flex: 1; }
+.plan-side .chapter-main { padding-top: 4px; }
+.plan-bar { justify-content: flex-end; gap: 12px; }
+.plan-empty { padding: 32px 24px; }
+.plan-for { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 6px; }
+.plan-chapters { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.plan-pick { position: relative; }
+.plan-menu { flex-direction: column; min-width: 240px; max-height: 320px; overflow: auto; }
+.plan-menu button { text-align: left; }
+.plan-tag { color: var(--accent); }
+.journal-filters { flex-wrap: nowrap; }
+.journal-filters .journal-search { flex: 1; }
+.plan-pick-row { text-align: left; }
+.plan-mark { margin-left: 6px; color: var(--accent); }
+.plans-waiting { margin-top: 14px; }
+.start-chapter-row { display: inline-flex; flex-wrap: wrap; gap: 6px; }

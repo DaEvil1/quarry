@@ -171,6 +171,13 @@ function badChoiceDom(v: EditorView, hooks: WorldHooks, at: number): HTMLElement
   });
 }
 
+/** A strip's form is done (saved, or Esc): back to the text, the selection let go so the strip closes. */
+function backToText(view: EditorView) {
+  const sel = view.state.selection.main;
+  if (!sel.empty) view.dispatch({ selection: { anchor: sel.to } });
+  view.focus();
+}
+
 function wrap(el: HTMLElement): HTMLElement {
   const box = document.createElement("div");
   box.append(el);
@@ -257,7 +264,7 @@ function full(hooks: WorldHooks): CompanionHooks | null {
       const history = hooks.history && text.length >= 2 ? hooks.history(sel.from, sel.to, view.state.sliceDoc(sel.from, sel.to)) : undefined;
       const passage = hooks.passage && text.length >= 2 ? hooks.passage(sel.from, sel.to, view.state.sliceDoc(sel.from, sel.to)) : undefined;
       if (text.length < 2 || text.length > 80 || text.includes("\n")) {
-        if (history || passage) return { from: sel.from, dom: passageStripDom({ cut, history, passage, done: () => view.focus() }) };
+        if (history || passage) return { from: sel.from, dom: passageStripDom({ cut, history, passage, done: () => backToText(view) }) };
         return cut ? { from: sel.from, dom: cutStripDom(cut) } : null;
       }
       return {
@@ -273,7 +280,7 @@ function full(hooks: WorldHooks): CompanionHooks | null {
             await hooks.addName(id, text);
             view.dispatch({ selection: { anchor: sel.to } });
           },
-          done: () => view.focus(),
+          done: () => backToText(view),
           cut,
         }),
       };
@@ -350,7 +357,7 @@ function intent(hooks: WorldHooks): Extension[] {
         // a passage selected: record a fact or an event from it, make it a spark or a question (desk and phone), or
         // on a phone cut it to the bin
         if (history || passage) {
-          return [{ pos: sel.to, above: false, strictSide: false, create: (view) => ({ dom: wrap(passageStripDom({ cut: cut && coarse() ? cut(view) : undefined, history, passage, done: () => view.focus() })) }) }];
+          return [{ pos: sel.to, above: false, strictSide: false, create: (view) => ({ dom: wrap(passageStripDom({ cut: cut && coarse() ? cut(view) : undefined, history, passage, done: () => backToText(view) })) }) }];
         }
         if (!cut || !text || !coarse()) return [];
         return [{ pos: sel.to, above: false, strictSide: false, create: (view) => ({ dom: wrap(cutStripDom(cut(view))) }) }];
@@ -378,7 +385,7 @@ function intent(hooks: WorldHooks): Extension[] {
                 await hooks.addName(id, text);
                 view.dispatch({ selection: { anchor: sel.to } });
               },
-              done: () => view.focus(),
+              done: () => backToText(view),
               cut: cut ? cut(view) : undefined,
             })),
           }),

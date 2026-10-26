@@ -3,22 +3,33 @@
 
 import { ApiError, del, get, patch, post, put } from "./api";
 import { DocConflict, type RevisionInfo } from "./manuscript";
-import type { ItemOrigin, JournalDetail, JournalEntry } from "./types";
+import type { ItemOrigin, JournalDetail, JournalEntry, PlanChapter } from "./types";
 
 const base = (world: string) => `/api/worlds/${encodeURIComponent(world)}`;
 
-export const listJournal = (world: string, project = "") =>
-  get<JournalEntry[]>(`${base(world)}/journal${project ? `?project=${encodeURIComponent(project)}` : ""}`);
+export const listJournal = (world: string, project = "", plans: "" | "1" | "unlinked" = "") => {
+  const q = new URLSearchParams();
+  if (project) q.set("project", project);
+  if (plans) q.set("plans", plans);
+  return get<JournalEntry[]>(`${base(world)}/journal${q.size ? `?${q}` : ""}`);
+};
 export const getEntry = (world: string, id: string) => get<JournalDetail>(`${base(world)}/journal/${id}`);
 /** A new entry; `id` is chosen here, so sending it twice (an offline phone retrying) makes one entry. */
 export const createEntry = (world: string, entry: { id?: string; entry_date: string; title?: string | null; body?: string; project?: string | null }) =>
   post<JournalDetail>(`${base(world)}/journal`, entry);
 export const deleteEntry = (world: string, id: string) => del(`${base(world)}/journal/${id}`);
 export const entryTies = (world: string, id: string) =>
-  get<{ facts: number; relationships: number; notes: number; items: number }>(`${base(world)}/journal/${id}/ties`);
-/** The date and the project: labels, saved without the version check. */
-export const setEntryAbout = (world: string, id: string, about: { entry_date?: string; project?: string | null }) =>
+  get<{ facts: number; relationships: number; notes: number; items: number; plan_for?: PlanChapter[] }>(`${base(world)}/journal/${id}/ties`);
+/** The date, the project and the Plan switch: labels, saved without the version check. */
+export const setEntryAbout = (world: string, id: string, about: { entry_date?: string; project?: string | null; is_plan?: boolean }) =>
   patch<JournalEntry>(`${base(world)}/journal/${id}/about`, about);
+
+// ---- a chapter's plan (docs/SPEC.md §18) ----
+export const linkPlan = (world: string, id: string, chapter: string) => put<JournalEntry>(`${base(world)}/journal/${id}/chapters/${chapter}`, {});
+export const unlinkPlan = (world: string, id: string, chapter: string) => del<JournalEntry>(`${base(world)}/journal/${id}/chapters/${chapter}`);
+/** An empty chapter where asked (after a chapter, or at the end), titled as the plan is and linked to it. */
+export const startChapter = (world: string, id: string, project: string, after: string | null) =>
+  post<import("./manuscript").Chapter>(`${base(world)}/journal/${id}/start-chapter`, { project, after });
 
 /** The entry changed on another device since this one loaded it. */
 export class EntryConflict extends DocConflict<JournalDetail> {

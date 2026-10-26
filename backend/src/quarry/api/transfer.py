@@ -19,7 +19,8 @@ the texts as they are now.
                                                       and follows (the decisions they follow, by id) with dropped
                                                       (decision id: date) for one dropped by hand;
                                                       the notes
-    <world>/Journal/<date> <title> (<id>).md          id, date, title, project
+    <world>/Journal/<date> <title> (<id>).md          id, date, title, project; for a plan (docs/SPEC.md §18.5)
+                                                      plan: true and chapters (the ids of the chapters it is for)
     <world>/Decisions.md                              one line per decision, its follow-ups as indented lines under
                                                       it (to do, done, dropped), worked out for the reader; only
                                                       the dropped ones whose row is gone are read back
@@ -72,6 +73,7 @@ from ..models import (
     GENDERS,
     STARTING_STATUSES,
     Chapter,
+    ChapterPlan,
     ChapterStatus,
     ChartPin,
     Cut,
@@ -410,11 +412,19 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             meta["pictures"] = [{"file": picture_file[g["id"]], "caption": g["caption"]} for g in gallery]
         files[f"{root}/Bible/{KIND_FOLDERS[e.kind]}/{_safe(e.name)}.md"] = _doc(meta, e.body)
 
+    plan_for: dict[uuid.UUID, list[str]] = defaultdict(list)
+    for jid, cid in db.execute(select(ChapterPlan.journal_id, ChapterPlan.chapter_id)
+                               .join(JournalEntry, JournalEntry.id == ChapterPlan.journal_id)
+                               .where(JournalEntry.world_id == world.id).order_by(ChapterPlan.created_at)).all():
+        plan_for[jid].append(str(cid))
     for j in db.scalars(select(JournalEntry).where(JournalEntry.world_id == world.id).order_by(JournalEntry.entry_date)):
         title = j.title or j.body.split("\n", 1)[0][:40]
-        files[f"{root}/Journal/{j.entry_date} {_safe(title, 50)} ({str(j.id)[:8]}).md"] = _doc(
-            {"id": str(j.id), "date": j.entry_date.isoformat(), "title": j.title,
-             "project": projects[j.project_id].slug if j.project_id else None}, j.body)
+        jmeta = {"id": str(j.id), "date": j.entry_date.isoformat(), "title": j.title,
+                 "project": projects[j.project_id].slug if j.project_id else None}
+        if j.is_plan:
+            # a plan and the chapters it is for (docs/SPEC.md §18.5): current, drafts or retired
+            jmeta |= {"plan": True, "chapters": plan_for.get(j.id, [])}
+        files[f"{root}/Journal/{j.entry_date} {_safe(title, 50)} ({str(j.id)[:8]}).md"] = _doc(jmeta, j.body)
 
     lines = ["# Decisions", ""]
     decision_tags: dict[uuid.UUID, list[str]] = defaultdict(list)
@@ -437,10 +447,14 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
         if target in names:
             tags[item_id].append(names[target])
     origins: dict[uuid.UUID, dict] = {}
+    # chapters an item is for besides where it came from: ticked when made from a plan (docs/SPEC.md §18.4)
+    item_chapters: dict[uuid.UUID, list[str]] = defaultdict(list)
     for link in db.scalars(select(ItemLink).join(Item, Item.id == ItemLink.item_id)
                            .where(Item.world_id == world.id, ItemLink.target_table.in_(("chapter", "journal")))
                            .order_by(ItemLink.target_table)):
         # a journal entry wins over a chapter (sorted after it)
+        if link.target_table == "chapter":
+            item_chapters[link.item_id].append(str(link.target_id))
         origins[link.item_id] = {"from": {link.target_table: str(link.target_id)}, "passage": link.passage}
     ranges: dict[uuid.UUID, list[str]] = defaultdict(list)
     for r in db.scalars(select(ExperimentRange).join(Item, Item.id == ExperimentRange.item_id)
@@ -458,6 +472,9 @@ def export_world(slug: str, user: User = Depends(current_user), db: Session = De
             meta["from"] = origins[i.id]["from"]
             if origins[i.id]["passage"]:
                 meta["passage"] = origins[i.id]["passage"]
+            more = [c for c in item_chapters.get(i.id, []) if c != origins[i.id]["from"].get("chapter")]
+            if more:
+                meta["chapters"] = more
         # an experiment: the chapters it would replace, or where it adds (docs/SPEC.md §13.6.1)
         if i.kind == "experiment":
             if ranges.get(i.id):
@@ -937,11 +954,20 @@ def restore_files(db: Session, user: User, files: dict[str, str],
     for _rel, meta, body in under(f"{root}/Journal/"):
         j = JournalEntry(world_id=world.id, project_id=project_of(meta.get("project")),
                          entry_date=_day(meta.get("date")) or date.today(), title=meta.get("title"), body=body,
-                         created_by=user.id, updated_by=user.id)
+                         is_plan=meta.get("plan") is True, created_by=user.id, updated_by=user.id)
         db.add(j)
         db.flush()
         if meta.get("id"):
             journal_by_old[str(meta["id"])] = j.id
+        # a plan's chapters, relinked through the chapters' ids (docs/SPEC.md §18.5); one it can't find is skipped
+        linked: set[uuid.UUID] = set()
+        for old in meta.get("chapters") if isinstance(meta.get("chapters"), list) else []:
+            cid = chapter(old)
+            if cid is not None and cid not in linked:
+                linked.add(cid)
+                db.add(ChapterPlan(chapter_id=cid, journal_id=j.id, created_by=user.id))
+        if linked:
+            j.is_plan = True
 
     def journal(old) -> uuid.UUID | None:  # type: ignore[no-untyped-def]
         return journal_by_old.get(str(old)) if old else None
@@ -953,6 +979,13 @@ def restore_files(db: Session, user: User, files: dict[str, str],
             target = find(src.get(table))
             if target is not None:
                 db.add(ItemLink(item_id=i.id, target_table=table, target_id=target, passage=passage))
+        # the chapters it is for besides (made from a plan, docs/SPEC.md §18.4)
+        done = {chapter(src.get("chapter"))}
+        for old in meta.get("chapters") if isinstance(meta.get("chapters"), list) else []:
+            cid = chapter(old)
+            if cid is not None and cid not in done:
+                done.add(cid)
+                db.add(ItemLink(item_id=i.id, target_table="chapter", target_id=cid))
 
     standings = ("canon", "planned", "rumour")
     # rows that follow decisions, linked once the decisions are made (they come after)

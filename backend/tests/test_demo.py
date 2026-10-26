@@ -51,8 +51,15 @@ def test_demo_world(signed_in: Client):
     tagged = {e["name"] for d in signed_in.get(f"{W}/decisions").json() for e in d["entities"]}
     assert tagged == {"Oskar Vey", "The Brass Compass", "Tamsin Vey", "Hesper Quill", "Brother Cade"}
     journal = {j["title"]: j for j in signed_in.get(f"{W}/journal").json()}
-    assert list(journal) == ["Ash as a clock", "Why a ferry?", "Loose threads", "What the Wardens want", "The first map"]
+    assert list(journal) == ["After the Locks", "Ash as a clock", "What the River Kept, again", "Why a ferry?",
+                             "What the River Kept, first plan", "Loose threads", "What the Wardens want", "The first map"]
     third = book["chapters"][2]["id"]
+    # a chapter's plans (docs/SPEC.md §18.6): two for chapter 3, one waiting for its chapter
+    assert [p["title"] for p in signed_in.get(f"{W}/chapters/{third}").json()["plan_list"]] == [
+        "What the River Kept, again", "What the River Kept, first plan"]
+    assert book["chapters"][2]["plans"] == 2
+    waiting = signed_in.get(f"{W}/journal?plans=unlinked&project=the-ferrymans-daughter").json()
+    assert [p["title"] for p in waiting] == ["After the Locks"]
     assert [(i["body"].split("\n")[0], i["passage"]) for i in signed_in.get(f"{W}/chapters/{third}/items").json()] == [
         ("How far upriver do the locks reach?", "Brother Cade said the River Wardens raised Marrow Locks"),
         ("How many lanterns does the abbey set out for its own dead?", None)]

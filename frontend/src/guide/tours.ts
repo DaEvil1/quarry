@@ -13,6 +13,7 @@ import { experiments } from "./walkthroughs/experiments";
 import { facts } from "./walkthroughs/facts";
 import { journal } from "./walkthroughs/journal";
 import { names } from "./walkthroughs/names";
+import { planning } from "./walkthroughs/planning";
 import { revising } from "./walkthroughs/revising";
 import { safe } from "./walkthroughs/safe";
 import { species } from "./walkthroughs/species";
@@ -29,6 +30,7 @@ export const TOURS: Tour[] = [
   revising,
   experiments,
   journal,
+  planning,
   chart,
   names,
   safe,

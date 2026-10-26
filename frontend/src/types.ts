@@ -276,8 +276,27 @@ export interface JournalEntry {
   words?: number;
   /** on the list: decisions and changes since its date touching what it names (docs/SPEC.md §14.5) */
   since?: number | null;
+  /** a plan, and the chapters it is for (docs/SPEC.md §18.1) */
+  is_plan?: boolean;
+  chapters?: PlanChapter[];
   created_at: string;
   updated_at: string;
+}
+
+/** A chapter as a plan names it: `chapter 4, The Quay`, a draft, or in Salvage. */
+export interface PlanChapter {
+  id: string;
+  title: string;
+  state: "current" | "experiment" | "retired";
+  project: string | null;
+  /** its number in the book, for a current chapter */
+  n: number | null;
+}
+
+/** "chapter 4, The Quay", "The Quay (draft)", "The Quay · in Salvage" */
+export function planChapterText(c: Pick<PlanChapter, "title" | "state" | "n">): string {
+  if (c.state === "current") return `chapter ${c.n}, ${c.title}`;
+  return c.state === "experiment" ? `${c.title} (draft)` : `${c.title} · in Salvage`;
 }
 
 /** A journal entry opened in the editor: with the names found in it. */

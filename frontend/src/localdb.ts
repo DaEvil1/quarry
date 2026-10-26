@@ -23,6 +23,8 @@ export interface PendingCapture {
   /** the chapter it was thought of in (a thought stashed while writing), or the journal entry */
   chapterId?: string;
   journalId?: string;
+  /** made from a plan's passage: the chapters ticked (docs/SPEC.md §18.4) */
+  chapterIds?: string[];
   /** made from a selection: the passage (docs/SPEC.md §14.3.1) */
   passage?: string;
   /** "Park it": saved as deferred instead of open */
