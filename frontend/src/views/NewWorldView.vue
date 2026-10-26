@@ -3,7 +3,8 @@ import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 
 import { get, post } from "../api";
-import { restoreWorld } from "../manuscript";
+import { followupToast } from "../followups";
+import { restoreWorld, restoredText } from "../manuscript";
 import { useSession } from "../stores/session";
 import { PROJECT_KINDS, type Project, type ProjectKind, type World } from "../types";
 
@@ -27,6 +28,8 @@ async function restore(e: Event) {
   try {
     const world = await restoreWorld(file);
     session.putWorld(world);
+    // said by the shell, so it outlives this page
+    followupToast.value = { label: restoredText(world), undo: null };
     await router.push({ name: "world", params: { world: world.slug } });
   } catch (err) {
     error.value = (err as Error).message;
