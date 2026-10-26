@@ -35,3 +35,13 @@ describe("picture lines (docs/SPEC.md §17.3)", () => {
     expect(sizeText(64 * 1024 * 1024)).toBe("64 MB");
   });
 });
+
+describe("Restore's result (docs/SPEC.md §17.6)", () => {
+  it("says how many pictures came, and what was skipped", async () => {
+    const { restoredText } = await import("./manuscript");
+    const w = { id: "w", name: "W", slug: "w", role: "owner", projects: [] };
+    expect(restoredText({ ...w, pictures: 48, skipped: [] })).toBe("Restored, with 48 pictures");
+    expect(restoredText({ ...w, pictures: 1, skipped: ["Pictures/notes.txt"] })).toBe("Restored, with 1 picture. Skipped: Pictures/notes.txt");
+    expect(restoredText({ ...w })).toBe("Restored");
+  });
+});
