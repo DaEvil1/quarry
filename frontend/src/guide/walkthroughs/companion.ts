@@ -69,6 +69,12 @@ const steps: Step[] = [
     say: "On to chapter 3. Its dimmed line near the top starts with %%: a margin note to yourself, kept out of the word count.",
   },
   {
+    target: { css: tid("close-plan") },
+    act: { click: true },
+    wait: { css: tid("tab-connections") },
+    say: "Chapter 3 has a plan, so it opens beside the chapter and the panel folds away. Close it for now: Planning a chapter shows it.",
+  },
+  {
     target: { css: tid("tab-connections") },
     act: { click: true },
     wait: { css: tid("findings-connections"), text: "Pell and Brother Cade" },

@@ -342,7 +342,8 @@ watch(typewriter, (on) => {
 
 // ---- the chapter's plan beside it (docs/SPEC.md §18.2) ----
 // Whether the split is open, and on which plan, is kept per chapter on the device; the divider's place per device. A
-// chapter never opens its plan by itself the first time. Under 1,000 px the Plan button flips between the two.
+// chapter with a plan opens with it beside it until the split is closed there. Under 1,000 px the Plan button flips
+// between the two.
 const SPLIT_KEY = "quarry.planSplit";
 const planStore = (id: string) => `quarry.plan.${id}`;
 const pageEl = ref<HTMLElement | null>(null);
@@ -416,7 +417,7 @@ function restorePlan(ch: Chapter) {
   const list = ch.plan_list ?? [];
   const known = (id: string | null | undefined) => (id && list.some((p) => p.id === id) ? id : null);
   // on the phone (and in narrow windows) a chapter opens on itself; Plan flips to the plan
-  planOpen.value = !!asked || (!!kept.open && !narrow.value);
+  planOpen.value = !!asked || (!narrow.value && (kept.open ?? list.length > 0));
   planId.value = (asked && asked !== "open" ? asked : null) ?? known(kept.id) ?? list[0]?.id ?? null;
   if (asked) {
     void router.replace({ query: { ...route.query, plan: undefined } });
@@ -810,6 +811,8 @@ watch(mode, (m) => {
 // "?panel=looseEnds" (from "chapter 9 is written", docs/SPEC.md §16.5) opens the panel on Loose ends
 const startTab = route.query.panel === "looseEnds" ? ("looseEnds" as const) : undefined;
 const showPanel = ref(prefs.panel || !!startTab);
+// with the plan beside the chapter, the panel such a link asks for opens over the chapter's side
+if (startTab) panelOverSplit.value = true;
 watch(showPanel, (on) => {
   prefs.set("panel", on);
   if (on && mode.value === "drafting") analyseNow();

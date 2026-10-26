@@ -33,6 +33,9 @@ test("load the demo world, look around, delete it", async () => {
 
   // chapter 3: where the writer stopped, and what the companion finds
   await page.getByRole("link", { name: "What the River Kept" }).click();
+  // it has plans, so it opens with one beside it (docs/SPEC.md §18.2); closed, the panel is back
+  await expect(page.getByTestId("plan-side")).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId("close-plan").click();
   await expect(page.getByTestId("back-in")).toContainText("Tamsin opens the compass", { timeout: 20_000 });
   // the chapter starts with a picture now (docs/SPEC.md §17.8): the margin note under it is drawn once scrolled to
   await page.getByTestId("editor").hover();

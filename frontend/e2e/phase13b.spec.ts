@@ -123,7 +123,7 @@ test("14.5 done when: an old entry says what happened since, dimmed on the list;
 test("14.9 done when: Planning reorders the nav, turns Include planned on, opens the world on its front page; Writing back", async () => {
   // under Writing: the projects first
   await page.goto(`/w/${demo}/chapters/${(await api("GET", `/api/worlds/${demo}/projects/the-ferrymans-daughter/chapters`)).chapters[2].id}`);
-  await expect(page.getByTestId("editor")).toBeVisible();
+  await expect(page.getByTestId("editor").first()).toBeVisible();
   let order = await navOrder();
   expect(order.findIndex((t) => t.startsWith("The Ferryman's Daughter"))).toBeLessThan(order.findIndex((t) => t.startsWith("Capture")));
   await page.goto(`/w/${demo}`);
