@@ -718,6 +718,10 @@ def offline_pack(slug: str, since: datetime | None = None, user: User = Depends(
                               "words": r.meta.get("words", journal_words(r.body)),
                               "created_at": r.created_at.isoformat()})
     journal_ids = db.scalars(select(JournalEntry.id).where(JournalEntry.world_id == world.id))
+    from .pictures import picture_index
+
+    # every picture's name and size (docs/SPEC.md §17.5): the device fetches the view copies its texts use, and draws
+    # a box of the right shape for one it doesn't have
     return {"now": now.isoformat(), "chapters": chapters, "revisions": revisions,
             "chapter_ids": [str(i) for i in all_ids], "journal": journal,
-            "journal_ids": [str(i) for i in journal_ids]}
+            "journal_ids": [str(i) for i in journal_ids], "pictures": picture_index(db, world.id)}

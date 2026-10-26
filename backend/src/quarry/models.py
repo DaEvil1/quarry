@@ -811,3 +811,51 @@ class ChartPin(Base):
 
 Index("uq_chart_pins_place_container", ChartPin.place_id,
       func.coalesce(ChartPin.container_id, text("'00000000-0000-0000-0000-000000000000'::uuid")), unique=True)
+
+
+PICTURE_FORMATS = ("jpeg", "png", "webp")
+PICTURE_FILE_KINDS = ("full", "view", "thumb")
+
+
+class Picture(Base):
+    """A picture in a world (docs/SPEC.md §17.1): uploaded once, placed in galleries and on picture lines. Its files
+    never change once it is uploaded; they are in picture_files, so reading pictures never loads their bytes."""
+
+    __tablename__ = "pictures"
+    __table_args__ = (CheckConstraint(_in("format", PICTURE_FORMATS), name="ck_pictures_format"),)
+
+    id: Mapped[uuid.UUID] = _id()
+    world_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # the full file's format, size in pixels (to reserve room before it loads) and bytes
+    format: Mapped[str] = mapped_column(String(10), nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+
+class PictureFile(Base):
+    """One of a picture's three files: full (as kept, at most 2400 px), view (WebP, 1600 px) and thumb (WebP, 400 px).
+    Stored with STORAGE EXTERNAL: they are compressed already."""
+
+    __tablename__ = "picture_files"
+    __table_args__ = (CheckConstraint(_in("kind", PICTURE_FILE_KINDS), name="ck_picture_files_kind"),)
+
+    picture_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pictures.id", ondelete="CASCADE"), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(10), primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+
+
+class EntityPicture(Base):
+    """A picture in an entry's gallery (docs/SPEC.md §17.2), in order: position 0 is the main picture. The caption
+    belongs to the place, not the picture."""
+
+    __tablename__ = "entity_pictures"
+
+    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), primary_key=True)
+    picture_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pictures.id", ondelete="RESTRICT"), primary_key=True,
+                                                  index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    caption: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")

@@ -100,21 +100,22 @@ Once set up, `QUARRY_SETUP_TOKEN` is ignored; you may remove it from `quarry.env
 cd /srv/quarry && docker compose pull && docker compose up -d
 ```
 
-When `deploy/nginx-quarry.conf` changes (phase 4 raised the upload size for restoring a world to 60 MB), copy it
-again and reload nginx:
+When `deploy/nginx-quarry.conf` changes (phase 4 raised the upload size for restoring a world to 60 MB; phase 15 set
+it to 30 MB for a picture, and 1 GB for a restore), copy it again and reload nginx:
 
 ```bash
 cd /srv/quarry && curl -fsSLO https://raw.githubusercontent.com/DaEvil1/quarry/master/deploy/nginx-quarry.conf
 sed -n '/server_name/,$p' nginx-quarry.conf | grep client_max_body_size
-sudo sed -i 's/client_max_body_size [0-9]*m;/client_max_body_size 60m;/' /etc/nginx/sites-available/quarry
+sudo sed -i 's/client_max_body_size [0-9]*m;/client_max_body_size 30m;/' /etc/nginx/sites-available/quarry
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
 (certbot added its own lines to the site file, so change the one setting in place rather than copying the file
 over it.)
 
-The export and restore routes have their own `location` block with a longer timeout (300 s), since a world of
-thousands of entries takes longer than 30 s to restore. Paste the block from `nginx-quarry.conf` (the one starting
+The export and restore routes have their own `location` block with a longer timeout (600 s) and a 1 GB upload, since a
+world of thousands of entries takes longer than 30 s to restore and an export with its pictures can be large (phase
+15). Paste (or, from phase 15, replace) the block from `nginx-quarry.conf` (the one starting
 `location ~ ^/api/worlds/(restore|`) into the HTTPS `server` block of `/etc/nginx/sites-available/quarry`, below the
 `location /` block, then `sudo nginx -t && sudo systemctl reload nginx`.
 

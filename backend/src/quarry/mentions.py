@@ -38,7 +38,7 @@ from sqlalchemy import delete, select
 from sqlalchemy import text as sql
 from sqlalchemy.orm import Session
 
-from .margin import story_text
+from .margin import story_text, without_pictures
 from .models import Chapter, Decision, Entity, Item, JournalEntry, Mention, NameIgnore, Project, World
 
 SUFFIX = r"(?:'s|’s|s)?"
@@ -440,15 +440,19 @@ def _lock(db: Session, world_id: uuid.UUID) -> None:
 
 def scan_source(m: Matcher, table: str, text: str, source_id: uuid.UUID | None = None) -> list[Found]:
     """The mentions in one stored text. A chapter is read without its margin notes and a journal entry without its
-    choice lines (its other `%%` lines are ordinary text); both follow their choice lines."""
+    choice lines (its other `%%` lines are ordinary text); both follow their choice lines. Picture lines are read by
+    nobody (docs/SPEC.md §17.3), in chapters, journal entries and entries' notes."""
     if table == "chapter":
         return m.scan(story_text(text), choices=m.choices(text))
     if table == "journal":
         choices = m.choices(text)
+        text = without_pictures(text)
         for c in choices:
             text = text[:c.start] + " " * (c.end - c.start) + text[c.end:]
         return m.scan(text, choices=choices)
-    return m.scan(text, skip_entity=source_id if table == "entity" else None)
+    if table == "entity":
+        return m.scan(without_pictures(text), skip_entity=source_id)
+    return m.scan(text)
 
 
 def refresh_source(db: Session, world_id: uuid.UUID, table: str, source_id: uuid.UUID, text: str,
