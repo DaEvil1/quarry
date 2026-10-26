@@ -47,6 +47,7 @@ export const useOutbox = defineStore("outbox", {
         entities: capture.entities ?? [],
         chapterId: capture.chapterId,
         journalId: capture.journalId,
+        chapterIds: capture.chapterIds,
         passage: capture.passage,
         status: capture.status,
       };
@@ -125,6 +126,7 @@ export const useOutbox = defineStore("outbox", {
                 entities: p.entities ?? [],
                 chapter_id: p.chapterId ?? null,
                 journal_id: p.journalId ?? null,
+                chapter_ids: p.chapterIds ?? [],
                 passage: p.passage ?? null,
                 status: p.status ?? "open",
               })),

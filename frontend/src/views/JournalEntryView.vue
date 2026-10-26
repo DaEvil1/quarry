@@ -9,6 +9,7 @@ import { addRelationship, createEntity, fixes, getEntity, setLabelSwitches, type
 import CompanionPanel from "../components/CompanionPanel.vue";
 import HistoryPanel from "../components/HistoryPanel.vue";
 import JournalSide from "../components/JournalSide.vue";
+import PlanFor from "../components/PlanFor.vue";
 import UndoToast from "../components/UndoToast.vue";
 import { linkedPairs, resolutions, resolve as resolveApi, type PanelActions } from "../companion";
 import { itemBody, passageActions, type PassageContext } from "../editor/passage";
@@ -38,7 +39,7 @@ import { cacheEntry, dropDraft, getDraft, localEntry, queueRevision, saveDraft, 
 import { usePrefs } from "../prefs";
 import { useOutbox } from "../stores/outbox";
 import { useSession } from "../stores/session";
-import type { EntityRef, JournalDetail } from "../types";
+import { planChapterText, type EntityRef, type JournalDetail, type JournalEntry, type PlanChapter } from "../types";
 import { kindsOf, useCards } from "../world/cards";
 import { analyse, linkKey, type Finding } from "../world/findings";
 import { unitOf } from "../world/when";
@@ -49,6 +50,14 @@ import NotFoundView from "./NotFoundView.vue";
 // copy. What stays with chapters (point of view, times, "is at", cuts, experiments, margin notes, the Continuity tab)
 // isn't here.
 
+// Opened by itself (the Journal) or beside a chapter as its plan (docs/SPEC.md §18.2): then it is the plan pane, with
+// its own save status, words, autosave and revisions, but the page (its panel, History, the note asked on leaving) is
+// the chapter's, and cards read as of the chapter beside it.
+const props = defineProps<{ entryId?: string; beside?: PlanChapter | null; pageMode?: "drafting" | "revising"; pageFocus?: boolean; pageTypewriter?: boolean }>();
+const embedded = computed(() => !!props.entryId);
+// beside a chapter: an item ticked for it should show in its Loose ends at once
+const emit = defineEmits<{ item: [] }>();
+
 const route = useRoute();
 const router = useRouter();
 const session = useSession();
@@ -57,6 +66,7 @@ const cards = useCards();
 const outbox = useOutbox();
 
 const worldSlug = computed(() => String(route.params.world));
+const entryIdNow = computed(() => props.entryId ?? String(route.params.id));
 const world = computed(() => session.world(worldSlug.value));
 const entry = ref<JournalDetail | null>(null);
 const missing = ref(false);
@@ -123,7 +133,8 @@ function setAsOf(choice: { asof?: string; at?: number }) {
   }
   prose.value?.refreshNames();
 }
-const readAt = () => (asOf.value.at !== undefined ? { time: asOf.value.at } : (asOf.value.asof ?? null));
+// beside a chapter, as of that chapter: the plan is about that point (docs/SPEC.md §18.2)
+const readAt = () => (props.beside ? props.beside.id : asOf.value.at !== undefined ? { time: asOf.value.at } : (asOf.value.asof ?? null));
 
 // ---- the matcher, rebuilt when the cards change ----
 let matcher = cards.matcher();
@@ -280,12 +291,13 @@ function historyActions(raw: string): HistoryActions {
 
 // ---- record a fact, spark or question from a passage ----
 let lastItem: string | null = null;
-async function addItem(i: { kind: "spark" | "question" | "task"; body: string; entities: string[]; passage: string; status: "open" | "deferred" }) {
+async function addItem(i: { kind: "spark" | "question" | "task"; body: string; entities: string[]; passage: string; status: "open" | "deferred"; chapterIds?: string[] }) {
   const e = entry.value!;
   const id = crypto.randomUUID();
   lastItem = id;
-  const sent = await outbox.add({ id, world: worldSlug.value, body: i.body, kind: i.kind, project: e.project, source: "passage", journalId: e.id, passage: i.passage, status: i.status, entities: i.entities });
+  const sent = await outbox.add({ id, world: worldSlug.value, body: i.body, kind: i.kind, project: e.project, source: "passage", journalId: e.id, passage: i.passage, status: i.status, entities: i.entities, chapterIds: i.chapterIds });
   if (sent) void loadItems(e.id);
+  if (sent && i.chapterIds?.length) emit("item");
   return { sent };
 }
 function itemSaved(kind: string, sent: boolean) {
@@ -303,11 +315,19 @@ function itemSaved(kind: string, sent: boolean) {
 }
 function passageContext(): PassageContext {
   const e = entry.value!;
+  // a plan's chapters (docs/SPEC.md §18.4): beside a chapter, that one, ticked; in the Journal, each of them, ticked
+  // when there is just one
+  const linked = e.chapters ?? [];
+  const chapters = props.beside
+    ? [{ id: props.beside.id, label: planChapterText(props.beside), ticked: true }]
+    : linked.map((c) => ({ id: c.id, label: planChapterText(c), ticked: linked.length === 1 }));
   return {
     world: worldSlug.value,
     where: "journal",
     sourceId: e.id,
     project: e.project,
+    beside: props.beside ? { id: props.beside.id, label: planChapterText(props.beside) } : undefined,
+    chapters: e.is_plan || props.beside ? chapters : [],
     names: () => cards.names,
     namedIn,
     addItem,
@@ -658,7 +678,7 @@ function mount(e: JournalDetail) {
 async function load() {
   missing.value = false;
   offlineCopy.value = false;
-  const id = String(route.params.id);
+  const id = entryIdNow.value;
   let e: JournalDetail | undefined;
   try {
     e = await getEntry(worldSlug.value, id);
@@ -689,7 +709,7 @@ async function load() {
 /** Opened at a place (a passage, from where something was planned, an item, the planning reading). */
 function openAt() {
   const p = prose.value;
-  if (!p) return;
+  if (!p || embedded.value) return;
   const passage = typeof route.query.passage === "string" ? route.query.passage : "";
   if (passage) {
     if (!p.markPassage(passage, true)) notice.value = "That passage has changed since; the entry opens at the top.";
@@ -743,7 +763,7 @@ onMounted(async () => {
   document.addEventListener("visibilitychange", onHide);
   window.addEventListener("beforeunload", onUnload);
 });
-watch(() => route.params.id, async (id, old) => {
+watch(entryIdNow, async (id, old) => {
   if (id && id !== old) {
     keepPlace();
     await saver?.leave();
@@ -751,8 +771,9 @@ watch(() => route.params.id, async (id, old) => {
   }
 });
 onBeforeRouteLeave(async (to) => {
-  // wrote something this time: ask (once, skippably) for a note for next time
-  if (!asked && prefs.askNote && entry.value && words.value - wordsAtOpen >= 30) {
+  // wrote something this time: ask (once, skippably) for a note for next time; beside a chapter, the page is the
+  // chapter's, and leaving doesn't ask for the plan's own note (docs/SPEC.md §18.2)
+  if (!embedded.value && !asked && prefs.askNote && entry.value && words.value - wordsAtOpen >= 30) {
     asked = true;
     leaving.value = to.fullPath;
     leaveNote.value = nextNote.value;
@@ -786,6 +807,18 @@ async function setAbout(about: { entry_date?: string; project?: string | null })
     error.value = unreachable(err) ? "The date and project need the network; try again when you're back online." : (err as Error).message;
   }
 }
+
+/** The Plan switch or a chapter linked or unlinked (docs/SPEC.md §18.1). */
+function planChanged(out: JournalEntry) {
+  const e = entry.value;
+  if (!e) return;
+  entry.value = { ...e, is_plan: out.is_plan, chapters: out.chapters };
+  void cacheEntry(worldSlug.value, entry.value);
+}
+// beside a chapter: Drafting and Revising is one switch for the page, and focus and typewriter follow it
+watch(() => props.pageMode, (m) => m && (mode.value = m), { immediate: true });
+watch(() => props.pageFocus, (on) => on !== undefined && (focusMode.value = on), { immediate: true });
+watch(() => props.pageTypewriter, (on) => on !== undefined && (typewriter.value = on), { immediate: true });
 
 // ---- checkpoint, History, deleting ----
 const labelling = ref(false);
@@ -838,7 +871,9 @@ async function askDelete() {
       t.notes ? `${t.notes} event note${t.notes === 1 ? "" : "s"}` : "",
     ].filter(Boolean);
     const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
-    deleting.value = list ? `${list} ${parts.length === 1 && !list.endsWith("s") ? "was" : "were"} planned in this entry. They keep their passage, without the entry.` : "Nothing was planned in this entry.";
+    // a plan says what it is for (docs/SPEC.md §18.1); the links go with it
+    const plan = t.plan_for?.length ? ` It is the plan for ${t.plan_for.map(planChapterText).join(", ")}.` : "";
+    deleting.value = (list ? `${list} ${parts.length === 1 && !list.endsWith("s") ? "was" : "were"} planned in this entry. They keep their passage, without the entry.` : "Nothing was planned in this entry.") + plan;
   } catch (err) {
     error.value = (err as Error).message;
   }
@@ -864,9 +899,13 @@ const unit = computed(() => unitOf(world.value));
 
 <template>
   <NotFoundView v-if="!world || missing" what="journal entry" />
-  <div v-else class="chapter-page journal-page" :class="{ 'with-history': showHistory }">
+  <div v-else class="chapter-page journal-page" :class="{ 'with-history': showHistory && !embedded, 'plan-pane': embedded }">
     <div class="chapter-main">
-      <div class="chapter-bar">
+      <div v-if="embedded" class="chapter-bar plan-bar">
+        <span class="muted small" data-testid="plan-save-status" :class="`status-${status}`">{{ STATUS_TEXT[status] }}</span>
+        <span class="muted small" data-testid="plan-word-count">{{ words.toLocaleString() }} words</span>
+      </div>
+      <div v-else class="chapter-bar">
         <div class="crumbs">
           <RouterLink :to="{ name: 'journal', params: { world: world.slug } }">Journal</RouterLink>
           <template v-if="entry"> · {{ journalDay(entry.entry_date) }}</template>
@@ -922,7 +961,7 @@ const unit = computed(() => unitOf(world.value));
 
       <div v-if="entry" class="title-wrap journal-head">
         <input v-model="title" class="chapter-title" aria-label="Entry title" maxlength="300" placeholder="Untitled" />
-        <div class="journal-about">
+        <div v-if="!embedded" class="journal-about">
           <label class="visually-hidden" for="entry-date">Date</label>
           <input id="entry-date" type="date" class="filter" :value="day" required @change="setAbout({ entry_date: ($event.target as HTMLInputElement).value })" />
           <label class="visually-hidden" for="entry-project">Project</label>
@@ -933,13 +972,14 @@ const unit = computed(() => unitOf(world.value));
           <span class="muted small visually-hidden">{{ projectName }}</span>
         </div>
       </div>
+      <PlanFor v-if="entry && !embedded" :world="world.slug" :entry="entry" :projects="world.projects" @changed="planChanged" />
       <div ref="host" class="editor-host" :class="{ focus: focusMode }" :style="editorStyle" data-testid="editor" />
       <div v-if="pictureStatus" class="foot-status small" :class="{ 'error-text': pictureStatus.error }" role="status" data-testid="picture-status" @click="pictureStatus = null">{{ pictureStatus.text }}</div>
       <PicturePicker v-if="pickingPicture && world" :world="world.slug" upload title="Picture" :named="[...new Set((entry?.mentions ?? []).map((m) => m.entity_id))]" @pick="pickedPicture" @files="uploadPictures" @close="pickingPicture = false" />
     </div>
 
     <CompanionPanel
-      v-if="entry && !showHistory && showPanel && !focusMode"
+      v-if="entry && !embedded && !showHistory && showPanel && !focusMode"
       :findings="findings"
       :checks="[]"
       :items="items"
@@ -976,7 +1016,7 @@ const unit = computed(() => unitOf(world.value));
     <UndoToast :label="toast?.label ?? null" :undo="toast?.undo ?? null" :actions="toast?.actions ?? []" :ms="toast?.actions ? 12000 : 6000" @dismiss="toast = null" />
 
     <HistoryPanel
-      v-if="showHistory && entry"
+      v-if="showHistory && entry && !embedded"
       :world="world.slug"
       :chapter-id="entry.id"
       doc="journal"

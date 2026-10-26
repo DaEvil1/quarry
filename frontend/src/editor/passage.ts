@@ -20,7 +20,11 @@ export interface PassageContext {
   /** the entries named in a passage, by the matcher that colours names */
   namedIn: (raw: string) => EntityRef[];
   /** an item made here: through the outbox, so it works offline */
-  addItem: (item: { kind: "spark" | "question" | "task"; body: string; entities: string[]; passage: string; status: "open" | "deferred" }) => Promise<{ sent: boolean }>;
+  addItem: (item: { kind: "spark" | "question" | "task"; body: string; entities: string[]; passage: string; status: "open" | "deferred"; chapterIds?: string[] }) => Promise<{ sent: boolean }>;
+  /** in a plan beside its chapter: that chapter (docs/SPEC.md §18.4) */
+  beside?: { id: string; label: string };
+  /** in a plan: its chapters, each ticked or not to start with */
+  chapters?: { id: string; label: string; ticked: boolean }[];
   /** after a fact is recorded: refresh what shows it, and say so (with Open and Undo) */
   recorded: (r: { entity: EntityRef; label: string; value: string; factId: string; undo: () => Promise<void> }) => void;
   saved: (kind: string, sent: boolean) => void;
@@ -55,6 +59,8 @@ export function passageActions(ctx: PassageContext, raw: string): PassageActions
   const kindOf = (kind: EntityKind) => suggestions?.data[kind];
   return {
     where: ctx.where,
+    beside: ctx.beside,
+    chapters: ctx.chapters,
     named: ctx.namedIn(raw),
     names: ctx.names,
     labels: (kind) => kindOf(kind)?.labels ?? [],
@@ -77,6 +83,8 @@ export function passageActions(ctx: PassageContext, raw: string): PassageActions
           ...(f.span.here && chapter ? { from_chapter_id: ctx.sourceId } : {}),
           ...(f.span.from !== null ? { from_time: f.span.from } : {}),
           ...(f.span.until !== null ? { until_time: f.span.until } : {}),
+          ...(f.span.fromChapter ? { from_chapter_id: f.span.fromChapter } : {}),
+          ...(f.span.untilChapter ? { until_chapter_id: f.span.untilChapter } : {}),
         };
         // from a chapter: established in it, the passage as evidence; from a journal entry: planned in it
         const where = chapter
@@ -100,7 +108,7 @@ export function passageActions(ctx: PassageContext, raw: string): PassageActions
     },
     async saveItem(i) {
       try {
-        const { sent } = await ctx.addItem({ kind: i.kind, body: itemBody(i.line, passage), entities: i.entities, passage, status: i.park ? "deferred" : "open" });
+        const { sent } = await ctx.addItem({ kind: i.kind, body: itemBody(i.line, passage), entities: i.entities, passage, status: i.park ? "deferred" : "open", chapterIds: i.chapters });
         ctx.saved(i.kind, sent);
       } catch (e) {
         ctx.failed((e as Error).message);

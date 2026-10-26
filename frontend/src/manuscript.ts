@@ -20,6 +20,8 @@ export interface ChapterInfo {
   version: number;
   updated_at: string;
   retired_at: string | null;
+  /** how many plans it has (docs/SPEC.md §18.3) */
+  plans?: number;
   /** when it is set and how it is told (docs/SPEC.md §13.1.2) */
   time_at?: number | null;
   time_end?: number | null;
@@ -64,6 +66,8 @@ export interface HarvestNote {
 
 export interface Chapter extends ChapterInfo {
   body: string;
+  /** its plans, newest first (docs/SPEC.md §18.1) */
+  plan_list?: { id: string; title: string; date: string }[];
   mentions: Mention[];
   harvest_notes: HarvestNote[];
   /** for a draft: its experiment, with the range it would replace (or where it adds) and its drafts */

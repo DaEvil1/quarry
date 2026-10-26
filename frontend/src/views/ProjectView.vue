@@ -45,6 +45,9 @@ import { PROJECT_KINDS, firstLine, kindLabel, localToday, type Item, type Projec
 import { useCards } from "../world/cards";
 import { chapterWhen, unitOf } from "../world/when";
 import NotFoundView from "./NotFoundView.vue";
+import StartChapter from "../components/StartChapter.vue";
+import { journalDay, listJournal } from "../journal";
+import type { JournalEntry } from "../types";
 
 const route = useRoute();
 const router = useRouter();
@@ -61,6 +64,10 @@ const manuscript = ref<Manuscript | null>(null);
 const offlineCopy = ref(false);
 const openItems = ref<Item[]>([]);
 const error = ref("");
+// the project's plans linked to no chapter yet, oldest first (docs/SPEC.md §18.3)
+const waiting = ref<JournalEntry[]>([]);
+const waitingOldest = computed(() => [...waiting.value].reverse());
+const openingLine = (body: string) => body.split("\n").find((l) => l.trim())?.slice(0, 120) ?? "";
 
 async function load() {
   const w = world.value;
@@ -75,6 +82,7 @@ async function load() {
     ]);
     void loadStatuses();
     getWordHistory(w.slug, p.slug).then((h) => (history.value = h), () => (history.value = null));
+    listJournal(w.slug, p.slug, "unlinked").then((l) => (waiting.value = l), () => (waiting.value = []));
   } catch (e) {
     if (unreachable(e)) {
       manuscript.value = await localManuscript(w.slug, p.slug);
@@ -562,6 +570,7 @@ async function save() {
               <span class="chapter-head">
               <RouterLink :to="{ name: 'chapter', params: { world: world.slug, id: c.id } }">{{ c.title }}</RouterLink>
               <span v-if="c.told_as" class="pill told-as" data-testid="told-as">{{ c.told_as }}</span>
+              <RouterLink v-if="c.plans" class="small plan-mark" :to="{ name: 'chapter', params: { world: world.slug, id: c.id }, query: { plan: 'open' } }" data-testid="chapter-plans">{{ c.plans === 1 ? "plan" : `${c.plans} plans` }}</RouterLink>
               <span class="status-at">
                 <button type="button" class="status-pill" :class="{ unset: !c.status }" :style="c.status ? { '--strength': strength(c.status) } : {}"
                   :aria-label="`Status of ${c.title}: ${c.status?.label ?? 'none'}`" data-testid="status-pill" :disabled="offlineCopy"
@@ -607,6 +616,20 @@ async function save() {
           <button type="button" class="linkish grow" @click="openExperiment(x)">↳ {{ experimentLine(x) }}</button>
         </li>
       </ol>
+      <div v-if="waiting.length" class="plans-waiting" data-testid="plans-waiting">
+        <h3 class="small muted">Plans with no chapter yet</h3>
+        <ul class="rows">
+          <li v-for="p in waitingOldest" :key="p.id" :data-entry="p.id" data-testid="waiting-plan">
+            <span class="grow">
+              <span class="muted small">{{ journalDay(p.entry_date) }} · </span>
+              <strong>{{ p.title || "Untitled" }}</strong>
+              <span class="muted small"> · {{ openingLine(p.body) }}</span>
+            </span>
+            <StartChapter :world="world.slug" :entry="p" :projects="world.projects" @error="(m) => (error = m)" />
+            <RouterLink class="small" :to="{ name: 'journal-entry', params: { world: world.slug, id: p.id } }">Open</RouterLink>
+          </li>
+        </ul>
+      </div>
       <template v-for="x in experiments" :key="`open-${x.id}`">
         <section v-if="open === x.id" class="card experiment-card" data-testid="experiment">
           <div class="card-head">
