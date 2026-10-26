@@ -1147,3 +1147,4 @@ li:hover > .fu-add, li:focus-within > .fu-add, .fu-line:hover .fu-add, .fu-line:
 .plan-mark { margin-left: 6px; color: var(--accent); }
 .plans-waiting { margin-top: 14px; }
 .start-chapter-row { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.byline { font-style: italic; color: var(--muted); margin: -4px 0 6px; }
