@@ -3624,9 +3624,14 @@ unlinks it, with *Undo*.
   the cursor is in), History button (the chapter's; the plan's History is in the Journal), word history, and the note for
   next time asked on leaving (words typed in the plan don't count toward its 30). Leaving from the split doesn't ask for
   the plan's own note.
+- **Opened with the chapter.** A chapter with a plan opens with the split, on its newest plan, with the cursor in the
+  chapter; a chapter with none opens on itself (Thomas, 2026-10-26).
 - **Remembered.** Whether the split was open, and on which plan, is kept per chapter on the device, so a chapter opened
-  again comes back as it was left. A chapter never opens its plan by itself the first time. `?plan=<journal id>` in the
-  address opens the split on that plan, which is how links into it work (§18.3).
+  again comes back as it was left: closed there, it opens on itself until *Plan* opens it again. `?plan=<journal id>` in
+  the address opens the split on that plan, which is how links into it work (§18.3). A link to the chapter's panel
+  (`?panel=looseEnds`, §16.5) opens the panel over the chapter's side.
+- **Each pane scrolls on its own.** The split is the window's height; each pane's text scrolls inside it, and scrolling
+  one moves neither the other nor the page (Thomas, 2026-10-26).
 - **Narrow windows.** Where the window is too narrow for two readable panes (under 1,000 px), *Plan* toggles as on the
   phone.
 
@@ -3644,8 +3649,9 @@ The typing budget (DECISIONS, 2026-10-22) holds in either pane with a 10,000-wor
 400 entries, also at 4× slower CPU.
 
 *Done when* *Plan* on chapter 4 opens *Plan: The Quay* on the right half with its names coloured; Ctrl+Shift+P moves the
-cursor between the two and typing in the plan autosaves it as a journal revision; the divider drags and keeps its place
-after a reload; the tabs switch to *The Quay again*; a card in the plan shows a fact planned from chapter 6 as not yet
+cursor between the two and typing in the plan autosaves it as a journal revision; chapter 5, with a plan and never
+opened before, opens with it beside it, and closed there it opens on itself after a reload; scrolling the plan leaves the
+chapter where it was, and the other way round; the divider drags and keeps its place after a reload; the tabs switch to *The Quay again*; a card in the plan shows a fact planned from chapter 6 as not yet
 holding at chapter 4; closing and reopening chapter 4 brings the split back on the same plan; on the phone *Plan* flips
 to the plan and back with the cursor where it was in each; in airplane mode the split opens and takes typing; and the
 typing budget holds in both panes.

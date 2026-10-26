@@ -1,7 +1,8 @@
 // Phase 16: a chapter's plan (docs/SPEC.md §18). Marking a journal entry as a plan and linking it, New plan and Link a
-// plan… from the chapter, the plan beside the chapter (tabs, Ctrl+Shift+P, typing autosaves, the divider kept after a
-// reload, remembered per chapter), a question from a plan passage ticked for the chapter, a plan before its chapter
-// and Start a chapter from it with Undo, the phone's flip, and the split offline. Builds a world of its own.
+// plan… from the chapter, the plan beside the chapter (opened with it, tabs, Ctrl+Shift+P, typing autosaves, the divider
+// kept after a reload, remembered per chapter, each side scrolling on its own), a question from a plan passage ticked
+// for the chapter, a plan before its chapter and Start a chapter from it with Undo, the phone's flip, and the split
+// offline. Builds a world of its own.
 
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
@@ -78,9 +79,18 @@ test("18.1 a plan: the switch, Plan for, the Journal's tag and filter; unmarking
 
 test("18.1 New plan and Link a plan… from the chapter; a plan for chapters 4 and 5 is listed in both", async () => {
   await api("PUT", `${A}/journal/${ids.quay}/chapters/${ids.c5}`);
+  // a chapter with a plan opens with it beside it, until the split is closed there
   await page.goto(`${W}/chapters/${ids.c5}`);
+  await expect(side().getByTestId("plan-tab")).toHaveCount(1);
+  await expect(page.getByTestId("chapter-plan")).toHaveCount(0);
+  await page.getByTestId("close-plan").click();
   await expect(page.getByTestId("chapter-plan")).toHaveCount(1);
+  await page.reload();
+  await expect(page.getByTestId("chapter-plan")).toHaveCount(1);
+  await expect(side()).toHaveCount(0);
   await page.goto(`${W}/chapters/${ids.c4}`);
+  await expect(side()).toBeVisible();
+  await page.getByTestId("close-plan").click();
   await page.getByTestId("link-plan").click();
   await page.getByTestId("plan-picker").locator(`[data-entry="${ids.again}"]`).click();
   // the split opens on it, newest first in the tabs
@@ -127,6 +137,33 @@ test("18.2 the plan beside the chapter: half each, Ctrl+Shift+P, typing autosave
   await divider.dblclick();
   await page.getByTestId("close-plan").click();
   await expect(side()).toHaveCount(0);
+});
+
+test("18.2 each side scrolls on its own, and the page under them doesn't", async () => {
+  const lines = (w: string) => Array.from({ length: 150 }, (_, i) => `${w} line ${i + 1}, long enough to take a line of its own.`).join("\n\n");
+  const six = await api("GET", `${A}/chapters/${ids.c6}`);
+  await api("PATCH", `${A}/chapters/${ids.c6}`, { base_version: six.version, body: `Isolde in Six.\n\n${lines("Chapter")}\n` });
+  const plan = await api("POST", `${A}/journal`, { title: "Plan: Six", body: `${lines("Plan")}\n`, entry_date: "2026-10-21", project: "the-salt-road" });
+  await api("PATCH", `${A}/journal/${plan.id}/about`, { is_plan: true });
+  await api("PUT", `${A}/journal/${plan.id}/chapters/${ids.c6}`);
+  await page.goto(`${W}/chapters/${ids.c6}`);
+  await expect(planEditor()).toContainText("Plan line 1,");
+  const chapterScroller = page.locator(".chapter-main").first().locator(".cm-scroller");
+  const planScroller = side().locator(".cm-scroller");
+  // the page is the window's height: neither side makes the window scroll
+  expect(await page.evaluate(() => document.scrollingElement!.scrollHeight - window.innerHeight)).toBeLessThanOrEqual(1);
+  const p = (await planScroller.boundingBox())!;
+  await page.mouse.move(p.x + p.width / 2, p.y + p.height / 2);
+  await page.mouse.wheel(0, 1500);
+  await expect.poll(() => planScroller.evaluate((e) => e.scrollTop)).toBeGreaterThan(500);
+  expect(await chapterScroller.evaluate((e) => e.scrollTop)).toBe(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  const c = (await chapterScroller.boundingBox())!;
+  await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2);
+  await page.mouse.wheel(0, 600);
+  await expect.poll(() => chapterScroller.evaluate((e) => e.scrollTop)).toBeGreaterThan(200);
+  expect(await planScroller.evaluate((e) => e.scrollTop)).toBeGreaterThan(500);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
 test("18.4 a question from a plan passage, ticked for the chapter beside, is in its Loose ends", async () => {

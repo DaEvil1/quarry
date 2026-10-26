@@ -1122,16 +1122,23 @@ li:hover > .fu-add, li:focus-within > .fu-add, .fu-line:hover .fu-add, .fu-line:
 .picture-row-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* a chapter's plan beside it (docs/SPEC.md §18.2) ------------------------------------------------------------------ */
-.chapter-page.split > .chapter-main { min-width: 0; }
+/* each pane scrolls on its own: the split is the window's height, and each editor fills what its pane leaves, so
+   scrolling one never moves the other (nor the page under both) */
+.chapter-page.split { flex-direction: row; height: 100vh; min-height: 0; overflow: hidden; }
+.chapter-page.split > .chapter-main { min-width: 0; min-height: 0; overflow-y: auto; }
+.chapter-page.split .editor-host { flex: 1 1 0; height: auto; min-height: 240px; }
+.chapter-page.split .cm-scroller { overscroll-behavior: contain; }
 .plan-divider { flex: 0 0 7px; cursor: col-resize; background: var(--border); opacity: .6; touch-action: none; }
 .plan-divider:hover { opacity: 1; background: var(--accent); }
-.plan-side { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
+.plan-side { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
 .chapter-page.flipped .plan-side { border-left: none; }
 .plan-tabs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 8px 16px 0; border-bottom: 1px solid var(--border); }
 .plan-tab { border: 1px solid transparent; border-bottom: none; background: none; color: var(--muted); padding: 4px 10px;
   border-radius: 6px 6px 0 0; font: inherit; font-size: 13px; cursor: pointer; }
 .plan-tab[aria-selected="true"] { color: var(--text); background: var(--surface); border-color: var(--border); margin-bottom: -1px; }
 .plan-side > .chapter-page { min-height: 0; flex: 1; }
+.chapter-page.split .plan-side > .chapter-page { overflow: hidden; }
+.chapter-page.split .plan-side .chapter-main { min-height: 0; overflow-y: auto; }
 .plan-side .chapter-main { padding-top: 4px; }
 .plan-bar { justify-content: flex-end; gap: 12px; }
 .plan-empty { padding: 32px 24px; }

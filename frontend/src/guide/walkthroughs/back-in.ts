@@ -35,8 +35,14 @@ const steps: Step[] = [
   {
     target: { css: `${tid("left-off")} a[href*="/chapters/"]` },
     act: { click: true },
+    wait: { css: tid("plan-side") },
+    say: "Continue opens the chapter at the place you stopped: chapter 3, “What the River Kept”, with its plan beside it.",
+  },
+  {
+    target: { css: ".chapter-tools button", text: "Panel" },
+    act: { click: true },
     wait: { css: tid("back-in") },
-    say: "Continue opens the chapter at the place you stopped: chapter 3, “What the River Kept”.",
+    say: "The chapter's panel folds away while its plan is open. Panel brings it back.",
   },
   {
     target: { css: tid("back-in") },
